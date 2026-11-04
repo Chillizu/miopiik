@@ -270,14 +270,12 @@ export class Engine {
     const scope = input.scope === 'workspace' ? 'workspace' : 'session'
     fact.scope = scope
 
-    // 事实卡不是记事板：超过上限就必须先失效掉不再成立的，或改用草稿。
-    const active = activeFacts(this.state.facts)
-    if (active.length >= DEFAULTS.factActiveCap) {
-      throw new Error(
-        `事实卡已满（${active.length}/${DEFAULTS.factActiveCap}）。它不是记事板：先 invalidate 掉不再成立的结论，` +
-          `或者把这条当线索丢进 ink_draft。`,
-      )
-    }
+    // 不设条数上限，但重复的结论要立刻指出来（这是记事板行为的真正症状）。
+    const similar = activeFacts(this.state.facts)
+      .map((existing) => ({ id: existing.id, claim: existing.claim, score: similarity(fact.claim, existing.claim) }))
+      .filter((entry) => entry.score >= 0.6)
+      .sort((a, b) => b.score - a.score)
+      .slice(0, 3)
 
     await this.enqueue(async () => {
       const record = { op: 'add', fact: { ...fact, scope } }
@@ -289,7 +287,7 @@ export class Engine {
         await appendRecord(this.store, 'facts', record)
       }
     })
-    return fact
+    return { ...fact, similar }
   }
 
   async reviseFact(id, patch) {
@@ -320,6 +318,25 @@ export class Engine {
       }
     })
     return this.state.facts.get(id)
+  }
+
+  /** 事实卡的「重量」：条数、字节、近期增量、疑似重复。不设上限，只让它看得见。 */
+  factStats() {
+    const facts = this.listFacts()
+    const bytes = facts.reduce((sum, fact) => {
+      const provenance = Array.isArray(fact.provenance) ? fact.provenance.join('') : ''
+      return sum + Buffer.byteLength(`${fact.claim}${provenance}`, 'utf8')
+    }, 0)
+    const day = 24 * 60 * 60 * 1000
+    const recent = facts.filter((fact) => this.now() - (fact.revisedAt ?? fact.createdAt ?? 0) <= 7 * day).length
+    const duplicates = []
+    for (let i = 0; i < facts.length; i += 1) {
+      for (let j = i + 1; j < facts.length; j += 1) {
+        const score = similarity(facts[i].claim, facts[j].claim)
+        if (score >= 0.7) duplicates.push({ a: facts[i].id, b: facts[j].id, score: Number(score.toFixed(2)) })
+      }
+    }
+    return { active: facts.length, bytes, recent, duplicates: duplicates.slice(0, 5) }
   }
 
   listFacts() {
@@ -530,7 +547,8 @@ export class Engine {
       },
       facts: {
         active: facts.length,
-        items: facts.slice(0, 8).map((fact) => ({ id: fact.id, claim: fact.claim, conf: fact.conf, source: fact.source })),
+        bytes: facts.reduce((sum, fact) => sum + Buffer.byteLength(`${fact.claim}${(fact.provenance ?? []).join('')}`, 'utf8'), 0),
+        items: facts.slice(0, 12).map((fact) => ({ id: fact.id, claim: fact.claim, conf: fact.conf, source: fact.source, scope: fact.scope ?? 'session' })),
       },
       inbox: {
         pending: view.previews.length + view.hiddenCount,
@@ -1413,6 +1431,15 @@ export class Engine {
     }
 
     const openBranchCount = this.listBranches().length
+    const factStats = this.factStats()
+    if (factStats.active >= 8) {
+      const kb = (factStats.bytes / 1024).toFixed(1)
+      lines.push(`已定结论：${factStats.active} 条 / ${kb} KB（近七天新增或修订 ${factStats.recent} 条）`)
+      if (factStats.duplicates.length > 0) {
+        const pairs = factStats.duplicates.map((dup) => `${dup.a}≈${dup.b}`).join('、')
+        lines.push(`- 疑似重复：${pairs}（是同一件事的话，失效掉一条）`)
+      }
+    }
     if (loops.length === 0 && view.previews.length === 0 && openBranchCount === 0 && lines.length === 0) return ''
     lines.push('## 后台（Ink）')
     if (view.previews.length > 0) {

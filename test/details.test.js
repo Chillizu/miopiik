@@ -259,19 +259,30 @@ test('旧布局迁移：根目录的账本会被搬进第一个打开它的会�
   }
 })
 
-test('事实卡不是记事板：超过上限必须做取舍', async () => {
-  const root = await mkdtemp(join(tmpdir(), 'miopiik-factcap-'))
+test('事实卡不设条数上限，但会算重量并指出疑似重复', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'miopiik-factstat-'))
   try {
     const engine = new Engine({ store: await openStore(join(root, 'sessions', 'a'), 'a', { workspaceRoot: root }), sessionId: 'a' })
-    for (let index = 0; index < DEFAULTS.factActiveCap; index += 1) {
-      await engine.addFact({ claim: `结论 ${index}`, provenance: ['测试'], source: 'ink' })
+    // 超过 40 条也不再拒收（上限已取消）
+    for (let index = 0; index < 45; index += 1) {
+      await engine.addFact({ claim: `互不相同的结论 ${index}`, provenance: ['测试'], source: 'ink' })
     }
-    await assert.rejects(() => engine.addFact({ claim: '第 41 条', provenance: ['测试'], source: 'ink' }), /事实卡已满/)
-    // 失效一条之后又能写
-    const first = engine.listFacts()[0]
-    await engine.invalidateFact(first.id, '不再成立')
-    const added = await engine.addFact({ claim: '腾出位置之后的一条', provenance: ['测试'], source: 'ink' })
-    assert.equal(added.claim, '腾出位置之后的一条')
+    assert.equal(engine.listFacts().length, 45)
+
+    const stats = engine.factStats()
+    assert.equal(stats.active, 45)
+    assert.ok(stats.bytes > 0, '应统计字节数')
+    assert.equal(stats.recent, 45)
+
+    // 写一条与已有结论高度相似的，应在返回里指出
+    const added = await engine.addFact({ claim: '互不相同的结论 7', provenance: ['测试'], source: 'ink' })
+    assert.ok(added.similar.length > 0, '相似结论应被指出来')
+    assert.ok(added.similar[0].score >= 0.6)
+
+    // L3 只有超过 8 条才显示重量，且带疑似重复提示
+    const l3 = engine.l3Text()
+    assert.match(l3, /已定结论：\d+ 条 \/ [\d.]+ KB/)
+    assert.match(l3, /疑似重复/)
   } finally {
     await rm(root, { recursive: true, force: true })
   }
