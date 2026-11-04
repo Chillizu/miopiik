@@ -168,114 +168,89 @@ window.__ModuleLoader__.load({
         return h('div', { style: { padding: 32, color: C.muted, fontSize: 13 } }, t('graph.empty'))
       }
 
-      // 行 = 事件（按时间）；泳道 = 分支（贪心分配，互不重叠）。
+      // 行 = 事件（按时间）。分支画成横线：从分叉那一行向右走，汇回时曲线回落到汇回那一行。
       const rows = new Map(events.map((event, index) => [event.id, index]))
-      const lanes = new Map()
-      let laneCount = 0
+      const padTop = 18
+      const rowGap = 30
+      const trunkX = 16
+      const laneStart = 118
+      const laneEnd = 520
+      const yOfRow = (row) => padTop + row * rowGap
+      const H = Math.max(padTop + events.length * rowGap + 24, 180)
+      const W = laneEnd + 30
+
+      // 同一时间重叠的分支，横向轻微错开，避免两条横线压在一起。
+      const tops = []
+      const layout = new Map()
       for (const branch of [...branches].sort((a, b) => a.forkAt - b.forkAt)) {
         const forkRow = rows.get(`fork:${branch.id}`) ?? 0
         const mergeRow = branch.mergeAt === null ? events.length - 1 : rows.get(`merge:${branch.id}`) ?? events.length - 1
-        let lane = 0
-        while ([...lanes.values()].some((used) => used.lane === lane && used.mergeRow >= forkRow)) lane += 1
-        lanes.set(branch.id, { lane, forkRow, mergeRow })
-        laneCount = Math.max(laneCount, lane + 1)
+        let offset = 0
+        while (tops.some((top) => Math.abs(top - yOfRow(forkRow)) < 16)) offset += 14
+        const y = yOfRow(forkRow) + offset
+        tops.push(y)
+        layout.set(branch.id, { forkRow, mergeRow, y })
       }
 
-      const padTop = 18
-      const rowGap = 26
-      const yOfRow = (row) => padTop + row * rowGap
-      const laneX = (lane) => 120 + lane * 26
-      const H = Math.max(padTop + events.length * rowGap + 20, 160)
-      const W = Math.max(560, laneX(laneCount - 1) + 280)
-
       const marks = []
-      // 主干：连接所有事件的竖线。
-      marks.push(h('line', { key: 'spine', x1: 16, y1: padTop, x2: 16, y2: H - 20, stroke: C.borderStrong, strokeWidth: 1.5 }))
+      marks.push(h('line', { key: 'spine', x1: trunkX, y1: padTop, x2: trunkX, y2: H - 20, stroke: C.borderStrong, strokeWidth: 1.5 }))
+      for (const event of events) {
+        const y = yOfRow(rows.get(event.id))
+        marks.push(h('circle', { key: `ev-${event.id}`, cx: trunkX, cy: y, r: 2.5, fill: C.borderStrong }))
+      }
 
       for (const branch of branches) {
-        const { lane, forkRow, mergeRow } = lanes.get(branch.id)
-        const x = laneX(lane)
-        const color = branch.status === 'merged' ? C.success : branch.status === 'abandoned' ? C.idle : C.brand
-        const yFork = yOfRow(forkRow)
+        const { mergeRow, y } = layout.get(branch.id)
         const yMerge = yOfRow(mergeRow)
+        const color = branch.status === 'merged' ? C.success : branch.status === 'abandoned' ? C.idle : C.brand
+        const isHot = selected === branch.id || hover === branch.id
+        const stroke = isHot ? 2.5 : 1.5
 
         marks.push(h('path', {
-          key: `fork-${branch.id}`,
-          d: `M 16,${yFork} C ${16 + 34},${yFork} ${x - 30},${yFork} ${x},${yFork}`,
-          fill: 'none', stroke: color, strokeWidth: 1.5,
-        }))
-        marks.push(h('line', { key: `lane-${branch.id}`, x1: x, y1: yFork, x2: x, y2: yMerge, stroke: color, strokeWidth: 1.5 }))
-        if (branch.mergeAt !== null) {
-          marks.push(h('path', {
-            key: `merge-${branch.id}`,
-            d: `M ${x},${yMerge} C ${x - 30},${yMerge} ${16 + 34},${yMerge} 16,${yMerge}`,
-            fill: 'none', stroke: color, strokeWidth: 1.5, strokeDasharray: '3 3',
-          }))
-        }
-
-        const branchJobs = branch.jobs ?? []
-        const jobEvents = events.filter((event) => event.kind === 'job' && event.branchId === branch.id)
-
-        // 分叉点
-        const forkEvent = events.find((event) => event.id === `fork:${branch.id}`)
-        const isHot = selected === branch.id || hover === branch.id
-        marks.push(h('circle', {
-          key: `dot-fork-${branch.id}`,
-          cx: 16, cy: yFork, r: isHot ? 6 : 4.5,
-          fill: C.overlay, stroke: color, strokeWidth: 2,
+          key: `lane-${branch.id}`,
+          d: `M ${trunkX},${y} L ${laneStart},${y} L ${laneEnd},${y}${branch.mergeAt === null ? '' : ` C ${laneEnd},${y} ${laneEnd},${yMerge} ${laneEnd - 24},${yMerge} L ${trunkX},${yMerge}`}`,
+          fill: 'none',
+          stroke: color,
+          strokeWidth: stroke,
+          strokeDasharray: branch.mergeAt === null ? undefined : undefined,
           style: { cursor: 'pointer' },
           onMouseEnter: () => setHover(branch.id),
           onMouseLeave: () => setHover(null),
           onClick: () => setSelected(selected === branch.id ? null : branch.id),
         }))
-        // 汇回点
-        if (branch.mergeAt !== null) {
-          marks.push(h('circle', {
-            key: `dot-merge-${branch.id}`,
-            cx: 16, cy: yMerge, r: 5,
-            fill: color, opacity: 0.9,
-            style: { cursor: 'pointer' },
-            onMouseEnter: () => setHover(branch.id),
-            onMouseLeave: () => setHover(null),
-            onClick: () => setSelected(selected === branch.id ? null : branch.id),
-          }))
-        }
-        // 分支名（分叉点右侧，避开泳道线）
+
+        const labelX = Math.min(laneStart + 8, laneEnd - 4)
         marks.push(h('text', {
           key: `label-${branch.id}`,
-          x: x + 10, y: yFork + 4, fontSize: 12,
+          x: labelX,
+          y: y - 7,
+          fontSize: 12,
           fill: isHot ? C.brand : C.text,
           style: { cursor: 'pointer' },
           onMouseEnter: () => setHover(branch.id),
           onMouseLeave: () => setHover(null),
           onClick: () => setSelected(selected === branch.id ? null : branch.id),
-        }, branch.label.slice(0, 18)))
+        }, branch.label.slice(0, 20)))
 
-        // 任务点：落在泳道线上的对应行
-        for (const event of jobEvents) {
-          const job = branchJobs.find((entry) => entry.id === event.jobId)
-          const y = yOfRow(rows.get(event.id))
-          const running = job?.state === 'running'
+        for (const event of events) {
+          if (event.kind !== 'job' || event.branchId !== branch.id) continue
+          const job = (branch.jobs ?? []).find((entry) => entry.id === event.jobId)
+          const jx = laneStart + 2
           marks.push(h('circle', {
-            key: `dot-${event.id}`,
-            cx: x, cy: y, r: 4,
-            fill: running ? color : C.overlay,
-            stroke: color, strokeWidth: 1.5,
-            style: { cursor: 'pointer' },
-            onMouseEnter: () => setHover(branch.id),
-            onMouseLeave: () => setHover(null),
-            onClick: () => setSelected(selected === branch.id ? null : branch.id),
+            key: `job-${event.id}`,
+            cx: jx, cy: y, r: 3.5,
+            fill: job?.state === 'running' ? color : C.overlay,
+            stroke: color, strokeWidth: 1.2,
           }))
         }
-        if (forkEvent === undefined) continue
       }
 
       const hovered = hover === null ? null : branches.find((branch) => branch.id === hover)
       const chosen = selected === null ? null : branches.find((branch) => branch.id === selected)
       const hoverPos = (() => {
         if (hovered === null) return null
-        const { lane, forkRow } = lanes.get(hovered.id)
-        return { x: laneX(lane) + 16, y: yOfRow(forkRow) - 10 }
+        const spot = layout.get(hovered.id)
+        return { x: laneStart + 24, y: (spot?.y ?? yOfRow(0)) - 16 }
       })()
 
       return h(
