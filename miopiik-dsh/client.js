@@ -170,6 +170,19 @@ window.__ModuleLoader__.load({
       React.useEffect(() => {
         if (typeof focusBranch === 'string' && focusBranch !== '') setSelected(focusBranch)
       }, [focusBranch])
+      // 画布宽度跟着容器走：大屏铺满，小屏不留白。
+      const wrapRef = React.useRef(null)
+      const [avail, setAvail] = React.useState(0)
+      React.useEffect(() => {
+        const el = wrapRef.current
+        if (el === null || typeof ResizeObserver !== 'function') return undefined
+        const observer = new ResizeObserver((entries) => {
+          const width = entries[0]?.contentRect?.width ?? 0
+          if (width > 0) setAvail(width)
+        })
+        observer.observe(el)
+        return () => observer.disconnect()
+      }, [])
       const branches = graph?.branches ?? []
       const events = graph?.events ?? []
 
@@ -182,8 +195,8 @@ window.__ModuleLoader__.load({
       const padTop = 26
       const rowGap = 30
       const leftX = 96
-      const rightX = 430
-      const W = 620
+      const W = Math.max(560, Math.round((avail || 620) - 48))
+      const rightX = Math.max(360, W - 190)
 
       const timeline = [
         ...turns.map((turn) => ({ kind: 'turn', at: turn.at ?? 0, turn })),
@@ -352,6 +365,7 @@ window.__ModuleLoader__.load({
           h(
             'div',
             {
+              ref: wrapRef,
               style: {
                 flex: '1 1 auto',
                 minHeight: 0,
@@ -363,8 +377,8 @@ window.__ModuleLoader__.load({
             },
             h(
               'div',
-              { style: { position: 'relative', width: W } },
-              h('svg', { viewBox: `0 0 ${W} ${H}`, style: { width: '100%', maxWidth: W * 1.8, height: 'auto', display: 'block' }, role: 'img', 'aria-label': t('graph.title') }, ...marks),
+              { style: { position: 'relative', width: '100%' } },
+              h('svg', { viewBox: `0 0 ${W} ${H}`, width: W, height: H, role: 'img', 'aria-label': t('graph.title'), style: { display: 'block' } }, ...marks),
               hovered !== null
                 ? h(
                     'div',
