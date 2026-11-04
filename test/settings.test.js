@@ -55,11 +55,10 @@ test('真正用到的常量来自同一张表（改一处即全站生效）', as
 test('关键客户端注册点都在（防止替换静默失效）', () => {
   for (const needle of [
     "ctx.slots.inject('settings.section'",
-    "ctx.slots.inject('conversation.session.header.utilities'",
+    "ctx.slots.inject('conversation.view'",
     "name: 'settings.section'",
-    "name: 'conversation.session.header.utilities'",
+    "name: 'conversation.view'",
     'function SettingsSection(',
-    'function Presence(',
   ]) {
     assert.ok(clientSource.includes(needle), `client.js 缺少：${needle}`)
   }
@@ -67,15 +66,18 @@ test('关键客户端注册点都在（防止替换静默失效）', () => {
 
 test('鱼骨主视图：注册在会话视图、按事件画、带悬停与详情', () => {
   for (const needle of [
+    'function MiOpIIkView(',
     'function FishboneView(',
     'function CountsStrip(',
     "ctx.slots.inject('conversation.view'",
-    "id: 'miopiik-fishbone'",
+    "id: 'miopiik'",
     'graph?.events',
     'setHover',
     'setSelected',
+    'tab.audit',
   ]) {
     assert.ok(clientSource.includes(needle), `client.js 缺少：${needle}`)
   }
   assert.ok(!clientSource.includes('graph.legend'), '解释性图例不该存在')
+  assert.ok(!clientSource.includes("conversation.session.header.utilities"), '入口已合并，不该再占顶栏')
 })

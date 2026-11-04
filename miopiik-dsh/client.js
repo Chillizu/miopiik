@@ -2,7 +2,7 @@
  * miopiik-dsh — Client 半边（Web）。
  *
  * SPEC §6：不做导航栏，次级视图从对话里长出来。
- *  - conversation.session.header.utilities —— 存在感胶囊（一个点 +「后台」，有在跑时才带数字）
+ *  - conversation.view —— 唯一的 MiOpIIk 功能页（页签：鱼骨 / 未结事项 / 已定结论 / 运行中 / 草稿 / 交接记录 / 审计）
  *  - 抽屉（固定覆盖层，从存在感点开）—— 悬着的事 / 我们一起定的 / 后台在跑
  *
  * 数据：Host 的 session projection `miopiikBackstage`（已计算好，客户端不折事件）。
@@ -223,19 +223,24 @@ window.__ModuleLoader__.load({
         marks.push(h('text', {
           key: `label-${branch.id}`,
           x: labelX,
-          y: y - 7,
+          y: y - 8,
           fontSize: 12,
+          fontWeight: 500,
           fill: isHot ? C.brand : C.text,
+          stroke: C.base,
+          strokeWidth: 3,
+          paintOrder: 'stroke',
           style: { cursor: 'pointer' },
           onMouseEnter: () => setHover(branch.id),
           onMouseLeave: () => setHover(null),
           onClick: () => setSelected(selected === branch.id ? null : branch.id),
         }, branch.label.slice(0, 20)))
 
-        for (const event of events) {
+        const ownJobEvents = events.filter((event) => event.kind === 'job' && event.branchId === branch.id)
+        for (const [index, event] of ownJobEvents.entries()) {
           if (event.kind !== 'job' || event.branchId !== branch.id) continue
           const job = (branch.jobs ?? []).find((entry) => entry.id === event.jobId)
-          const jx = laneStart + 2
+          const jx = laneStart + 74 + index * 22
           marks.push(h('circle', {
             key: `job-${event.id}`,
             cx: jx, cy: y, r: 3.5,
@@ -255,7 +260,7 @@ window.__ModuleLoader__.load({
 
       return h(
         'div',
-        { style: { display: 'flex', height: '100%', minHeight: 0, background: C.base } },
+        { style: { display: 'flex', minHeight: 0 } },
         h(
           'div',
           { style: { flex: '1 1 auto', minWidth: 0, overflow: 'auto', padding: '18px 20px' } },
@@ -350,6 +355,84 @@ window.__ModuleLoader__.load({
                 : null,
             )
           : null,
+      )
+    }
+
+    /**
+     * MiOpIIk 功能页：唯一入口。上面是页签（鱼骨为主视图），下面是各面板。
+     * 原来顶栏胶囊 + 抽屉的入口已合并到这里，避免同一件事有两个入口。
+     */
+    function MiOpIIkView(props) {
+      const { sessionId, useProjection } = props ?? {}
+      const snapshot = typeof useProjection === 'function' ? useProjection('miopiikBackstage') : undefined
+      const [tab, setTab] = React.useState('graph')
+      const tabs = [
+        ['graph', t('tab.graph')],
+        ['loops', t('tab.loops')],
+        ['facts', t('tab.facts')],
+        ['running', t('tab.running')],
+        ['drafts', t('tab.drafts')],
+        ['letter', t('tab.letter')],
+        ['audit', t('tab.audit')],
+      ]
+      return h(
+        'div',
+        { style: { display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0, background: C.base, color: C.text } },
+        h(
+          'div',
+          {
+            role: 'tablist',
+            style: {
+              display: 'flex',
+              gap: 22,
+              padding: '10px 22px 0',
+              borderBottom: `0.5px solid ${C.border}`,
+              flex: 'none',
+            },
+          },
+          ...tabs.map(([id, label]) =>
+            h(
+              'button',
+              {
+                key: id,
+                type: 'button',
+                role: 'tab',
+                'aria-selected': tab === id ? 'true' : 'false',
+                onClick: () => setTab(id),
+                style: {
+                  padding: '0 2px 9px',
+                  border: 0,
+                  borderBottom: tab === id ? `2px solid ${C.brand}` : '2px solid transparent',
+                  background: 'transparent',
+                  color: tab === id ? C.brand : C.muted,
+                  cursor: 'pointer',
+                  fontSize: 13,
+                  fontWeight: 500,
+                  lineHeight: '16px',
+                  whiteSpace: 'nowrap',
+                },
+              },
+              label,
+            ),
+          ),
+        ),
+        h(
+          'div',
+          { style: { flex: '1 1 auto', minHeight: 0, overflow: 'auto', padding: tab === 'graph' ? 0 : '18px 22px' } },
+          tab === 'graph'
+            ? h(FishboneView, props)
+            : tab === 'loops'
+              ? h(LoopsPane, { snapshot, sessionId })
+              : tab === 'facts'
+                ? h(FactsPane, { snapshot, sessionId })
+                : tab === 'running'
+                  ? h(RunningPane, { snapshot })
+                  : tab === 'drafts'
+                    ? h(DraftsPane, { snapshot })
+                    : tab === 'letter'
+                      ? h(LetterPane, { snapshot })
+                      : h(AuditPane, { snapshot }),
+        ),
       )
     }
 
@@ -542,118 +625,6 @@ window.__ModuleLoader__.load({
       )
     }
 
-    function Drawer({ snapshot, sessionId }) {
-      const state = useStore(overlay)
-      React.useEffect(() => {
-        if (!state.open) return undefined
-        const onKey = (event) => {
-          if (event.key === 'Escape') overlay.set({ ...overlay.get(), open: false })
-        }
-        window.addEventListener('keydown', onKey)
-        return () => window.removeEventListener('keydown', onKey)
-      }, [state.open])
-      if (!state.open) return null
-      const close = () => overlay.set({ ...overlay.get(), open: false })
-      const known = ['loops', 'facts', 'running', 'drafts', 'letter', 'audit']
-      const tab = known.includes(state.tab) ? state.tab : 'loops'
-      return h(
-        'div',
-        {
-          role: 'dialog',
-          'aria-modal': 'true',
-          'aria-label': t('drawer.title'),
-          onClick: close,
-          style: { position: 'fixed', inset: 0, zIndex: 60, background: 'rgba(0, 0, 0, 0.32)' },
-        },
-        h(
-          'div',
-          {
-            onClick: (event) => event.stopPropagation(),
-            style: {
-              position: 'absolute',
-              top: 0,
-              right: 0,
-              bottom: 0,
-              width: 'min(440px, 94vw)',
-              display: 'flex',
-              flexDirection: 'column',
-              gap: 14,
-              padding: '18px 18px 24px',
-              overflowY: 'auto',
-              background: C.overlay,
-              borderLeft: `1px solid ${C.border}`,
-              boxShadow: '-18px 0 40px rgba(0, 0, 0, 0.18)',
-              color: C.text,
-              fontSize: 13,
-            },
-          },
-          h(
-            'div',
-            { style: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 } },
-            h('strong', { style: { fontSize: 14 } }, t('drawer.title')),
-            h(
-              'button',
-              {
-                type: 'button',
-                onClick: close,
-                'aria-label': t('drawer.close'),
-                style: {
-                  border: `1px solid ${C.border}`,
-                  background: 'transparent',
-                  color: C.muted,
-                  borderRadius: 8,
-                  width: 28,
-                  height: 28,
-                  cursor: 'pointer',
-                  fontSize: 14,
-                  lineHeight: '24px',
-                },
-              },
-              '\u00d7',
-            ),
-          ),
-          h(
-            'div',
-            { role: 'tablist', style: { display: 'flex', gap: 16, flexWrap: 'wrap', borderBottom: `0.5px solid ${C.border}`, paddingBottom: 0, marginBottom: 2 } },
-            h(TabButton, { id: 'loops', label: t('tab.loops'), active: tab === 'loops' }),
-            h(TabButton, { id: 'facts', label: t('tab.facts'), active: tab === 'facts' }),
-            h(TabButton, { id: 'running', label: t('tab.running'), active: tab === 'running' }),
-            h(TabButton, { id: 'drafts', label: t('tab.drafts'), active: tab === 'drafts' }),
-            h(TabButton, { id: 'letter', label: t('tab.letter'), active: tab === 'letter' }),
-          ),
-          tab === 'loops'
-            ? h(LoopsPane, { snapshot, sessionId })
-            : tab === 'facts'
-              ? h(FactsPane, { snapshot, sessionId })
-              : tab === 'drafts'
-                ? h(DraftsPane, { snapshot })
-                : tab === 'letter'
-                  ? h(LetterPane, { snapshot })
-                  : tab === 'audit'
-                    ? h(AuditPane, { snapshot })
-                    : h(RunningPane, { snapshot }),
-          h(
-            'button',
-            {
-              type: 'button',
-              onClick: () => overlay.set({ ...overlay.get(), tab: tab === 'audit' ? 'loops' : 'audit' }),
-              style: {
-                alignSelf: 'flex-start',
-                border: 0,
-                background: 'transparent',
-                color: C.muted,
-                fontSize: 11,
-                cursor: 'pointer',
-                padding: 0,
-                opacity: 0.7,
-              },
-            },
-            tab === 'audit' ? t('audit.back') : t('audit.entry'),
-          ),
-          h('div', { style: { fontSize: 11, color: C.muted, lineHeight: '17px' } }, t('drawer.hint')),
-        ),
-      )
-    }
 
     // 可调项（与 host/config-defaults.js 的 DEFAULTS 保持一致；test/settings.test.js 会校验漂移）
     const KNOBS = [
@@ -716,51 +687,6 @@ window.__ModuleLoader__.load({
       )
     }
 
-    function Presence(props) {
-      const { sessionId, useProjection } = props ?? {}
-      const state = useStore(overlay)
-      const snapshot = typeof useProjection === 'function' ? useProjection('miopiikBackstage') : undefined
-      const running = snapshot?.jobs?.running ?? 0
-      return h(
-        'div',
-        null,
-        h(
-          'button',
-          {
-            type: 'button',
-            title: t('presence.title'),
-            'aria-expanded': state.open ? 'true' : 'false',
-            onClick: () => overlay.set({ ...overlay.get(), open: !overlay.get().open }),
-            style: {
-              display: 'inline-flex',
-              alignItems: 'center',
-              gap: 6,
-              height: 26,
-              padding: '0 9px',
-              background: 'transparent',
-              border: `1px solid ${C.border}`,
-              borderRadius: 13,
-              cursor: 'pointer',
-              color: running > 0 ? C.text : C.muted,
-              fontSize: 12,
-              lineHeight: '18px',
-              whiteSpace: 'nowrap',
-            },
-          },
-          h('span', {
-            style: {
-              width: 6,
-              height: 6,
-              borderRadius: '50%',
-              background: running > 0 ? C.success : C.idle,
-              flex: 'none',
-            },
-          }),
-          h('span', null, running > 0 ? `${t('presence.label')} · ${running}` : t('presence.label')),
-        ),
-        h(Drawer, { snapshot, sessionId }),
-      )
-    }
 
     const zh = {
       'presence.label': '后台任务',
@@ -773,7 +699,8 @@ window.__ModuleLoader__.load({
       'tab.running': '运行中',
       'tab.drafts': '草稿',
       'tab.letter': '交接记录',
-      'view.fishbone': '鱼骨',
+      'view.miopiik': 'MiOpIIk',
+      'tab.audit': '审计',
       'graph.title': '鱼骨图',
       'graph.empty': '还没有分支。',
       'graph.close': '关闭详情',
@@ -836,7 +763,8 @@ window.__ModuleLoader__.load({
       'tab.running': 'Running',
       'tab.drafts': 'Drafts',
       'tab.letter': 'Handoff record',
-      'view.fishbone': 'Fishbone',
+      'view.miopiik': 'MiOpIIk',
+      'tab.audit': 'Audit',
       'graph.title': 'Fishbone graph',
       'graph.empty': 'No branches yet.',
       'graph.close': 'Close details',
@@ -908,19 +836,11 @@ window.__ModuleLoader__.load({
           ),
         )
 
-        // 鱼骨主视图：注册成 Conversation View，和「对话 / 轨迹」并列，占整块区域。
+        // 唯一入口：会话视图里的一个功能页（与「对话 / 轨迹」并列），图与各面板都在这一页里。
         ctx.slots.inject('conversation.view', () =>
           ctx.slots.register(
-            { name: 'conversation.view', id: 'miopiik-fishbone', order: 20, locale: NS, label: () => t('view.fishbone') },
-            FishboneView,
-          ),
-        )
-
-        // 会话级顶栏工具位：和「计划任务」同级，属于这个会话的状态，不是全局导航。
-        ctx.slots.inject('conversation.session.header.utilities', () =>
-          ctx.slots.register(
-            { name: 'conversation.session.header.utilities', id: 'miopiik-backstage', order: 0, locale: NS },
-            Presence,
+            { name: 'conversation.view', id: 'miopiik', order: 20, locale: NS, label: () => t('view.miopiik') },
+            MiOpIIkView,
           ),
         )
       },
