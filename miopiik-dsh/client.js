@@ -191,7 +191,6 @@ window.__ModuleLoader__.load({
       if (jobs === undefined) return h('div', { style: styles.empty }, t('running.offline'))
       const items = jobs.items ?? []
       const branches = snapshot?.branches?.items ?? []
-      const drafts = snapshot?.drafts?.items ?? []
       return h(
         'div',
         { style: { display: 'flex', flexDirection: 'column', gap: 8 } },
@@ -229,7 +228,15 @@ window.__ModuleLoader__.load({
                 ),
               ),
             ),
-        h('div', { style: styles.meta }, t('drafts.title')),
+      )
+    }
+
+    function DraftsPane({ snapshot }) {
+      const drafts = snapshot?.drafts?.items ?? []
+      return h(
+        'div',
+        { style: { display: 'flex', flexDirection: 'column', gap: 8 } },
+        h('div', { style: styles.meta }, t('drafts.subtitle')),
         drafts.length === 0
           ? h('div', { style: styles.empty }, t('drafts.empty'))
           : drafts.map((draft) =>
@@ -244,6 +251,36 @@ window.__ModuleLoader__.load({
                 ),
               ),
             ),
+      )
+    }
+
+    function LetterField({ label, value }) {
+      if (!value) return null
+      return h(
+        'div',
+        { style: { display: 'flex', flexDirection: 'column', gap: 2 } },
+        h('div', { style: styles.meta }, label),
+        h('div', { style: styles.rowText }, value),
+      )
+    }
+
+    function LetterPane({ snapshot }) {
+      const letter = snapshot?.letter ?? null
+      if (letter === null) {
+        return h('div', { style: styles.empty }, t('letter.empty'))
+      }
+      return h(
+        'div',
+        { style: { display: 'flex', flexDirection: 'column', gap: 10 } },
+        h('div', { style: styles.meta }, t('letter.subtitle')),
+        h(LetterField, { label: t('letter.progress'), value: letter.progress }),
+        h(LetterField, { label: t('letter.loops'), value: letter.loops }),
+        h(LetterField, { label: t('letter.running'), value: letter.running }),
+        h(LetterField, { label: t('letter.drafts'), value: letter.drafts }),
+        h(LetterField, { label: t('letter.next'), value: letter.next }),
+        ...letter.updates.map((update, index) =>
+          h(LetterField, { key: index, label: t('letter.update'), value: update.text }),
+        ),
       )
     }
 
@@ -281,8 +318,8 @@ window.__ModuleLoader__.load({
       }, [state.open])
       if (!state.open) return null
       const close = () => overlay.set({ ...overlay.get(), open: false })
-      const tab =
-        state.tab === 'facts' ? 'facts' : state.tab === 'running' ? 'running' : state.tab === 'audit' ? 'audit' : 'loops'
+      const known = ['loops', 'facts', 'running', 'drafts', 'letter', 'audit']
+      const tab = known.includes(state.tab) ? state.tab : 'loops'
       return h(
         'div',
         {
@@ -345,14 +382,20 @@ window.__ModuleLoader__.load({
             h(TabButton, { id: 'loops', label: t('tab.loops'), active: tab === 'loops' }),
             h(TabButton, { id: 'facts', label: t('tab.facts'), active: tab === 'facts' }),
             h(TabButton, { id: 'running', label: t('tab.running'), active: tab === 'running' }),
+            h(TabButton, { id: 'drafts', label: t('tab.drafts'), active: tab === 'drafts' }),
+            h(TabButton, { id: 'letter', label: t('tab.letter'), active: tab === 'letter' }),
           ),
           tab === 'loops'
             ? h(LoopsPane, { snapshot, sessionId })
             : tab === 'facts'
               ? h(FactsPane, { snapshot, sessionId })
-              : tab === 'audit'
-                ? h(AuditPane, { snapshot })
-                : h(RunningPane, { snapshot }),
+              : tab === 'drafts'
+                ? h(DraftsPane, { snapshot })
+                : tab === 'letter'
+                  ? h(LetterPane, { snapshot })
+                  : tab === 'audit'
+                    ? h(AuditPane, { snapshot })
+                    : h(RunningPane, { snapshot }),
           h(
             'button',
             {
@@ -447,8 +490,18 @@ window.__ModuleLoader__.load({
       'branches.empty': '现在没有分支。',
       'branches.noSummary': '还没写一句话',
       'branches.jobs': '个任务',
-      'drafts.title': '草稿（未达 commit 门槛的东西）',
+      'tab.drafts': '草稿',
+      'tab.letter': '今天的信',
+      'drafts.subtitle': '没到交付门槛的半成品；一周没人碰会自己消失。',
       'drafts.empty': '现在没有草稿。',
+      'letter.subtitle': '今天收工时我写给明天自己的信。',
+      'letter.empty': '今天还没有写信。',
+      'letter.progress': '推进',
+      'letter.loops': '还悬着',
+      'letter.running': '在跑',
+      'letter.drafts': '草稿',
+      'letter.next': '明天想先说',
+      'letter.update': '隔夜更新',
       'audit.entry': '取证',
       'audit.back': '收起取证',
       'audit.subtitle': 'Ink 的决定账（审计视图，不是给你日常看的）。',
@@ -481,8 +534,18 @@ window.__ModuleLoader__.load({
       'branches.empty': 'No branches right now.',
       'branches.noSummary': 'no one-liner yet',
       'branches.jobs': 'jobs',
-      'drafts.title': 'Drafts (below the commit bar)',
+      'tab.drafts': 'Drafts',
+      'tab.letter': "Today's letter",
+      'drafts.subtitle': 'Half-finished work below the commit bar; untouched for a week and it disappears.',
       'drafts.empty': 'No drafts right now.',
+      'letter.subtitle': 'The letter I wrote to tomorrow-me when today wrapped up.',
+      'letter.empty': 'No letter written today yet.',
+      'letter.progress': 'Progress',
+      'letter.loops': 'Still open',
+      'letter.running': 'Running',
+      'letter.drafts': 'Drafts',
+      'letter.next': 'Tomorrow, first',
+      'letter.update': 'Overnight update',
       'audit.entry': 'Evidence',
       'audit.back': 'Hide evidence',
       'audit.subtitle': 'Ink\'s decision ledger (an audit view, not something to read daily).',

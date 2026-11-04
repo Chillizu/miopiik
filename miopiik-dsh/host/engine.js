@@ -468,6 +468,22 @@ export class Engine {
         })),
       },
       jobs: { running: running.length, items: running.slice(0, 5).map((job) => ({ id: job.id, label: job.label })) },
+      letter: (() => {
+        const briefing = this.latestBriefing()
+        if (briefing === null) return null
+        const updates = this.state.briefings.filter(
+          (record) => record.kind === 'overnight' && record.afterBriefingAt === briefing.at,
+        )
+        return {
+          day: briefing.day,
+          progress: briefing.progress ?? '',
+          loops: briefing.loops ?? '',
+          running: briefing.running ?? '',
+          drafts: briefing.drafts ?? '',
+          next: briefing.next ?? '',
+          updates: updates.map((update) => ({ at: update.at, text: update.text })),
+        }
+      })(),
       drafts: {
         open: this.listDrafts().length,
         items: this.listDrafts().slice(0, 5).map((draft) => ({ id: draft.id, title: draft.title, conf: draft.conf })),
