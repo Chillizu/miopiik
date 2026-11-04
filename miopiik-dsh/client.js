@@ -168,115 +168,120 @@ window.__ModuleLoader__.load({
         return h('div', { style: { padding: 32, color: C.muted, fontSize: 13 } }, t('graph.empty'))
       }
 
-      // 甘特式：每行一条分支，横向按时间铺开；枯荣一眼可见，不靠曲线脑补。
-      const padTop = 22
-      const rowH = 34
-      const labelW = 168
-      const barLeft = labelW + 12
-      const barRight = 660
-      const times = branches.flatMap((branch) => [branch.forkAt, branch.mergeAt ?? branch.forkAt])
-      const tMin = times.length === 0 ? 0 : Math.min(...times)
-      const tMax = times.length === 0 ? 1 : Math.max(...times)
-      const span = Math.max(tMax - tMin, 1)
-      const xOf = (at) => barLeft + Math.round(((at - tMin) / span) * (barRight - barLeft))
-      const H = Math.max(padTop + branches.length * rowH + 24, 150)
-      const W = barRight + 24
+      // 双脊：左脊=对话轮次，右脊=后台事件；两者按时间合成同一批行，横线把「哪一轮发生了什么」连起来。
+      const turns = graph?.turns ?? []
+      const padTop = 26
+      const rowGap = 30
+      const leftX = 96
+      const rightX = 430
+      const W = 620
+
+      const timeline = [
+        ...turns.map((turn) => ({ kind: 'turn', at: turn.at ?? 0, turn })),
+        ...events.map((event) => ({ kind: 'event', at: event.at ?? 0, event })),
+      ].sort((a, b) => a.at - b.at)
+
+      const rowOf = new Map()
+      timeline.forEach((item, index) => {
+        rowOf.set(item.kind === 'turn' ? `turn:${item.turn.turn}` : `event:${item.event.id}`, index)
+      })
+      const yOf = (index) => padTop + index * rowGap
+      const H = Math.max(padTop + timeline.length * rowGap + 24, 180)
+
+      // 分支 fork/merge 事件所在行，用于连线与气泡定位
+      const eventRow = (id) => rowOf.get(`event:${id}`)
 
       const marks = []
-      const rows = new Map()
-      branches.forEach((branch, index) => rows.set(branch.id, padTop + index * rowH))
+      // 两条脊
+      marks.push(h('line', { key: 'spine-l', x1: leftX, y1: padTop - 8, x2: leftX, y2: H - 22, stroke: C.borderStrong, strokeWidth: 1.5 }))
+      marks.push(h('line', { key: 'spine-r', x1: rightX, y1: padTop - 8, x2: rightX, y2: H - 22, stroke: C.borderStrong, strokeWidth: 1.5 }))
+      marks.push(h('text', { key: 'lbl-l', x: leftX - 34, y: padTop - 12, fontSize: 10, fill: C.muted }, '对话'))
+      marks.push(h('text', { key: 'lbl-r', x: rightX - 6, y: padTop - 12, fontSize: 10, fill: C.muted }, '后台'))
 
-      for (const [id, y] of rows) {
-        const branch = branches.find((entry) => entry.id === id)
+      for (const [index, item] of timeline.entries()) {
+        const y = yOf(index)
+        if (item.kind === 'turn') {
+          const isHot = false
+          marks.push(h('circle', { key: `t-${item.turn.turn}`, cx: leftX, cy: y, r: isHot ? 4.5 : 3.5, fill: C.brand }))
+          marks.push(h('text', { key: `tt-${item.turn.turn}`, x: leftX - 40, y: y + 4, fontSize: 10, fill: C.muted, textAnchor: 'end' }, `第${item.turn.turn}轮`))
+          marks.push(h('text', { key: `tl-${item.turn.turn}`, x: leftX + 10, y: y + 4, fontSize: 11, fill: C.muted }, (item.turn.label ?? '').slice(0, 16)))
+          continue
+        }
+        const event = item.event
+        const branch = branches.find((entry) => entry.id === event.branchId)
+        if (branch === undefined) continue
         const isHot = selected === branch.id || hover === branch.id
         const color = branch.status === 'merged' ? C.success : branch.status === 'abandoned' ? C.idle : C.brand
-        const x0 = xOf(branch.forkAt)
-        const x1 = branch.mergeAt === null ? barRight : xOf(branch.mergeAt)
-        const solid = branch.mergeAt === null
+        const forkRow = eventRow(`fork:${branch.id}`)
+        const mergeEventId = `merge:${branch.id}`
+        const mergeRow = eventRow(mergeEventId)
+        const mergeY = mergeRow === undefined ? null : yOf(mergeRow)
 
-        // 行底：极淡的分隔，方便对齐
-        marks.push(h('line', { key: `row-${id}`, x1: 12, y1: y + rowH / 2, x2: W - 12, y2: y + rowH / 2, stroke: C.border, strokeWidth: 0.5, opacity: 0.5 }))
+        // 从「对话脊」连到「后台脊」：这就是「第几轮派出去的」
+        if (event.kind === 'fork' && forkRow !== undefined) {
+          marks.push(h('path', {
+            key: `link-${branch.id}`,
+            d: `M ${leftX},${yOf(forkRow)} C ${leftX + 90},${yOf(forkRow)} ${rightX - 90},${y} ${rightX},${y}`,
+            fill: 'none',
+            stroke: color,
+            strokeWidth: isHot ? 2 : 1.2,
+            opacity: isHot ? 1 : 0.8,
+          }))
+        }
+        // 汇回：从后台脊拐回对话脊
+        if (event.kind === 'merge' || event.kind === 'abandon') {
+          marks.push(h('path', {
+            key: `back-${branch.id}`,
+            d: `M ${rightX},${y} C ${rightX - 90},${y} ${leftX + 90},${mergeY ?? y} ${leftX},${mergeY ?? y}`,
+            fill: 'none',
+            stroke: color,
+            strokeWidth: isHot ? 2 : 1.2,
+            strokeDasharray: '4 3',
+            opacity: isHot ? 1 : 0.8,
+          }))
+        }
 
-        // 左侧：分支名 + 分叉轮次
+        const radius = event.kind === 'merge' ? 4.5 : event.kind === 'job' ? 3.2 : 4
+        marks.push(h('circle', {
+          key: `e-${event.id}`,
+          cx: rightX,
+          cy: y,
+          r: isHot ? radius + 1.5 : radius,
+          fill: event.kind === 'merge' ? color : event.kind === 'job' ? C.base : C.base,
+          stroke: color,
+          strokeWidth: 1.8,
+          style: { cursor: 'pointer' },
+          onMouseEnter: () => setHover(branch.id),
+          onMouseLeave: () => setHover(null),
+          onClick: () => setSelected(selected === branch.id ? null : branch.id),
+        }))
+        const suffix =
+          event.kind === 'fork'
+            ? `${branch.label.slice(0, 12)}${branch.forkTurn === null ? '' : ` · 第${branch.forkTurn}轮`}`
+            : event.kind === 'merge'
+              ? `汇回${branch.mergedInto === null ? '' : ` ${branch.mergedInto}`}`
+              : event.kind === 'job'
+                ? `任务 ${event.jobId}`
+                : `放弃 ${branch.id}`
         marks.push(h('text', {
-          key: `name-${id}`,
-          x: 16,
-          y: y + rowH / 2 + 4,
-          fontSize: 12,
-          fontWeight: 500,
+          key: `et-${event.id}`,
+          x: rightX + 12,
+          y: y + 4,
+          fontSize: 11,
           fill: isHot ? C.brand : C.text,
           style: { cursor: 'pointer' },
-          onMouseEnter: () => setHover(id),
+          onMouseEnter: () => setHover(branch.id),
           onMouseLeave: () => setHover(null),
-          onClick: () => setSelected(selected === id ? null : id),
-        }, branch.label.slice(0, 14)))
-        marks.push(h('text', {
-          key: `fork-${id}`,
-          x: 16,
-          y: y + rowH / 2 + 18,
-          fontSize: 10,
-          fill: C.muted,
-        }, `${branch.id}${branch.forkTurn === null ? '' : ` · 第${branch.forkTurn}轮`}`))
-
-        // 条：从分叉到汇回（未汇回则画到右端并留开口）
-        marks.push(h('line', {
-          key: `bar-${id}`,
-          x1: x0,
-          y1: y + rowH / 2,
-          x2: x1,
-          y2: y + rowH / 2,
-          stroke: color,
-          strokeWidth: isHot ? 5 : 4,
-          strokeLinecap: 'round',
-          strokeDasharray: solid ? '1 6' : undefined,
-          opacity: isHot ? 1 : 0.85,
-          style: { cursor: 'pointer' },
-          onMouseEnter: () => setHover(id),
-          onMouseLeave: () => setHover(null),
-          onClick: () => setSelected(selected === id ? null : id),
-        }))
-        // 分叉点（空心）与汇回点（实心）
-        marks.push(h('circle', {
-          key: `dot0-${id}`, cx: x0, cy: y + rowH / 2, r: 4.5,
-          fill: C.base, stroke: color, strokeWidth: 2,
-          style: { cursor: 'pointer' },
-          onMouseEnter: () => setHover(id), onMouseLeave: () => setHover(null),
-          onClick: () => setSelected(selected === id ? null : id),
-        }))
-        if (branch.mergeAt !== null) {
-          marks.push(h('circle', {
-            key: `dot1-${id}`, cx: x1, cy: y + rowH / 2, r: 4.5, fill: color,
-            style: { cursor: 'pointer' },
-            onMouseEnter: () => setHover(id), onMouseLeave: () => setHover(null),
-            onClick: () => setSelected(selected === id ? null : id),
-          }))
-          if (branch.mergedInto !== null) {
-            marks.push(h('text', {
-              key: `merge-${id}`, x: Math.min(x1 + 8, W - 40), y: y + rowH / 2 + 4, fontSize: 10, fill: C.muted,
-            }, branch.mergedInto))
-          }
-        }
-
-        // 任务点：按各自时间落在条上
-        for (const job of branch.jobs ?? []) {
-          const at = job.startedAt ?? branch.forkAt
-          const jx = Math.min(Math.max(xOf(at), x0 + 8), x1 - 6)
-          const running = job.state === 'running'
-          marks.push(h('circle', {
-            key: `job-${id}-${job.id}`,
-            cx: jx, cy: y + rowH / 2, r: 3.2,
-            fill: running ? color : C.base, stroke: color, strokeWidth: 1.2,
-          }))
-          marks.push(h('title', { key: `jobt-${id}-${job.id}` }, `${job.id} ${job.label}（${job.state}）`))
-        }
+          onClick: () => setSelected(selected === branch.id ? null : branch.id),
+        }, suffix))
       }
 
       const hovered = hover === null ? null : branches.find((branch) => branch.id === hover)
       const chosen = selected === null ? null : branches.find((branch) => branch.id === selected)
       const hoverPos = (() => {
         if (hovered === null) return null
-        const y = rows.get(hovered.id) ?? 0
-        return { x: labelW + 24, y: Math.max(y - 12, 0) }
+        const row = eventRow(`fork:${hovered.id}`)
+        return { x: leftX + 40, y: Math.max(yOf(row ?? 0) - 14, 0) }
       })()
 
       return h(

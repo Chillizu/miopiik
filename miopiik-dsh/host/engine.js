@@ -590,7 +590,31 @@ export class Engine {
           }
         })
         events.sort((a, b) => a.at - b.at)
+        // 左侧脊：真实对话轮次（用户/助手都算），给时间轴一个可读的锚。
+        const turnMap = new Map()
+        for (const entry of this.state.observations) {
+          const turn = entry.turn
+          if (typeof turn !== 'number') continue
+          if (entry.kind !== 'user' && entry.kind !== 'assistant') continue
+          const line = String(entry.text ?? '')
+            .split('\n')
+            .map((part) => part.trim())
+            .find((part) => part !== '')
+          if (line === undefined) continue
+          const existing = turnMap.get(turn)
+          if (existing === undefined) {
+            turnMap.set(turn, { turn, at: entry.at ?? 0, label: line.slice(0, 30), fromUser: entry.kind === 'user' })
+          } else if (!existing.fromUser && entry.kind === 'user') {
+            existing.label = line.slice(0, 30)
+            existing.fromUser = true
+          }
+        }
+        const turns = [...turnMap.values()]
+          .sort((a, b) => a.turn - b.turn)
+          .slice(-16)
+          .map(({ turn, at, label }) => ({ turn, at, label }))
         return {
+          turns,
           events,
           branches: nodes,
           counts: {
