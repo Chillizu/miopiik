@@ -56,7 +56,8 @@ window.__ModuleLoader__.load({
       success: 'var(--dsw-alias-state-success-primary)',
       warn: 'var(--dsw-alias-state-warn-primary)',
       error: 'var(--dsw-alias-state-error-primary)',
-      brand: 'var(--dsw-alias-brand-primary)',
+      // DSH 的品牌蓝是 static token；alias brand-primary 在本主题里是文字色。
+      brand: 'var(--dsw-static-deepseek-500, #4176e6)',
       // 通信线用中性色：主色只留给两条脊，否则整张图都在喊。
       link: 'var(--dsw-alias-label-secondary)',
     }
