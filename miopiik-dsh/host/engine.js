@@ -19,7 +19,7 @@ import { buildArchive, makeProposal, settlementDraft, verifyProposal } from './f
 import { DEFAULTS } from './config-defaults.js'
 import { gcDetails, putDetail, readDetail, searchIndex, extractEntities } from './details.js'
 import { describeBranches, makeBranch, renderBranchSlice } from './branches.js'
-import { appendRecord, appendSharedFact, applyRecord } from './store.js'
+import { appendRecord, appendSharedFact, applyRecord, readSharedFactsSince } from './store.js'
 
 /** 工具返回值必须是无损 JSON：去掉 undefined 之类的不可序列化字段。 */
 export function lossless(value) {
@@ -304,6 +304,8 @@ export class Engine {
   }
 
   listFacts() {
+    // 别的窗口刚写的事实，这里补读一次就能看见（不需要重开会话）。
+    for (const record of readSharedFactsSince(this.shared)) applyRecord(this.state, 'facts', record)
     return activeFacts(this.state.facts)
   }
 

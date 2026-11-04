@@ -7,7 +7,8 @@
  * 可肉眼审计的 JSONL 文件。语义不变：同样 append-only、同样可回放。
  */
 
-import { mkdir, readFile, appendFile } from 'node:fs/promises'
+import { mkdir, readFile, appendFile, rename, stat } from 'node:fs/promises'
+import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 
 export const LOG_NAMES = Object.freeze(['observations', 'notes', 'loops', 'facts', 'inbox', 'briefings', 'jobs', 'drafts', 'cases', 'branches', 'folds', 'details'])
@@ -232,8 +233,78 @@ export function applyRecord(state, log, record) {
 
 /** 打开一个会话的存储目录并回放全部日志。 */
 /** 工作区级共享事实：同一目录下的所有会话共用一份知识（SPEC §2.3）。 */
-export function sharedFactsPath(dir) {
-  return join(dir, 'shared', 'facts.jsonl')
+export function sharedFactsPath(workspaceRoot) {
+  return join(workspaceRoot, 'shared', 'facts.jsonl')
+}
+
+/** 旧布局迁移：以前所有会话写在根目录（少了 sessionId）。把属于本会话的那批搬进来。 */
+const LEGACY_LOGS = ['observations', 'loops', 'notes', 'inbox', 'drafts', 'cases', 'branches', 'jobs', 'briefings', 'folds']
+
+async function exists(path) {
+  try {
+    await stat(path)
+    return true
+  } catch {
+    return false
+  }
+}
+
+async function migrateLegacyLayout(sessionDir, workspaceRoot) {
+  const alreadyHasLedger = await exists(join(sessionDir, 'observations.jsonl'))
+  if (alreadyHasLedger) return false
+  const legacyObservations = join(workspaceRoot, 'observations.jsonl')
+  if (!(await exists(legacyObservations))) return false
+  // 根目录的文件归第一个打开它的会话（此前本来就已经混在一起，无法再拆）。
+  await mkdir(sessionDir, { recursive: true })
+  for (const log of LEGACY_LOGS) {
+    const from = join(workspaceRoot, `${log}.jsonl`)
+    if (await exists(from)) await rename(from, join(sessionDir, `${log}.jsonl`))
+  }
+  const legacyDetails = join(workspaceRoot, 'details')
+  if ((await exists(legacyDetails)) && !(await exists(join(sessionDir, 'details')))) {
+    await rename(legacyDetails, join(sessionDir, 'details'))
+  }
+  // 旧的事实文件并进共享区
+  const legacyFacts = join(workspaceRoot, 'facts.jsonl')
+  if (await exists(legacyFacts)) {
+    const sharedPath = sharedFactsPath(workspaceRoot)
+    await mkdir(join(workspaceRoot, 'shared'), { recursive: true })
+    if (await exists(sharedPath)) {
+      const extra = await readFile(legacyFacts, 'utf8')
+      await appendFile(sharedPath, extra, 'utf8')
+    } else {
+      await rename(legacyFacts, sharedPath)
+    }
+  }
+  return true
+}
+
+/**
+ * 同步补读共享事实的新增行：两个窗口同时开着时，别人写的结论本会话也能马上看到。
+ * 只补读新增部分（按已读字节数），不做全文重放。
+ */
+export function readSharedFactsSince(shared) {
+  if (shared === undefined || shared === null) return []
+  let buffer
+  try {
+    buffer = readFileSync(shared.path, 'utf8')
+  } catch {
+    return []
+  }
+  const offset = shared.readOffset ?? 0
+  if (buffer.length <= offset) return []
+  const fresh = buffer.slice(offset)
+  shared.readOffset = buffer.length
+  const records = []
+  for (const line of fresh.split('\n')) {
+    if (line.trim() === '') continue
+    try {
+      records.push(JSON.parse(line))
+    } catch {
+      // 坏行跳过
+    }
+  }
+  return records
 }
 
 /** 打开共享事实文件（不存在就等第一次写入时创建）。 */
@@ -255,7 +326,7 @@ export async function openSharedFacts(dir) {
       // 坏行跳过：共享文件同样是可肉眼审计的明文。
     }
   }
-  return { dir, path, state }
+  return { dir, path, state, readOffset: 0 }
 }
 
 export async function appendSharedFact(shared, record) {
@@ -264,8 +335,14 @@ export async function appendSharedFact(shared, record) {
   return record
 }
 
-export async function openStore(dir, sessionId) {
+export async function openStore(dir, sessionId, options = {}) {
+  const workspaceRoot = options.workspaceRoot ?? dir
   await mkdir(dir, { recursive: true })
+  try {
+    await migrateLegacyLayout(dir, workspaceRoot)
+  } catch {
+    // 迁移失败不阻塞：新布局照常工作，旧文件留在原地。
+  }
   const state = emptyState(sessionId)
   for (const log of LOG_NAMES) {
     let text = ''
@@ -284,7 +361,7 @@ export async function openStore(dir, sessionId) {
     }
   }
   // 共享事实并入本会话视图：谁在同一个工作区里发现过什么，别人打开就能用。
-  const shared = await openSharedFacts(dir)
+  const shared = await openSharedFacts(workspaceRoot)
   for (const [id, fact] of shared.state.facts) {
     if (!state.facts.has(id)) state.facts.set(id, fact)
   }

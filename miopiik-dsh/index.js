@@ -80,7 +80,10 @@ export function apply(ctx, config) {
       if (engines.has(sessionId) || initializing.has(sessionId)) return
       initializing.add(sessionId)
       try {
-        const store = await openStore(join(cwdOf(agent.session), stateRoot), sessionId)
+        // 账本按会话隔离：<工作区>/.dsh/miopiik/sessions/<sessionId>/
+        // 只有事实卡在工作区级共享（<工作区>/.dsh/miopiik/shared/）。
+        const workspaceRoot = join(cwdOf(agent.session), stateRoot)
+        const store = await openStore(join(workspaceRoot, 'sessions', sessionId), sessionId, { workspaceRoot })
         const engine = new Engine({ store, sessionId })
         engines.set(sessionId, engine)
         // 跨天断点检测（SPEC §5.2）：启动时补一次，L3 当天会提醒承认断点。

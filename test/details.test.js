@@ -1,6 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { mkdtemp, rm, readdir } from 'node:fs/promises'
+import { mkdtemp, rm, readdir, appendFile } from 'node:fs/promises'
+import { existsSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
@@ -210,5 +211,44 @@ test('工作区级事实：修订与失效当场在本会话可见（不等到�
     assert.equal(engine.listFacts().length, 0)
   } finally {
     await rm(dir, { recursive: true, force: true })
+  }
+})
+
+test('账本按会话隔离，只有事实卡跨会话共享', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'miopiik-split-'))
+  try {
+    const dirA = join(root, 'sessions', 'a')
+    const dirB = join(root, 'sessions', 'b')
+    const a = new Engine({ store: await openStore(dirA, 'a', { workspaceRoot: root }), sessionId: 'a' })
+    const b = new Engine({ store: await openStore(dirB, 'b', { workspaceRoot: root }), sessionId: 'b' })
+
+    await a.addLoop({ text: 'A 会话的线索', type: 'promise' })
+    await a.addFact({ claim: '两边都该知道的结论', provenance: ['A'], source: 'user' })
+
+    assert.equal(b.listLoops().length, 0, 'B 不该看到 A 的开环')
+    assert.equal(b.listFacts().length, 1, '事实卡应该共享')
+
+    const bBranch = await b.openBranch({ label: 'B 的分支', forkedAtTurn: 1 })
+    assert.equal(a.listBranches().length, 0, 'A 不该看到 B 的分支')
+    assert.equal(b.listBranches()[0].id, bBranch.id)
+  } finally {
+    await rm(root, { recursive: true, force: true })
+  }
+})
+
+test('旧布局迁移：根目录的账本会被搬进第一个打开它的会话', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'miopiik-migrate-'))
+  try {
+    await appendFile(join(root, 'observations.jsonl'), JSON.stringify({ seq: 1, at: 1, day: 1, turn: 1, kind: 'user', text: '旧数据' }) + '\n')
+    await appendFile(join(root, 'loops.jsonl'), JSON.stringify({ op: 'create', loop: { id: 'L-1', text: '旧线索', type: 'promise', status: 'active', createdAt: 1, lastTouchedAt: 1, lastTouchedDay: 1 } }) + '\n')
+    await appendFile(join(root, 'facts.jsonl'), JSON.stringify({ op: 'add', fact: { id: 'F-1', claim: '旧事实', provenance: [], conf: 'mid', source: 'ink', stale: false, createdAt: 1, revisedAt: 1 } }) + '\n')
+
+    const sessionDir = join(root, 'sessions', 's1')
+    const engine = new Engine({ store: await openStore(sessionDir, 's1', { workspaceRoot: root }), sessionId: 's1' })
+    assert.equal(engine.listLoops()[0].text, '旧线索', '旧开环应被搬进会话目录')
+    assert.equal(engine.listFacts()[0].claim, '旧事实', '旧事实应并进共享区')
+    assert.ok(!existsSync(join(root, 'observations.jsonl')), '根目录不该再留旧账本')
+  } finally {
+    await rm(root, { recursive: true, force: true })
   }
 })
