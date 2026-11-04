@@ -10,7 +10,7 @@
 import { mkdir, readFile, appendFile } from 'node:fs/promises'
 import { join } from 'node:path'
 
-export const LOG_NAMES = Object.freeze(['observations', 'notes', 'loops', 'facts', 'inbox', 'briefings', 'jobs', 'drafts', 'cases', 'branches'])
+export const LOG_NAMES = Object.freeze(['observations', 'notes', 'loops', 'facts', 'inbox', 'briefings', 'jobs', 'drafts', 'cases', 'branches', 'folds'])
 
 export function emptyState(sessionId) {
   return {
@@ -25,7 +25,8 @@ export function emptyState(sessionId) {
     drafts: new Map(),
     cases: [],
     branches: new Map(),
-    counters: { obs: 0, note: 0, loop: 0, fact: 0, inbox: 0, job: 0, draft: 0, case: 0, branch: 0 },
+    folds: new Map(),
+    counters: { obs: 0, note: 0, loop: 0, fact: 0, inbox: 0, job: 0, draft: 0, case: 0, branch: 0, fold: 0 },
     epoch: 0,
   }
 }
@@ -187,6 +188,23 @@ export function applyRecord(state, log, record) {
         branch.settledAt = record.at
         branch.mergedInto = record.mergedInto ?? null
         branch.updatedAt = record.at
+      }
+      return
+    }
+    case 'folds': {
+      if (record.op === 'propose') {
+        state.folds.set(record.proposal.id, { ...record.proposal })
+        state.counters.fold = bump(state.counters.fold, record.proposal.id)
+        return
+      }
+      const proposal = state.folds.get(record.foldId)
+      if (proposal === undefined) return
+      if (record.op === 'apply' || record.op === 'reject') {
+        proposal.status = record.op === 'apply' ? 'applied' : 'rejected'
+        proposal.settledAt = record.at
+        proposal.settledBy = record.by ?? 'mind'
+        proposal.appliedSeq = record.appliedSeq ?? null
+        if (typeof record.archive === 'string' && record.archive !== '') proposal.archive = record.archive
       }
       return
     }

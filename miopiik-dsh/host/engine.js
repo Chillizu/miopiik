@@ -15,10 +15,11 @@ import { makeItem, selectView } from './inbox.js'
 import { makeNote, validateNote } from './notes.js'
 import { activeFacts, makeFact, validateFact } from './facts.js'
 import { makeCase, matchCase, matchFacts, similarity } from './cases.js'
+import { buildArchive, makeProposal, settlementDraft, verifyProposal } from './fold.js'
 import { describeBranches, makeBranch, renderBranchSlice } from './branches.js'
 import { appendRecord } from './store.js'
 
-export const INK_TOOL_NAMES = Object.freeze(['ink_status', 'ink_loops', 'ink_facts', 'ink_inbox', 'ink_dispatch', 'ink_commit', 'ink_brief', 'ink_epoch', 'ink_draft', 'ink_branch'])
+export const INK_TOOL_NAMES = Object.freeze(['ink_status', 'ink_loops', 'ink_facts', 'ink_inbox', 'ink_dispatch', 'ink_commit', 'ink_brief', 'ink_epoch', 'ink_draft', 'ink_branch', 'ink_fold'])
 
 const MAX_L3_LINES = 14
 
@@ -899,6 +900,97 @@ export class Engine {
     return this.state.branches.get(id)
   }
 
+  // ── 叙事折叠：影子 → 验收 → 原子替换（SPEC §5.1） ──────────────────
+
+  /** 第一步：Ink 做影子折叠，先不替换任何东西。 */
+  async proposeFold({ archive = null, day = null } = {}) {
+    const built = buildArchive(this.state.observations)
+    const at = this.now()
+    const proposal = makeProposal({
+      id: `A-${this.state.counters.fold + 1}`,
+      day: day ?? dayOf(at),
+      epoch: this.state.epoch,
+      archive: archive ?? built.archive,
+      covered: built.covered,
+      total: built.total,
+      settlements: settlementDraft(this.listLoops()),
+      at,
+    })
+    await this.enqueue(() => appendRecord(this.store, 'folds', { op: 'propose', proposal }))
+    return proposal
+  }
+
+  listFolds({ includeSettled = true } = {}) {
+    const all = [...this.state.folds.values()].sort((a, b) => b.createdAt - a.createdAt)
+    return includeSettled ? all : all.filter((fold) => fold.status === 'pending')
+  }
+
+  pendingFold() {
+    return this.listFolds({ includeSettled: false })[0] ?? null
+  }
+
+  /** 验收前先自查一遍（Mind 也可直接看理由）。 */
+  reviewFold(id) {
+    const proposal = this.state.folds.get(id)
+    if (proposal === undefined) throw new Error(`没有这份折叠提案: ${id}`)
+    return {
+      proposal,
+      problems: verifyProposal(proposal, { loops: this.listLoops() }),
+      settlements: proposal.settlements,
+      note: '判据只有一条：折叠之后，每条仍然活跃的开环都还得接得上。',
+    }
+  }
+
+  /**
+   * 第二步：Mind 验收。
+   *  - 通过：可带自己改写的 archive（验收者用自己的话重写，比接受机器摘要更可靠）；
+   *    有 compaction 服务就原子替换，没有就只记账（绝不偷偷改上下文）。
+   *  - 退回：留下理由，重折一次。
+   */
+  async settleFold(id, { approve, archive = null, reason = null, agent = null, compaction = null }) {
+    const proposal = this.state.folds.get(id)
+    if (proposal === undefined) throw new Error(`没有这份折叠提案: ${id}`)
+    if (proposal.status !== 'pending') throw new Error(`这份提案已经处理过：${proposal.status}`)
+    const at = this.now()
+
+    if (!approve) {
+      await this.enqueue(() =>
+        appendRecord(this.store, 'folds', { op: 'reject', foldId: id, at, by: 'mind', reason }),
+      )
+      return { proposal: this.state.folds.get(id), applied: false }
+    }
+
+    // 验收对象是「实际要用的那份档案」：Mind 改写过就验改写后的。
+    const effective =
+      typeof archive === 'string' && archive.trim() !== ''
+        ? { ...proposal, archive: archive.trim() }
+        : proposal
+    const problems = verifyProposal(effective, { loops: this.listLoops() })
+    if (problems.length > 0) {
+      throw new Error(`还没接得上，不能替换：${problems.join('；')}`)
+    }
+
+    let appliedSeq = null
+    if (compaction !== null && typeof compaction.compactRegion === 'function' && agent !== null) {
+      // 原子替换交给 DSH：它负责把这一段标成 shadowed，并写入一条 compaction 记录。
+      const end = this.state.counters.obs
+      const result = await compaction.compactRegion(0, end, { session: agent.session, options: agent.options ?? {} })
+      appliedSeq = Number(result?.sourceEventSeq ?? result?.seq ?? end) || end
+    }
+
+    await this.enqueue(() =>
+      appendRecord(this.store, 'folds', {
+        op: 'apply',
+        foldId: id,
+        at,
+        by: 'mind',
+        archive: effective.archive !== proposal.archive ? effective.archive : null,
+        appliedSeq,
+      }),
+    )
+    return { proposal: this.state.folds.get(id), applied: appliedSeq !== null }
+  }
+
   status() {
     const loops = this.listLoops()
     const view = this.inboxView({ all: true })
@@ -991,6 +1083,16 @@ export class Engine {
       lines.push('## 这次对话像是在收工')
       lines.push(`用户最后一句：「${closing.quote}」`)
       lines.push('如果今天到这儿，用 ink_brief save 写一段交接（推进/开环/在跑/草稿/下步），明天的你才接得上；不写也不算错。')
+      lines.push('')
+    }
+
+    const pendingFold = this.pendingFold()
+    if (pendingFold !== null) {
+      lines.push('## 有一条折叠提案等你验收')
+      lines.push(
+        `档案 ${pendingFold.archive.trim().length} 字（覆盖 ${pendingFold.covered}/${pendingFold.total} 条），牵动开环 ${pendingFold.settlements.length} 条。`,
+      )
+      lines.push('验收判据只有一条：折叠之后，每条仍然活跃的开环都还得接得上。用 ink_fold review / approve / reject。')
       lines.push('')
     }
 

@@ -483,4 +483,60 @@ export function registerTools(ctx, engines, operator) {
       },
     }),
   )
+  ctx.tools.register(
+    tool({
+      name: 'ink_fold',
+      description:
+        'Two-phase narrative fold. "propose" has Ink build a shadow fold (archive + loop settlements) without replacing anything. You then verify it while you still hold the old context — the only criterion is that every still-active open thread can be picked up again after folding. "approve" may carry your own rewritten archive. Nothing is replaced until you approve.',
+      parameters: {
+        type: 'object',
+        properties: {
+          action: { type: 'string', enum: ['propose', 'review', 'approve', 'reject', 'list'] },
+          id: { type: 'string', description: 'Proposal id such as A-1.' },
+          archive: { type: 'string', description: 'For approve: your own rewrite of the archive, in your words.' },
+          reason: { type: 'string', description: 'For reject: what could not be picked up again.' },
+        },
+        required: ['action'],
+        additionalProperties: false,
+      },
+      async execute(args, exec) {
+        const engine = engineFor(exec)
+        switch (args.action) {
+          case 'propose':
+            return { proposal: await engine.proposeFold({ archive: args.archive ?? null }) }
+          case 'list':
+            return { proposals: engine.listFolds() }
+          case 'review': {
+            const id = args.id ?? engine.pendingFold()?.id
+            if (typeof id !== 'string') throw new Error('没有待验收的提案')
+            return engine.reviewFold(id)
+          }
+          case 'approve': {
+            const id = args.id ?? engine.pendingFold()?.id
+            if (typeof id !== 'string') throw new Error('没有待验收的提案')
+            const compaction = (() => {
+              try {
+                return ctx.get('compaction')
+              } catch {
+                return null
+              }
+            })()
+            return engine.settleFold(id, {
+              approve: true,
+              archive: args.archive ?? null,
+              agent: exec.agent ?? null,
+              compaction,
+            })
+          }
+          case 'reject': {
+            const id = args.id ?? engine.pendingFold()?.id
+            if (typeof id !== 'string') throw new Error('没有待验收的提案')
+            return engine.settleFold(id, { approve: false, reason: args.reason ?? null })
+          }
+          default:
+            throw new Error(`未知 action: ${args.action}`)
+        }
+      },
+    }),
+  )
 }
