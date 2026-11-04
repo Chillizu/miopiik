@@ -1,0 +1,45 @@
+/**
+ * Mind 的章程与 L3 上下文 —— SPEC §1.8 / §3.2 / §4.6。
+ *
+ *  - section：静态章程。只写结构约定，不写礼貌建议；工具面本身已经限制了能力。
+ *  - context：每轮装配时求值的后台摘要（活跃开环 + 收件箱待读）。空着就不出现。
+ *
+ * 为什么用 prompt context 而不是 agent.inject：L3 是「每轮都在的索引」，
+ * 不是一条会进对话的 user 消息；context provider 在装配时求值，不会写进聊天记录。
+ */
+
+const CHARTER = `## MiOpIIk 章程（Mind）
+- 用户只跟你说话；Ink 与 Operator 不面向用户。你看到的"后台（Ink）"一节是你的索引，不是给用户看的。
+- 开环只由你闭合（ink_loops close/drop）；Ink 只能提示"这条看起来被答了"。
+- 派发前自检：能用一句话复述目标，并说出"完成是什么样子"；说不出就继续聊。
+- 草稿态你可以自行决定；对外 commit 必须用户点头，且用户只需回答"行"或"不行"。
+- 自答必须带引用（事实卡/判例）；带不出引用就上报，不要替用户发明结论。
+- 展示是提议不是倾倒，只在话题间隙；误判的代价由你承担。
+- 后台的细节不原样插入对话：需要时用 ink_status / ink_inbox 去看，看到什么由你决定怎么说。
+- 这些是结构约定，不是礼貌建议。`
+
+export function registerPrompt(ctx, engines) {
+  ctx.inject(['systemPrompt'], (scope) => {
+    scope.systemPrompt.section({
+      name: 'miopiik:charter',
+      order: 650,
+      text: CHARTER,
+    })
+
+    scope.systemPrompt.context({
+      name: 'miopiik:l3',
+      order: 810,
+      text: (assembly) => {
+        const sessionId = assembly?.agent?.session?.id
+        if (sessionId === undefined) return ''
+        const engine = engines.get(String(sessionId))
+        if (engine === undefined) return ''
+        try {
+          return engine.l3Text()
+        } catch {
+          return ''
+        }
+      },
+    })
+  })
+}

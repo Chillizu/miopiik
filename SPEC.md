@@ -347,4 +347,7 @@ Mind 说过的每句话也是带 provenance 的 claim。Operator 的结果与旧
 
 ## 11. 实现偏差（待实现后填写，不得静默修改上文）
 
-- 待填。
+- **存储介质**：未使用 DSH 的 `ctx.storageDomain`（`defineDomain` 需要 zod 运行时依赖，workspace link 安装的 bundle 解析不到 `@deepseek-ai/*`）。改为 `<cwd>/.dsh/miopiik/<sessionId>/*.jsonl`：append-only、可回放、无损存储、可肉眼审计。语义与 §2 一致，只是介质不同。
+- **会话投影**：未使用 `ctx.sessionProjections`（同一 zod 依赖原因）。改为直接监听 `session/event` 并写入自己的观测日志；重启时回放 JSONL 恢复状态。§4.6 的「账本是数据、上下文是索引」不变。
+- **叙事压缩**：仍由 DSH 的 compaction 负责。§5.1 的两阶段（Ink 影子折叠 → 仍持旧上下文的 Mind 验收 → 原子替换）尚未实现，计划在 Batch 4 接入；届时若不成立，在此记录原因。
+- **台账**：以上偏差只影响实现路径，不改变 §1 十二条不变式与 §3/§4 的机制定义。

@@ -1,2 +1,5 @@
+node_modules/
 .dsh/
 .data/
+*.log
+.DS_Store

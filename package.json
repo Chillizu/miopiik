@@ -1,0 +1,9 @@
+{
+  "name": "miopiik",
+  "private": true,
+  "type": "module",
+  "description": "MiOpIIk — Mind / Ink / Operator：规格与 DSH 插件",
+  "scripts": {
+    "test": "node --test test/"
+  }
+}
