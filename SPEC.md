@@ -345,11 +345,41 @@ Mind 说过的每句话也是带 provenance 的 claim。Operator 的结果与旧
 
 ---
 
-## 11. 实现偏差（待实现后填写，不得静默修改上文）
+## 11. 实现偏差（不得静默修改上文）
 
-- **存储介质**：未使用 DSH 的 `ctx.storageDomain`（`defineDomain` 需要 zod 运行时依赖，workspace link 安装的 bundle 解析不到 `@deepseek-ai/*`）。改为 `<cwd>/.dsh/miopiik/<sessionId>/*.jsonl`：append-only、可回放、无损存储、可肉眼审计。语义与 §2 一致，只是介质不同。
-- **会话投影**：未使用 `ctx.sessionProjections`（同一 zod 依赖原因）。改为直接监听 `session/event` 并写入自己的观测日志；重启时回放 JSONL 恢复状态。§4.6 的「账本是数据、上下文是索引」不变。
-- **叙事压缩**：仍由 DSH 的 compaction 负责。§5.1 的两阶段（Ink 影子折叠 → 仍持旧上下文的 Mind 验收 → 原子替换）尚未实现，计划在 Batch 4 接入；届时若不成立，在此记录原因。
-- **commit 闸门的留痕**：闸门通过 `ink_commit` 直接问用户（`ctx.userQuestions.ask`），不额外写 note；用户答复以工具结果的形式留在会话日志里，属于观测日志，符合「决定只由 Ink 写、观测由 Mind/Operator 写」的分工。
-- **守夜不执行回滚**：超时只投递 `[阻塞]` 预览并记录 job 超时状态；是否中断/回滚由 Mind 或用户决定（§3.5 的回滚优先留给后续批次实现）。
-- **台账**：以上偏差只影响实现路径，不改变 §1 十二条不变式与 §3/§4 的机制定义。
+> 本节记录「规格要求」与「当前实现」的差距，按批次推进收敛。每条都指明差距与后续批次。
+
+### 11.1 已确定的实现路径差异（不改变语义）
+
+- **存储介质**：未用 `ctx.storageDomain`（`defineDomain` 需要 zod 运行时依赖，workspace link 的 bundle 解析不到 `@deepseek-ai/*`）。改为 `<cwd>/.dsh/miopiik/<sessionId>/*.jsonl`：append-only、可回放、无损、可肉眼审计。
+- **会话投影**：未用 `ctx.sessionProjections`（同一 zod 依赖原因）。改为监听 `session/event` 写观测日志，重启回放恢复。
+- **叙事压缩**：仍由 DSH compaction 负责；§5.1 的「Ink 影子折叠 → 持旧上下文的 Mind 验收 → 原子替换」尚未接入，列为 Batch 4 后续项。
+- **commit 闸门留痕**：闸门通过 `ink_commit` 直接问用户（`ctx.userQuestions.ask`），不额外写 note；用户答复以工具结果留在会话日志（观测日志），符合「决定只由 Ink 写、观测由 Mind/Operator 写」。
+- **守夜不执行回滚**：超时只投递 `[阻塞]` 预览并记 job 超时；中断/回滚留给后续批次。
+
+### 11.2 尚未实现（按批次收敛）
+
+| 规格条款 | 现状 | 计划 |
+|---|---|---|
+| §2.2 detail 层与内容 hash / 索引 | detail 直接存进 note 文本；无 hash 与检索索引 | Batch 5+ |
+| §2.4 判例（回答 Operator 的判断留痕） | 纯函数 `findVerdict` 已有，但没有「Ink 回答 Operator」的通道（`delivery: caller` 下子 agent 无提问通道） | Batch 5+ |
+| §2.5 草稿区 | 无草稿存储；`ink_brief` 的 drafts 恒为空 | Batch 5+ |
+| §3.2 自答/上报的机械出口检查 | 只在章程里写了「带不出引用就上报」；没有对 Ink 自答的自动引用校验（当前自答路径只有编译） | Batch 5+ |
+| §3.5 回滚 > 打补丁 | 未实现回滚 | Batch 5+ |
+| §4.1 早期形状检查 | 只写进 Operator 提示词，未做产物级验收 | Batch 5+ |
+| §5.1 三种折叠 | 只有开环老化 + 简报；叙事折叠依赖 DSH compaction，未做两阶段验收 | Batch 4 后续 |
+| §5.2 收工/硬断检测 | 收工由 Mind 显式调用 `ink_brief save`；没有告别/长时间无输入的自动检测 | Batch 4 后续 |
+| §5.6 草稿天轴老化 | 无草稿，故无老化 | Batch 5+ |
+| §6 产品面 | 「悬着的事」「我们一起定的」为占位页；无数据通道（root 页面需要 Host Remote/typert，待研究） | Batch 5 |
+
+### 11.3 已验证生效（对照实现）
+
+- 观测日志：只收 `source.kind=user` 的真人消息与助手最终消息（goal/time-context/tool 等系统注入已过滤）。
+- 开环：登记/触碰/闭合/丢弃、2 天休眠/7 天折叠、活跃上限 12 的固定折叠顺序、休眠投递预览（结尾为开环改写的疑问句）。
+- 收件箱：T0–T3 分层、epoch 过期降一级、同一开环一条待读（后来的 supersede 旧的）、每轮 3 条 + 计数。
+- 事实卡：provenance / conf / source 权威序（user > ink > operator）/ 失效不删。
+- L3：活跃开环 + 收件箱摘要经 `systemPrompt.context` 每轮装配（空则不出现）；交接简报在隔夜后置顶。
+- 窄工具面：`ink_status` / `ink_loops` / `ink_facts` / `ink_inbox` / `ink_dispatch` / `ink_commit` / `ink_brief`；子 agent 被 `tools.restrict` 挡掉。
+- 派发：六要素契约校验（缺则拒绝并给出缺失清单）→ `ctx.subagents` 以 `delivery: caller` 启动 → 结果回 Ink → `ctx.llm` 编译为预览 → 进收件箱；守夜超时投递 `[阻塞]`。
+- 客户端：存在感指示（composer dock）、后台抽屉（shell overlay）、两个面板入口与页面（数据待接）。
+- 单测：35 项通过（纯逻辑 + 引擎回放 + 契约 + 编译解析）。
