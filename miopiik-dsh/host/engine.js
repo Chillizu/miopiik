@@ -516,17 +516,29 @@ export class Engine {
        * 主干 = 有用户发言的轮次；分支 = 分叉点、任务、汇回点。
        */
       graph: (() => {
+        // 主干节点＝有真实对话发生的轮次：优先用用户发言做标签，没有就用助手的。
         const turns = new Map()
         for (const entry of this.state.observations) {
-          if (entry.kind !== 'user') continue
           const turn = entry.turn
           if (typeof turn !== 'number') continue
-          if (!turns.has(turn)) {
-            const firstLine = String(entry.text ?? '').split('\n').map((line) => line.trim()).find((line) => line !== '')
-            turns.set(turn, { turn, at: entry.at ?? null, label: (firstLine ?? '').slice(0, 28) })
+          if (entry.kind !== 'user' && entry.kind !== 'assistant') continue
+          const firstLine = String(entry.text ?? '')
+            .split('\n')
+            .map((line) => line.trim())
+            .find((line) => line !== '')
+          if (firstLine === undefined) continue
+          const existing = turns.get(turn)
+          if (existing === undefined) {
+            turns.set(turn, { turn, at: entry.at ?? null, label: firstLine.slice(0, 28), fromUser: entry.kind === 'user' })
+          } else if (!existing.fromUser && entry.kind === 'user') {
+            existing.label = firstLine.slice(0, 28)
+            existing.fromUser = true
           }
         }
-        const ordered = [...turns.values()].sort((a, b) => a.turn - b.turn).slice(-14)
+        const ordered = [...turns.values()]
+          .sort((a, b) => a.turn - b.turn)
+          .slice(-14)
+          .map(({ turn, at, label }) => ({ turn, at, label }))
         const branchNodes = [...this.state.branches.values()]
           .filter((branch) => branch.forkedAtTurn !== null)
           .sort((a, b) => a.createdAt - b.createdAt)
