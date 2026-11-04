@@ -254,6 +254,13 @@ export function registerTools(ctx, engines, operator, services = {}) {
         additionalProperties: false,
       },
       async execute(args, exec) {
+        // 提交门只承载「要不要」，不承载解释：标题一句话、说明一句。
+        if (String(args.title ?? '').trim().length > 24) {
+          throw new Error('提交门的标题最多 24 字：只写用户要判断的那件事，不要写自我描述。')
+        }
+        if (String(args.summary ?? '').trim().length > 60) {
+          throw new Error('提交门的说明最多 60 字：一句话说清影响即可，不要解释机制。')
+        }
         if (args.confidence === 'low') {
           throw new Error('低置信不提交：留在草稿区，继续做或丢掉（SPEC §4.1）')
         }

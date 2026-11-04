@@ -225,6 +225,39 @@ export function applyRecord(state, log, record) {
 }
 
 /** 打开一个会话的存储目录并回放全部日志。 */
+/** 工作区级共享事实：同一目录下的所有会话共用一份知识（SPEC §2.3）。 */
+export function sharedFactsPath(dir) {
+  return join(dir, 'shared', 'facts.jsonl')
+}
+
+/** 打开共享事实文件（不存在就等第一次写入时创建）。 */
+export async function openSharedFacts(dir) {
+  const path = sharedFactsPath(dir)
+  await mkdir(join(dir, 'shared'), { recursive: true })
+  const state = emptyState('shared')
+  let text = ''
+  try {
+    text = await readFile(path, 'utf8')
+  } catch (error) {
+    if (error?.code !== 'ENOENT') throw error
+  }
+  for (const line of text.split('\n')) {
+    if (line.trim() === '') continue
+    try {
+      applyRecord(state, 'facts', JSON.parse(line))
+    } catch {
+      // 坏行跳过：共享文件同样是可肉眼审计的明文。
+    }
+  }
+  return { dir, path, state }
+}
+
+export async function appendSharedFact(shared, record) {
+  await appendFile(shared.path, `${JSON.stringify(record)}\n`, 'utf8')
+  applyRecord(shared.state, 'facts', record)
+  return record
+}
+
 export async function openStore(dir, sessionId) {
   await mkdir(dir, { recursive: true })
   const state = emptyState(sessionId)
@@ -244,7 +277,12 @@ export async function openStore(dir, sessionId) {
       }
     }
   }
-  return { dir, state }
+  // 共享事实并入本会话视图：谁在同一个工作区里发现过什么，别人打开就能用。
+  const shared = await openSharedFacts(dir)
+  for (const [id, fact] of shared.state.facts) {
+    if (!state.facts.has(id)) state.facts.set(id, fact)
+  }
+  return { dir, state, shared }
 }
 
 /** 追加一条记录：先落盘，再进内存（失败即抛，不吞）。 */

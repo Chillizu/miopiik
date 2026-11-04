@@ -45,6 +45,8 @@ window.__ModuleLoader__.load({
     let clientCtx = null
 
     const C = {
+      base: 'var(--dsw-alias-bg-base)',
+      layer1: 'var(--dsw-alias-bg-layer-1)',
       overlay: 'var(--dsw-alias-bg-overlay)',
       border: 'var(--dsw-alias-border-l1)',
       borderStrong: 'var(--dsw-alias-border-l2)',
@@ -149,120 +151,230 @@ window.__ModuleLoader__.load({
      * 最后用一条曲线汇回主干——跟 git graph 的 fork / commit / merge 是同一套读法。
      * 所有标签直接画在图上（分支名、任务数、汇回 note 号），不做悬浮提示。
      */
-    function FishbonePane({ snapshot }) {
+    /**
+     * 鱼骨主视图：按事件布局（只画分叉/任务/汇回），不按轮次铺格子。
+     * 悬停出详情气泡，点击进入右侧详情面板。
+     */
+    function FishboneView(props) {
+      const { sessionId, useProjection } = props ?? {}
+      const snapshot = typeof useProjection === 'function' ? useProjection('miopiikBackstage') : undefined
       const graph = snapshot?.graph
-      const trunk = graph?.trunk ?? []
+      const [hover, setHover] = React.useState(null)
+      const [selected, setSelected] = React.useState(null)
       const branches = graph?.branches ?? []
-      if (graph === undefined || (trunk.length === 0 && branches.length === 0)) {
-        return h('div', { style: styles.empty }, t('graph.empty'))
+      const events = graph?.events ?? []
+
+      if (graph === undefined || events.length === 0) {
+        return h('div', { style: { padding: 32, color: C.muted, fontSize: 13 } }, t('graph.empty'))
       }
 
-      const W = 470
-      const padTop = 16
-      const trunkX = 16
-      const laneX = 86
-      const rowGap = 30
-      const index = new Map(trunk.map((node, i) => [node.turn, i]))
-      const yOfTurn = (turn) => {
-        const i = index.get(turn)
-        return i === undefined ? null : padTop + i * rowGap
-      }
-      const lastTrunkY = padTop + Math.max(0, trunk.length - 1) * rowGap
-
-      const elements = []
-      // 主干：一根竖线，每轮一个点；标签只放轮次，避免跟分支抢位置。
-      elements.push(h('line', { key: 'trunk', x1: trunkX, y1: padTop, x2: trunkX, y2: lastTrunkY, stroke: C.borderStrong, strokeWidth: 1.5 }))
-      for (const node of trunk) {
-        const y = yOfTurn(node.turn)
-        elements.push(h('circle', { key: `t${node.turn}`, cx: trunkX, cy: y, r: 3.5, fill: C.brand }))
-        elements.push(h('text', { key: `tl${node.turn}`, x: trunkX + 9, y: y + 4, fontSize: 11, fill: C.muted }, `第${node.turn}轮`))
+      // 行 = 事件（按时间）；泳道 = 分支（贪心分配，互不重叠）。
+      const rows = new Map(events.map((event, index) => [event.id, index]))
+      const lanes = new Map()
+      let laneCount = 0
+      for (const branch of [...branches].sort((a, b) => a.forkAt - b.forkAt)) {
+        const forkRow = rows.get(`fork:${branch.id}`) ?? 0
+        const mergeRow = branch.mergeAt === null ? events.length - 1 : rows.get(`merge:${branch.id}`) ?? events.length - 1
+        let lane = 0
+        while ([...lanes.values()].some((used) => used.lane === lane && used.mergeRow >= forkRow)) lane += 1
+        lanes.set(branch.id, { lane, forkRow, mergeRow })
+        laneCount = Math.max(laneCount, lane + 1)
       }
 
-      // 分支：贴着它的分叉点铺开（同一轮分叉的按顺序错开一行），曲线短、读起来跟主干同步。
-      const slots = new Map()
-      let maxY = lastTrunkY
-      let prevLaneY = -Infinity
+      const padTop = 18
+      const rowGap = 26
+      const yOfRow = (row) => padTop + row * rowGap
+      const laneX = (lane) => 120 + lane * 26
+      const H = Math.max(padTop + events.length * rowGap + 20, 160)
+      const W = Math.max(560, laneX(laneCount - 1) + 280)
+
+      const marks = []
+      // 主干：连接所有事件的竖线。
+      marks.push(h('line', { key: 'spine', x1: 16, y1: padTop, x2: 16, y2: H - 20, stroke: C.borderStrong, strokeWidth: 1.5 }))
+
       for (const branch of branches) {
-        const forkY = yOfTurn(branch.forkTurn)
-        const forkBase = forkY === null ? lastTrunkY + 30 : forkY
-        const slot = slots.get(forkBase) ?? 0
-        slots.set(forkBase, slot + 1)
-        const y = Math.max(forkBase + 24 + slot * 30, prevLaneY + 30)
-        prevLaneY = y
-        maxY = Math.max(maxY, y)
+        const { lane, forkRow, mergeRow } = lanes.get(branch.id)
+        const x = laneX(lane)
+        const color = branch.status === 'merged' ? C.success : branch.status === 'abandoned' ? C.idle : C.brand
+        const yFork = yOfRow(forkRow)
+        const yMerge = yOfRow(mergeRow)
 
-        const done = branch.status === 'merged'
-        const color = done ? C.success : branch.status === 'abandoned' ? C.idle : C.brand
-        const endX = W - 10
-        // 老分支没有记录汇回轮次：退而画到主干末端，至少方向可读。
-        const mergeY = branch.mergeTurn === null ? (done ? lastTrunkY : null) : yOfTurn(branch.mergeTurn)
-
-        if (forkY !== null) {
-          elements.push(
-            h('path', {
-              key: `f${branch.id}`,
-              d: `M ${trunkX},${forkY} C ${trunkX + 24},${forkY} ${laneX - 22},${y} ${laneX},${y}`,
-              fill: 'none',
-              stroke: color,
-              strokeWidth: 1.5,
-            }),
-          )
-        }
-        elements.push(h('line', { key: `l${branch.id}`, x1: laneX, y1: y, x2: endX, y2: y, stroke: color, strokeWidth: 1.5 }))
-
-        if (mergeY !== null) {
-          elements.push(
-            h('path', {
-              key: `m${branch.id}`,
-              d: `M ${endX},${y} C ${endX},${y + 12} ${trunkX + 30},${mergeY} ${trunkX},${mergeY}`,
-              fill: 'none',
-              stroke: color,
-              strokeWidth: 1.5,
-              strokeDasharray: '3 3',
-            }),
-          )
-          elements.push(h('circle', { key: `md${branch.id}`, cx: trunkX, cy: mergeY, r: 4.5, fill: C.overlay, stroke: color, strokeWidth: 1.5 }))
-        }
-
-        // 任务点直接落在分支线上；状态用实心/空心区分，标签在 title 里，不挤版面。
-        const jobs = branch.jobs ?? []
-        jobs.forEach((job, jobIndex) => {
-          const jx = laneX + 96 + jobIndex * 22
-          const running = job.state === 'running'
-          elements.push(h('circle', {
-            key: `${branch.id}-${job.id}`,
-            cx: jx,
-            cy: y,
-            r: 4.5,
-            fill: running ? C.brand : C.overlay,
-            stroke: running ? C.brand : C.borderStrong,
-            strokeWidth: 1.5,
+        marks.push(h('path', {
+          key: `fork-${branch.id}`,
+          d: `M 16,${yFork} C ${16 + 34},${yFork} ${x - 30},${yFork} ${x},${yFork}`,
+          fill: 'none', stroke: color, strokeWidth: 1.5,
+        }))
+        marks.push(h('line', { key: `lane-${branch.id}`, x1: x, y1: yFork, x2: x, y2: yMerge, stroke: color, strokeWidth: 1.5 }))
+        if (branch.mergeAt !== null) {
+          marks.push(h('path', {
+            key: `merge-${branch.id}`,
+            d: `M ${x},${yMerge} C ${x - 30},${yMerge} ${16 + 34},${yMerge} 16,${yMerge}`,
+            fill: 'none', stroke: color, strokeWidth: 1.5, strokeDasharray: '3 3',
           }))
-          elements.push(h('title', { key: `${branch.id}-${job.id}-t` }, `${job.id} ${job.label}（${job.state}）`))
-        })
+        }
 
-        const statusText = done
-          ? `已汇回${branch.mergedInto === null ? '' : ` ${branch.mergedInto}`}`
-          : branch.status === 'abandoned'
-            ? '已放弃'
-            : '进行中'
-        elements.push(h('text', { key: `bl${branch.id}`, x: laneX + 2, y: y - 7, fontSize: 11, fill: C.text }, branch.label.slice(0, 14)))
-        elements.push(
-          h('text', { key: `bm${branch.id}`, x: laneX + 2, y: y + 15, fontSize: 10, fill: C.muted }, `${branch.id} · ${jobs.length} 任务 · ${statusText}`),
-        )
+        const branchJobs = branch.jobs ?? []
+        const jobEvents = events.filter((event) => event.kind === 'job' && event.branchId === branch.id)
+
+        // 分叉点
+        const forkEvent = events.find((event) => event.id === `fork:${branch.id}`)
+        const isHot = selected === branch.id || hover === branch.id
+        marks.push(h('circle', {
+          key: `dot-fork-${branch.id}`,
+          cx: 16, cy: yFork, r: isHot ? 6 : 4.5,
+          fill: C.overlay, stroke: color, strokeWidth: 2,
+          style: { cursor: 'pointer' },
+          onMouseEnter: () => setHover(branch.id),
+          onMouseLeave: () => setHover(null),
+          onClick: () => setSelected(selected === branch.id ? null : branch.id),
+        }))
+        // 汇回点
+        if (branch.mergeAt !== null) {
+          marks.push(h('circle', {
+            key: `dot-merge-${branch.id}`,
+            cx: 16, cy: yMerge, r: 5,
+            fill: color, opacity: 0.9,
+            style: { cursor: 'pointer' },
+            onMouseEnter: () => setHover(branch.id),
+            onMouseLeave: () => setHover(null),
+            onClick: () => setSelected(selected === branch.id ? null : branch.id),
+          }))
+        }
+        // 分支名（分叉点右侧，避开泳道线）
+        marks.push(h('text', {
+          key: `label-${branch.id}`,
+          x: x + 10, y: yFork + 4, fontSize: 12,
+          fill: isHot ? C.brand : C.text,
+          style: { cursor: 'pointer' },
+          onMouseEnter: () => setHover(branch.id),
+          onMouseLeave: () => setHover(null),
+          onClick: () => setSelected(selected === branch.id ? null : branch.id),
+        }, branch.label.slice(0, 18)))
+
+        // 任务点：落在泳道线上的对应行
+        for (const event of jobEvents) {
+          const job = branchJobs.find((entry) => entry.id === event.jobId)
+          const y = yOfRow(rows.get(event.id))
+          const running = job?.state === 'running'
+          marks.push(h('circle', {
+            key: `dot-${event.id}`,
+            cx: x, cy: y, r: 4,
+            fill: running ? color : C.overlay,
+            stroke: color, strokeWidth: 1.5,
+            style: { cursor: 'pointer' },
+            onMouseEnter: () => setHover(branch.id),
+            onMouseLeave: () => setHover(null),
+            onClick: () => setSelected(selected === branch.id ? null : branch.id),
+          }))
+        }
+        if (forkEvent === undefined) continue
       }
 
-      const H = maxY + 32
+      const hovered = hover === null ? null : branches.find((branch) => branch.id === hover)
+      const chosen = selected === null ? null : branches.find((branch) => branch.id === selected)
+      const hoverPos = (() => {
+        if (hovered === null) return null
+        const { lane, forkRow } = lanes.get(hovered.id)
+        return { x: laneX(lane) + 16, y: yOfRow(forkRow) - 10 }
+      })()
+
       return h(
         'div',
-        { style: { display: 'flex', flexDirection: 'column', gap: 10 } },
-        h(CountsStrip, { graph }),
+        { style: { display: 'flex', height: '100%', minHeight: 0, background: C.base } },
         h(
           'div',
-          { style: { overflowX: 'auto' } },
-          h('svg', { viewBox: `0 0 ${W} ${H}`, width: W, height: H, role: 'img', 'aria-label': t('graph.title') }, ...elements),
+          { style: { flex: '1 1 auto', minWidth: 0, overflow: 'auto', padding: '18px 20px' } },
+          h(CountsStrip, { graph }),
+          h(
+            'div',
+            { style: { position: 'relative', width: W } },
+            h('svg', { viewBox: `0 0 ${W} ${H}`, width: W, height: H, role: 'img', 'aria-label': t('graph.title') }, ...marks),
+            hovered !== null
+              ? h(
+                  'div',
+                  {
+                    style: {
+                      position: 'absolute',
+                      left: Math.min(hoverPos.x, W - 240),
+                      top: Math.max(hoverPos.y, 0),
+                      width: 232,
+                      padding: '8px 10px',
+                      border: `0.5px solid ${C.border}`,
+                      borderRadius: 8,
+                      background: C.overlay,
+                      boxShadow: '0 6px 20px rgba(0,0,0,0.12)',
+                      pointerEvents: 'none',
+                      fontSize: 11,
+                      lineHeight: '17px',
+                      color: C.text,
+                    },
+                  },
+                  h('div', { style: { fontWeight: 600, marginBottom: 2 } }, `${hovered.id} ${hovered.label}`),
+                  hovered.summary ? h('div', { style: { color: C.muted } }, hovered.summary) : null,
+                  h('div', { style: { color: C.muted, marginTop: 4 } },
+                    `${hovered.forkTurn === null ? '' : `第 ${hovered.forkTurn} 轮分叉 · `}${hovered.jobs.length} 个任务 · ${
+                      hovered.status === 'merged' ? `已汇回${hovered.mergedInto ? ` ${hovered.mergedInto}` : ''}` : hovered.status === 'abandoned' ? '已放弃' : '进行中'
+                    }`),
+                )
+              : null,
+          ),
         ),
-        h('div', { style: { fontSize: 11, color: C.muted, lineHeight: '17px' } }, t('graph.legend')),
+        chosen !== null
+          ? h(
+              'aside',
+              {
+                style: {
+                  flex: '0 0 320px',
+                  borderLeft: `0.5px solid ${C.border}`,
+                  padding: '18px 18px 24px',
+                  overflow: 'auto',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: 10,
+                  background: C.layer1,
+                  color: C.text,
+                },
+              },
+              h('div', { style: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 } },
+                h('strong', { style: { fontSize: 14 } }, `${chosen.id} ${chosen.label}`),
+                h('button', {
+                  type: 'button',
+                  onClick: () => setSelected(null),
+                  'aria-label': t('graph.close'),
+                  style: { border: 0, background: 'transparent', color: C.muted, cursor: 'pointer', fontSize: 13 },
+                }, '×'),
+              ),
+              chosen.summary ? h('div', { style: { fontSize: 12, color: C.muted, lineHeight: '18px' } }, chosen.summary) : null,
+              chosen.premise ? h('div', { style: { fontSize: 12, lineHeight: '18px' } }, h('span', { style: { color: C.muted } }, `${t('graph.premise')}：`), chosen.premise) : null,
+              chosen.quotes?.length
+                ? h('div', { style: { fontSize: 12, lineHeight: '18px' } },
+                    h('div', { style: { color: C.muted, marginBottom: 2 } }, t('graph.quotes')),
+                    ...chosen.quotes.map((quote, index) => h('div', { key: index, style: { borderLeft: `2px solid ${C.border}`, paddingLeft: 8, marginBottom: 2 } }, quote)),
+                  )
+                : null,
+              chosen.facts?.length
+                ? h('div', { style: { fontSize: 12, lineHeight: '18px' } },
+                    h('div', { style: { color: C.muted, marginBottom: 2 } }, t('graph.facts')),
+                    h('div', null, chosen.facts.join('、')),
+                  )
+                : null,
+              h('div', { style: { fontSize: 12, color: C.muted } }, t('graph.jobs')),
+              ...(chosen.jobs.length === 0
+                ? [h('div', { key: 'nojob', style: { fontSize: 12, color: C.muted } }, t('graph.noJobs'))]
+                : chosen.jobs.map((job) =>
+                    h('div', { key: job.id, style: { display: 'flex', justifyContent: 'space-between', gap: 8, fontSize: 12 } },
+                      h('span', { style: { minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' } }, `${job.id} ${job.label}`),
+                      h('span', { style: { color: C.muted, flex: 'none' } }, job.state),
+                    ),
+                  )),
+              chosen.mergeClaim
+                ? h('div', { style: { fontSize: 12, lineHeight: '18px' } },
+                    h('div', { style: { color: C.muted, marginBottom: 2 } }, `${t('graph.merged')}${chosen.mergedInto ? ` ${chosen.mergedInto}` : ''}`),
+                    chosen.mergeClaim,
+                  )
+                : null,
+            )
+          : null,
       )
     }
 
@@ -467,7 +579,7 @@ window.__ModuleLoader__.load({
       }, [state.open])
       if (!state.open) return null
       const close = () => overlay.set({ ...overlay.get(), open: false })
-      const known = ['graph', 'loops', 'facts', 'running', 'drafts', 'letter', 'audit']
+      const known = ['loops', 'facts', 'running', 'drafts', 'letter', 'audit']
       const tab = known.includes(state.tab) ? state.tab : 'loops'
       return h(
         'div',
@@ -528,16 +640,13 @@ window.__ModuleLoader__.load({
           h(
             'div',
             { role: 'tablist', style: { display: 'flex', gap: 16, flexWrap: 'wrap', borderBottom: `0.5px solid ${C.border}`, paddingBottom: 0, marginBottom: 2 } },
-            h(TabButton, { id: 'graph', label: t('tab.graph'), active: tab === 'graph' }),
             h(TabButton, { id: 'loops', label: t('tab.loops'), active: tab === 'loops' }),
             h(TabButton, { id: 'facts', label: t('tab.facts'), active: tab === 'facts' }),
             h(TabButton, { id: 'running', label: t('tab.running'), active: tab === 'running' }),
             h(TabButton, { id: 'drafts', label: t('tab.drafts'), active: tab === 'drafts' }),
             h(TabButton, { id: 'letter', label: t('tab.letter'), active: tab === 'letter' }),
           ),
-          tab === 'graph'
-            ? h(FishbonePane, { snapshot })
-            : tab === 'loops'
+          tab === 'loops'
             ? h(LoopsPane, { snapshot, sessionId })
             : tab === 'facts'
               ? h(FactsPane, { snapshot, sessionId })
@@ -684,15 +793,21 @@ window.__ModuleLoader__.load({
       'drawer.title': '后台',
       'drawer.close': '关闭',
       'drawer.hint': '面板仅汇总后台整理的信息；任务执行细节不会进入对话。',
-      'tab.graph': '鱼骨图',
       'tab.loops': '未结事项',
       'tab.facts': '已定结论',
       'tab.running': '运行中',
       'tab.drafts': '草稿',
       'tab.letter': '交接记录',
+      'view.fishbone': '鱼骨',
       'graph.title': '鱼骨图',
-      'graph.empty': '还没有可画的东西：先聊几轮，或者让它在后台做点什么。',
-      'graph.legend': '读法同 git graph：竖线是对话主干，每轮一个点；横线是分支；实线分叉、虚线汇回。点开「未结事项」可关闭其中一条。',
+      'graph.empty': '还没有分支。',
+      'graph.close': '关闭详情',
+      'graph.premise': '前提',
+      'graph.quotes': '引用',
+      'graph.facts': '依赖事实',
+      'graph.jobs': '任务',
+      'graph.noJobs': '这个分支上没有任务。',
+      'graph.merged': '汇回',
       'count.loops': '未结事项',
       'count.facts': '已定结论',
       'count.running': '运行中',
@@ -741,15 +856,21 @@ window.__ModuleLoader__.load({
       'drawer.title': 'Backstage',
       'drawer.close': 'Close',
       'drawer.hint': 'This panel only summarizes what the backstage prepared; execution details never enter the conversation.',
-      'tab.graph': 'Graph',
       'tab.loops': 'Open items',
       'tab.facts': 'Settled facts',
       'tab.running': 'Running',
       'tab.drafts': 'Drafts',
       'tab.letter': 'Handoff record',
+      'view.fishbone': 'Fishbone',
       'graph.title': 'Fishbone graph',
-      'graph.empty': 'Nothing to draw yet: talk a few turns, or let it do something in the background.',
-      'graph.legend': 'Same reading as a git graph: the vertical line is the conversation trunk with one dot per turn; horizontals are branches; solid forking, dashed merging.',
+      'graph.empty': 'No branches yet.',
+      'graph.close': 'Close details',
+      'graph.premise': 'Premise',
+      'graph.quotes': 'Quotes',
+      'graph.facts': 'Facts',
+      'graph.jobs': 'Jobs',
+      'graph.noJobs': 'No jobs on this branch.',
+      'graph.merged': 'Merged',
       'count.loops': 'Open',
       'count.facts': 'Facts',
       'count.running': 'Running',
@@ -809,6 +930,14 @@ window.__ModuleLoader__.load({
               label: () => t('settings.title'),
             },
             SettingsSection,
+          ),
+        )
+
+        // 鱼骨主视图：注册成 Conversation View，和「对话 / 轨迹」并列，占整块区域。
+        ctx.slots.inject('conversation.view', () =>
+          ctx.slots.register(
+            { name: 'conversation.view', id: 'miopiik-fishbone', order: 20, locale: NS, label: () => t('view.fishbone') },
+            FishboneView,
           ),
         )
 

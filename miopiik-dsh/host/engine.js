@@ -19,7 +19,7 @@ import { buildArchive, makeProposal, settlementDraft, verifyProposal } from './f
 import { DEFAULTS } from './config-defaults.js'
 import { gcDetails, putDetail, readDetail, searchIndex, extractEntities } from './details.js'
 import { describeBranches, makeBranch, renderBranchSlice } from './branches.js'
-import { appendRecord } from './store.js'
+import { appendRecord, appendSharedFact } from './store.js'
 
 export const INK_TOOL_NAMES = Object.freeze(['ink_status', 'ink_loops', 'ink_facts', 'ink_inbox', 'ink_dispatch', 'ink_commit', 'ink_brief', 'ink_epoch', 'ink_draft', 'ink_branch', 'ink_fold', 'ink_recall'])
 
@@ -38,6 +38,7 @@ export function textOf(content) {
 export class Engine {
   constructor({ store, sessionId, now = () => Date.now() }) {
     this.store = store
+    this.shared = store.shared ?? null
     this.stateDir = store.dir
     this.sessionId = sessionId
     this.now = now
@@ -257,19 +258,33 @@ export class Engine {
     })
     const errors = validateFact(fact)
     if (errors.length > 0) throw new Error(errors.join('；'))
-    await this.enqueue(() => appendRecord(this.store, 'facts', { op: 'add', fact }))
+    await this.enqueue(async () => {
+      const record = { op: 'add', fact: { ...fact, scope: 'workspace' } }
+      if (this.shared === null) await appendRecord(this.store, 'facts', record)
+      else await appendSharedFact(this.shared, record)
+      // 本会话视图同步（否则刚写的事实要重启才可见）
+      if (this.shared !== null) this.state.facts.set(fact.id, record.fact)
+    })
     return fact
   }
 
   async reviseFact(id, patch) {
     if (!this.state.facts.has(id)) throw new Error(`没有这张事实卡: ${id}`)
-    await this.enqueue(() => appendRecord(this.store, 'facts', { op: 'revise', factId: id, patch, at: this.now() }))
+    await this.enqueue(async () => {
+      const record = { op: 'revise', factId: id, patch, at: this.now() }
+      if (this.shared === null) await appendRecord(this.store, 'facts', record)
+      else await appendSharedFact(this.shared, record)
+    })
     return this.state.facts.get(id)
   }
 
   async invalidateFact(id, reason) {
     if (!this.state.facts.has(id)) throw new Error(`没有这张事实卡: ${id}`)
-    await this.enqueue(() => appendRecord(this.store, 'facts', { op: 'invalidate', factId: id, at: this.now(), reason }))
+    await this.enqueue(async () => {
+      const record = { op: 'invalidate', factId: id, at: this.now(), reason }
+      if (this.shared === null) await appendRecord(this.store, 'facts', record)
+      else await appendSharedFact(this.shared, record)
+    })
     return this.state.facts.get(id)
   }
 
@@ -516,49 +531,53 @@ export class Engine {
        * 主干 = 有用户发言的轮次；分支 = 分叉点、任务、汇回点。
        */
       graph: (() => {
-        // 主干节点＝有真实对话发生的轮次：优先用用户发言做标签，没有就用助手的。
-        const turns = new Map()
-        for (const entry of this.state.observations) {
-          const turn = entry.turn
-          if (typeof turn !== 'number') continue
-          if (entry.kind !== 'user' && entry.kind !== 'assistant') continue
-          const firstLine = String(entry.text ?? '')
-            .split('\n')
-            .map((line) => line.trim())
-            .find((line) => line !== '')
-          if (firstLine === undefined) continue
-          const existing = turns.get(turn)
-          if (existing === undefined) {
-            turns.set(turn, { turn, at: entry.at ?? null, label: firstLine.slice(0, 28), fromUser: entry.kind === 'user' })
-          } else if (!existing.fromUser && entry.kind === 'user') {
-            existing.label = firstLine.slice(0, 28)
-            existing.fromUser = true
+        // 按事件建模：只有分叉、汇回、任务落点产生节点（不按轮次铺格子）。
+        const branches = [...this.state.branches.values()].sort((a, b) => a.createdAt - b.createdAt)
+        const noteById = new Map(this.state.notes.map((note) => [note.id, note]))
+        const events = []
+        const nodes = branches.map((branch) => {
+          const jobs = branch.jobs.map((jobId) => this.state.jobs.get(jobId)).filter((job) => job !== undefined)
+          events.push({ id: `fork:${branch.id}`, kind: 'fork', at: branch.createdAt, branchId: branch.id, turn: branch.forkedAtTurn ?? null })
+          if (branch.status === 'merged' || branch.status === 'abandoned') {
+            events.push({
+              id: `merge:${branch.id}`,
+              kind: branch.status === 'merged' ? 'merge' : 'abandon',
+              at: branch.settledAt ?? branch.updatedAt,
+              branchId: branch.id,
+              turn: branch.mergedAtTurn ?? null,
+            })
           }
-        }
-        const ordered = [...turns.values()]
-          .sort((a, b) => a.turn - b.turn)
-          .slice(-14)
-          .map(({ turn, at, label }) => ({ turn, at, label }))
-        const branchNodes = [...this.state.branches.values()]
-          .filter((branch) => branch.forkedAtTurn !== null)
-          .sort((a, b) => a.createdAt - b.createdAt)
-          .slice(-8)
-          .map((branch) => ({
+          for (const job of jobs) {
+            events.push({ id: `job:${job.id}`, kind: 'job', at: job.startedAt ?? branch.createdAt, branchId: branch.id, turn: null, jobId: job.id })
+          }
+          const mergeNote = branch.mergedInto === null ? null : noteById.get(branch.mergedInto)
+          return {
             id: branch.id,
             label: branch.label,
             summary: branch.summary,
             status: branch.status,
-            forkTurn: branch.forkedAtTurn,
+            forkAt: branch.createdAt,
+            mergeAt: branch.status === 'merged' || branch.status === 'abandoned' ? branch.settledAt ?? branch.updatedAt : null,
+            forkTurn: branch.forkedAtTurn ?? null,
             mergeTurn: branch.mergedAtTurn ?? null,
             mergedInto: branch.mergedInto ?? null,
-            jobs: branch.jobs
-              .map((jobId) => this.state.jobs.get(jobId))
-              .filter((job) => job !== undefined)
-              .map((job) => ({ id: job.id, label: job.label.slice(0, 20), state: job.state })),
-          }))
+            mergeClaim: mergeNote?.claim ?? null,
+            premise: branch.context?.premise ?? '',
+            quotes: branch.context?.quotes ?? [],
+            facts: branch.context?.facts ?? [],
+            jobs: jobs.map((job) => ({
+              id: job.id,
+              label: job.label,
+              state: job.state,
+              startedAt: job.startedAt ?? null,
+              endedAt: job.endedAt ?? null,
+            })),
+          }
+        })
+        events.sort((a, b) => a.at - b.at)
         return {
-          trunk: ordered,
-          branches: branchNodes,
+          events,
+          branches: nodes,
           counts: {
             activeLoops: this.listLoops().filter((loop) => loop.status === 'active').length,
             facts: this.listFacts().length,

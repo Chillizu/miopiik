@@ -65,15 +65,17 @@ test('关键客户端注册点都在（防止替换静默失效）', () => {
   }
 })
 
-test('鱼骨图：数据面与画布都接上了（防止只加页签不画图）', () => {
+test('鱼骨主视图：注册在会话视图、按事件画、带悬停与详情', () => {
   for (const needle of [
-    'function FishbonePane(',
+    'function FishboneView(',
     'function CountsStrip(',
-    'tab graphics',
-    "id: 'graph'",
-    "h(FishbonePane, { snapshot })",
+    "ctx.slots.inject('conversation.view'",
+    "id: 'miopiik-fishbone'",
+    'graph?.events',
+    'setHover',
+    'setSelected',
   ]) {
-    if (needle === 'tab graphics') continue
     assert.ok(clientSource.includes(needle), `client.js 缺少：${needle}`)
   }
+  assert.ok(!clientSource.includes('graph.legend'), '解释性图例不该存在')
 })

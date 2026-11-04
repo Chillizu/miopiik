@@ -104,3 +104,40 @@ test('回收：只删没被引用且过期的；有引用的永远留着', async
     await ctx.cleanup()
   }
 })
+
+test('工作区级事实：另一个会话写的事实，新会话打开就能用', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'miopiik-shared-'))
+  try {
+    const s1 = await openStore(dir, 'session-a')
+    const e1 = new Engine({ store: s1, sessionId: 'session-a' })
+    const fact = await e1.addFact({ claim: '本地模型用 llmctl 管理', provenance: ['环境'], source: 'user' })
+    assert.equal(fact.id, 'F-1')
+
+    // 另一个会话（同一个工作区目录）
+    const s2 = await openStore(dir, 'session-b')
+    const e2 = new Engine({ store: s2, sessionId: 'session-b' })
+    const claims = e2.listFacts().map((entry) => entry.claim)
+    assert.ok(claims.includes('本地模型用 llmctl 管理'), '共享事实应被另一个会话读到')
+    assert.equal(s2.shared.state.facts.size, 1)
+  } finally {
+    await rm(dir, { recursive: true, force: true })
+  }
+})
+
+test('工作区级事实：修订与失效同样共享，不产生第二份', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'miopiik-shared-'))
+  try {
+    const e1 = new Engine({ store: await openStore(dir, 'a'), sessionId: 'a' })
+    const fact = await e1.addFact({ claim: '旧结论', provenance: ['x'], source: 'ink' })
+    await e1.reviseFact(fact.id, { claim: '新结论' })
+    await e1.invalidateFact(fact.id, '已被推翻')
+
+    const e2 = new Engine({ store: await openStore(dir, 'b'), sessionId: 'b' })
+    const list = e2.listFacts()
+    assert.equal(list.length, 0, '失效的事实不该出现在工作记忆里')
+    assert.equal(e2.state.facts.get(fact.id).claim, '新结论')
+    assert.equal(e2.state.facts.get(fact.id).stale, true)
+  } finally {
+    await rm(dir, { recursive: true, force: true })
+  }
+})
