@@ -205,8 +205,9 @@ export function applyRecord(state, log, record) {
       const proposal = state.folds.get(record.foldId)
       if (proposal === undefined) return
       if (record.op === 'apply-late') {
-        // 边界安全的替换在回合结束后才发生：只补记 appliedSeq，不改提案状态。
+        // 边界安全的替换在回合结束后才发生：只补记结果，不改提案状态。
         proposal.appliedSeq = record.appliedSeq ?? null
+        proposal.replaceReason = record.reason ?? null
         return
       }
       if (record.op === 'apply' || record.op === 'reject') {

@@ -305,17 +305,18 @@ window.__ModuleLoader__.load({
 
         // Ink 侧事件 = 圆；执行层（Operator）= 方。形状=层，颜色=状态。
         if (event.kind === 'job') {
-          const size = 7 + hot
+          const size = 10 + hot * 2
           marks.push(h('rect', {
             key: `e-${event.id}`,
             x: rightX - size / 2,
             y: y - size / 2,
             width: size,
             height: size,
-            rx: 1.5,
-            fill: event.state === 'running' ? color : C.base,
+            rx: 2,
+            fill: event.state === 'running' ? color : event.state === 'done' ? color : C.base,
+            fillOpacity: event.state === 'running' ? 1 : event.state === 'done' ? 0.35 : 1,
             stroke: color,
-            strokeWidth: 1.8,
+            strokeWidth: 2,
             style: { cursor: 'pointer' },
             onMouseEnter: () => setHover(branch.id),
             onMouseLeave: () => setHover(null),
@@ -343,7 +344,7 @@ window.__ModuleLoader__.load({
             : event.kind === 'merge'
               ? `汇回${branch.mergedInto === null ? '' : ` ${branch.mergedInto}`}`
               : event.kind === 'job'
-                ? `${event.jobId} ${event.state ?? ''}`
+                ? `${event.jobId} ${event.state ?? ''}${event.label ? ` · ${String(event.label).slice(0, 10)}` : ''}`
                 : `放弃 ${branch.id}`
         marks.push(h('text', {
           key: `et-${event.id}`,
@@ -705,7 +706,7 @@ window.__ModuleLoader__.load({
           key: 'letter',
           title: t('tab.letter'),
           accent: C.borderStrong,
-          count: letter === null || letter === undefined ? 0 : letter.updates?.length ?? 0,
+          count: letter === null || letter === undefined ? 0 : 1,
           body: h(LetterPane, { snapshot, compact: true }),
         },
       ]

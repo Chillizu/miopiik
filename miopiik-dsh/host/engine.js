@@ -1264,10 +1264,25 @@ export class Engine {
   }
 
   /** 回合结束后真正完成替换时补记（提案状态不变，只补 appliedSeq）。 */
-  async markFoldReplaced(id, appliedSeq) {
+  async markFoldReplaced(id, appliedSeq, reason = null) {
     await this.enqueue(() =>
-      appendRecord(this.store, 'folds', { op: 'apply-late', foldId: id, appliedSeq, at: this.now() }),
+      appendRecord(this.store, 'folds', { op: 'apply-late', foldId: id, appliedSeq, reason, at: this.now() }),
     )
+    // 失败要看得到：投一条 note，它会出现在「流水」里。
+    if (appliedSeq === null && reason !== null) {
+      try {
+        await this.deliverNote({
+          kind: 'fold',
+          claim: `折叠替换没成功：${String(reason).slice(0, 60)}`,
+          why: 'fold:replace-failed',
+          refs: [id],
+          conf: 'low',
+          detail: String(reason).slice(0, 800),
+        })
+      } catch {
+        /* 记账失败时不再抛二次错误 */
+      }
+    }
     return this.state.folds.get(id)
   }
 

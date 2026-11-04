@@ -576,7 +576,7 @@ export function registerTools(ctx, engines, operator, services = {}) {
               try {
                 const nodes = agent?.session?.surface?.nodes ?? []
                 if (nodes.length < 2) {
-                  await engine.markFoldReplaced(id, null)
+                  await engine.markFoldReplaced(id, null, 'surface-too-short')
                   return
                 }
                 const result = await compaction.compactRegion(nodes[0], nodes[nodes.length - 1], {
@@ -584,14 +584,14 @@ export function registerTools(ctx, engines, operator, services = {}) {
                   options: agent.options ?? {},
                 })
                 const seq = Number(result?.sourceEventSeq ?? result?.seq ?? 0) || null
-                await engine.markFoldReplaced(id, seq)
+                await engine.markFoldReplaced(id, seq, seq === null ? 'no-seq-returned' : null)
               } catch (error) {
                 try {
                   ctx.logger?.('miopiik-dsh')?.warn?.(`折叠替换失败：${String(error?.message ?? error).slice(0, 120)}`)
                 } catch {
                   /* 日志不可用 */
                 }
-                await engine.markFoldReplaced(id, null)
+                await engine.markFoldReplaced(id, null, String(error?.message ?? error).slice(0, 200))
               }
             })
             return {
