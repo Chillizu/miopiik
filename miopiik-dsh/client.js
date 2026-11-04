@@ -601,42 +601,167 @@ window.__ModuleLoader__.load({
       )
     }
 
+    /** 清单：每类状态一张卡片，卡片左侧一道分类色，标题栏带计数。 */
     function ListPane({ snapshot, sessionId }) {
+      const loops = snapshot?.loops
+      const facts = snapshot?.facts
+      const running = snapshot?.jobs
+      const drafts = snapshot?.drafts
+      const letter = snapshot?.letter
+      const cards = [
+        {
+          key: 'loops',
+          title: t('tab.loops'),
+          accent: C.brand,
+          count: loops?.activeCount ?? loops?.active?.length ?? 0,
+          body: h(LoopsPane, { snapshot, sessionId, compact: true }),
+        },
+        {
+          key: 'facts',
+          title: t('tab.facts'),
+          accent: C.success,
+          count: facts?.active ?? 0,
+          body: h(FactsPane, { snapshot, sessionId, compact: true }),
+        },
+        {
+          key: 'running',
+          title: t('tab.running'),
+          accent: C.warn,
+          count: running?.running ?? 0,
+          body: h(RunningPane, { snapshot, compact: true }),
+        },
+        {
+          key: 'drafts',
+          title: t('tab.drafts'),
+          accent: C.idle,
+          count: drafts?.open ?? 0,
+          body: h(DraftsPane, { snapshot, compact: true }),
+        },
+        {
+          key: 'letter',
+          title: t('tab.letter'),
+          accent: C.borderStrong,
+          count: letter === null || letter === undefined ? 0 : letter.updates?.length ?? 0,
+          body: h(LetterPane, { snapshot, compact: true }),
+        },
+      ]
       return h(
         'div',
-        { style: { display: 'flex', flexDirection: 'column' } },
-        h(Section, { title: t('tab.loops') }, h(LoopsPane, { snapshot, sessionId })),
-        h(Section, { title: t('tab.facts') }, h(FactsPane, { snapshot, sessionId })),
-        h(Section, { title: t('tab.running') }, h(RunningPane, { snapshot })),
-        h(Section, { title: t('tab.drafts') }, h(DraftsPane, { snapshot })),
-        h(Section, { title: t('tab.letter') }, h(LetterPane, { snapshot })),
+        {
+          style: {
+            display: 'grid',
+            gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))',
+            gap: 14,
+            alignItems: 'start',
+          },
+        },
+        ...cards.map((card) =>
+          h(
+            'section',
+            {
+              key: card.key,
+              style: {
+                display: 'flex',
+                flexDirection: 'column',
+                gap: 10,
+                padding: '14px 16px 16px',
+                background: C.layer1,
+                border: `0.5px solid ${C.border}`,
+                borderRadius: 10,
+                borderTop: `2px solid ${card.accent}`,
+                minWidth: 0,
+              },
+            },
+            h(
+              'div',
+              { style: { display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 8 } },
+              h('span', { style: { fontSize: 12, fontWeight: 600, color: C.text, letterSpacing: 0.2 } }, card.title),
+              h('span', { style: { fontSize: 11, color: card.count > 0 ? card.accent : C.muted, fontVariantNumeric: 'tabular-nums' } }, String(card.count)),
+            ),
+            card.body,
+          ),
+        ),
       )
     }
 
-    /** 流水页：后台实际做过什么（按时间倒序）。这就是「手动看后台全貌」的入口。 */
+    /** 流水：后台做过的每一条决定。顶部是索引（按类型筛选，带计数），下面是时间倒序的记录。 */
     function StreamPane({ snapshot }) {
       const audit = snapshot?.audit
+      const [kind, setKind] = React.useState('all')
+      const [query, setQuery] = React.useState('')
       if (audit === undefined) return h('div', { style: styles.empty }, t('stream.offline'))
       const notes = audit.notes ?? []
       const obs = audit.observations ?? {}
+
+      const counts = notes.reduce((acc, note) => {
+        acc[note.kind] = (acc[note.kind] ?? 0) + 1
+        return acc
+      }, {})
+      const kinds = ['all', ...Object.keys(counts)]
+      const needle = query.trim().toLowerCase()
+      const shown = notes
+        .filter((note) => (kind === 'all' ? true : note.kind === kind))
+        .filter((note) => (needle === '' ? true : `${note.claim} ${note.branch ?? ''} ${note.why ?? ''}`.toLowerCase().includes(needle)))
+
       return h(
         'div',
         { style: { display: 'flex', flexDirection: 'column', gap: 10 } },
         h(
           'div',
-          { style: { display: 'flex', gap: 18, fontSize: 11, color: C.muted } },
-          h('span', null, `观测 ${obs.user ?? 0} 条用户 / ${obs.assistant ?? 0} 条回复 / ${obs.tool ?? 0} 条工具`),
-          h('span', null, `决定 ${notes.length} 条`),
+          { style: { display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' } },
+          ...kinds.map((entry) =>
+            h(
+              'button',
+              {
+                key: entry,
+                type: 'button',
+                onClick: () => setKind(entry),
+                'aria-pressed': kind === entry ? 'true' : 'false',
+                style: {
+                  padding: '3px 9px',
+                  border: `0.5px solid ${kind === entry ? C.brand : C.border}`,
+                  borderRadius: 12,
+                  background: 'transparent',
+                  color: kind === entry ? C.brand : C.muted,
+                  cursor: 'pointer',
+                  fontSize: 11,
+                },
+              },
+              `${entry === 'all' ? t('stream.all') : entry}${entry === 'all' ? ` ${notes.length}` : ` ${counts[entry]}`}`,
+            ),
+          ),
+          h('input', {
+            value: query,
+            onChange: (event) => setQuery(event.target.value),
+            placeholder: t('stream.search'),
+            style: {
+              flex: '0 0 160px',
+              marginLeft: 'auto',
+              padding: '4px 10px',
+              border: `0.5px solid ${C.border}`,
+              borderRadius: 12,
+              background: 'transparent',
+              color: C.text,
+              fontSize: 11,
+              outline: 'none',
+            },
+          }),
         ),
-        notes.length === 0
+        h(
+          'div',
+          { style: { display: 'flex', gap: 18, fontSize: 11, color: C.muted } },
+          h('span', null, `${t('stream.observed')} ${obs.user ?? 0} / ${obs.assistant ?? 0} / ${obs.tool ?? 0}`),
+          h('span', null, `${t('stream.decisions')} ${notes.length}`),
+        ),
+        shown.length === 0
           ? h('div', { style: styles.empty }, t('stream.empty'))
-          : notes.map((note) =>
+          : shown.map((note) =>
               h(
                 'div',
                 { key: note.id, style: { display: 'flex', gap: 10, alignItems: 'baseline', padding: '6px 0', borderBottom: `0.5px solid ${C.border}` } },
-                h('span', { style: { flex: 'none', width: 88, fontSize: 11, color: C.muted, fontVariantNumeric: 'tabular-nums' } },
+                h('span', { style: { flex: 'none', width: 62, fontSize: 11, color: C.muted, fontVariantNumeric: 'tabular-nums' } },
                   new Date(note.at).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })),
-                h('span', { style: { flex: 'none', width: 64, fontSize: 11, color: C.brand } }, note.kind),
+                h('span', { style: { flex: 'none', width: 62, fontSize: 11, color: C.brand } }, note.kind),
                 h('span', { style: { flex: '1 1 auto', minWidth: 0, fontSize: 12, color: C.text } }, note.claim),
                 note.branch ? h('span', { style: { flex: 'none', fontSize: 11, color: C.muted } }, note.branch) : null,
               ),
@@ -644,14 +769,14 @@ window.__ModuleLoader__.load({
       )
     }
 
-    function LoopsPane({ snapshot, sessionId }) {
+    function LoopsPane({ snapshot, sessionId, compact = false }) {
       const loops = snapshot?.loops
       if (loops === undefined) return h('div', { style: styles.empty }, t('loops.offline'))
       const active = loops.active ?? []
       return h(
         'div',
         { style: { display: 'flex', flexDirection: 'column', gap: 8 } },
-        h('div', { style: styles.meta }, t('loops.subtitle')),
+        compact ? null : h('div', { style: styles.meta }, t('loops.subtitle')),
         active.length === 0
           ? h('div', { style: styles.empty }, t('loops.empty'))
           : active.map((loop) =>
@@ -679,14 +804,14 @@ window.__ModuleLoader__.load({
       )
     }
 
-    function FactsPane({ snapshot, sessionId }) {
+    function FactsPane({ snapshot, sessionId, compact = false }) {
       const facts = snapshot?.facts
       if (facts === undefined) return h('div', { style: styles.empty }, t('facts.offline'))
       const items = facts.items ?? []
       return h(
         'div',
         { style: { display: 'flex', flexDirection: 'column', gap: 8 } },
-        h('div', { style: styles.meta }, t('facts.subtitle')),
+        compact ? null : h('div', { style: styles.meta }, t('facts.subtitle')),
         items.length === 0
           ? h('div', { style: styles.empty }, t('facts.empty'))
           : items.map((fact) =>
@@ -713,7 +838,7 @@ window.__ModuleLoader__.load({
       )
     }
 
-    function RunningPane({ snapshot }) {
+    function RunningPane({ snapshot, compact = false }) {
       const jobs = snapshot?.jobs
       if (jobs === undefined) return h('div', { style: styles.empty }, t('running.offline'))
       const items = jobs.items ?? []
@@ -721,7 +846,7 @@ window.__ModuleLoader__.load({
       return h(
         'div',
         { style: { display: 'flex', flexDirection: 'column', gap: 8 } },
-        h('div', { style: styles.meta }, t('running.subtitle')),
+        compact ? null : h('div', { style: styles.meta }, t('running.subtitle')),
         items.length === 0
           ? h('div', { style: styles.empty }, t('running.empty'))
           : items.map((job) =>
@@ -758,12 +883,12 @@ window.__ModuleLoader__.load({
       )
     }
 
-    function DraftsPane({ snapshot }) {
+    function DraftsPane({ snapshot, compact = false }) {
       const drafts = snapshot?.drafts?.items ?? []
       return h(
         'div',
         { style: { display: 'flex', flexDirection: 'column', gap: 8 } },
-        h('div', { style: styles.meta }, t('drafts.subtitle')),
+        compact ? null : h('div', { style: styles.meta }, t('drafts.subtitle')),
         drafts.length === 0
           ? h('div', { style: styles.empty }, t('drafts.empty'))
           : drafts.map((draft) =>
@@ -791,7 +916,7 @@ window.__ModuleLoader__.load({
       )
     }
 
-    function LetterPane({ snapshot }) {
+    function LetterPane({ snapshot, compact = false }) {
       const letter = snapshot?.letter ?? null
       if (letter === null) {
         return h('div', { style: styles.empty }, t('letter.empty'))
@@ -799,7 +924,7 @@ window.__ModuleLoader__.load({
       return h(
         'div',
         { style: { display: 'flex', flexDirection: 'column', gap: 10 } },
-        h('div', { style: styles.meta }, t('letter.subtitle')),
+        compact ? null : h('div', { style: styles.meta }, t('letter.subtitle')),
         h(LetterField, { label: t('letter.progress'), value: letter.progress }),
         h(LetterField, { label: t('letter.loops'), value: letter.loops }),
         h(LetterField, { label: t('letter.running'), value: letter.running }),
@@ -924,6 +1049,10 @@ window.__ModuleLoader__.load({
       'graph.demoOn': '示例数据',
       'graph.demoOff': '看示例',
       'stream.empty': '后台还没有做过任何决定。',
+      'stream.all': '全部',
+      'stream.search': '搜结论或分支',
+      'stream.observed': '观测（用户/回复/工具）',
+      'stream.decisions': '决定',
       'stream.offline': '该会话的后台尚未连接。',
       'count.loops': '未结事项',
       'count.facts': '已定结论',
@@ -998,6 +1127,10 @@ window.__ModuleLoader__.load({
       'graph.demoOn': 'Demo data',
       'graph.demoOff': 'Show demo',
       'stream.empty': 'The backstage has not made any decision yet.',
+      'stream.all': 'All',
+      'stream.search': 'Search claim or branch',
+      'stream.observed': 'Observed (user/reply/tool)',
+      'stream.decisions': 'Decisions',
       'stream.offline': 'The backstage for this session is not connected yet.',
       'count.loops': 'Open',
       'count.facts': 'Facts',
