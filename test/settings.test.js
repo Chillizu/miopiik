@@ -77,6 +77,8 @@ test('鱼骨主视图：注册在会话视图、按事件画、带悬停与详�
     'tab.list',
     'tab.stream',
     'function StreamPane(',
+    'onOpenStream',
+    'graph.openStream',
     'function ListPane(',
     'function Section(',
   ]) {

@@ -228,7 +228,7 @@ window.__ModuleLoader__.load({
     })()
 
     function FishboneView(props) {
-      const { sessionId, useProjection } = props ?? {}
+      const { sessionId, useProjection, onOpenStream } = props ?? {}
       const snapshot = typeof useProjection === 'function' ? useProjection('miopiikBackstage') : undefined
       const [demo, setDemo] = React.useState(false)
       const graph = demo ? DEMO_GRAPH : snapshot?.graph
@@ -404,13 +404,13 @@ window.__ModuleLoader__.load({
 
       return h(
         'div',
-        { style: { display: 'flex', minHeight: 0 } },
+        { style: { display: 'flex', minHeight: 0, height: '100%' } },
         h(
           'div',
-          { style: { flex: '1 1 auto', minWidth: 0, overflow: 'auto', padding: '18px 20px' } },
+          { style: { flex: '1 1 auto', minWidth: 0, display: 'flex', flexDirection: 'column', minHeight: 0 } },
           h(
             'div',
-            { style: { display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12 } },
+            { style: { flex: 'none', display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12, padding: '14px 20px 6px' } },
             h(CountsStrip, { graph }),
             h(
               'button',
@@ -435,36 +435,47 @@ window.__ModuleLoader__.load({
           ),
           h(
             'div',
-            { style: { position: 'relative', width: W } },
-            h('svg', { viewBox: `0 0 ${W} ${H}`, width: W, height: H, role: 'img', 'aria-label': t('graph.title') }, ...marks),
-            hovered !== null
-              ? h(
-                  'div',
-                  {
-                    style: {
-                      position: 'absolute',
-                      left: Math.min(hoverPos.x, W - 240),
-                      top: Math.max(hoverPos.y, 0),
-                      width: 232,
-                      padding: '8px 10px',
-                      border: `0.5px solid ${C.border}`,
-                      borderRadius: 8,
-                      background: C.overlay,
-                      boxShadow: '0 6px 20px rgba(0,0,0,0.12)',
-                      pointerEvents: 'none',
-                      fontSize: 11,
-                      lineHeight: '17px',
-                      color: C.text,
+            { style: { flex: '1 1 auto', minHeight: 0, overflow: 'auto', padding: '0 20px 28px' } },
+            h(
+              'div',
+              { style: { position: 'relative', width: W } },
+              h('svg', { viewBox: `0 0 ${W} ${H}`, width: W, height: H, role: 'img', 'aria-label': t('graph.title') }, ...marks),
+              hovered !== null
+                ? h(
+                    'div',
+                    {
+                      style: {
+                        position: 'absolute',
+                        left: Math.min(hoverPos.x, W - 240),
+                        top: Math.max(hoverPos.y, 0),
+                        width: 232,
+                        padding: '8px 10px',
+                        border: `0.5px solid ${C.border}`,
+                        borderRadius: 8,
+                        background: C.overlay,
+                        boxShadow: '0 6px 20px rgba(0,0,0,0.12)',
+                        pointerEvents: 'none',
+                        fontSize: 11,
+                        lineHeight: '17px',
+                        color: C.text,
+                      },
                     },
-                  },
-                  h('div', { style: { fontWeight: 600, marginBottom: 2 } }, `${hovered.id} ${hovered.label}`),
-                  hovered.summary ? h('div', { style: { color: C.muted } }, hovered.summary) : null,
-                  h('div', { style: { color: C.muted, marginTop: 4 } },
-                    `${hovered.forkTurn === null ? '' : `第 ${hovered.forkTurn} 轮分叉 · `}${hovered.jobs.length} 个任务 · ${
-                      hovered.status === 'merged' ? `已汇回${hovered.mergedInto ? ` ${hovered.mergedInto}` : ''}` : hovered.status === 'abandoned' ? '已放弃' : '进行中'
-                    }`),
-                )
-              : null,
+                    h('div', { style: { fontWeight: 600, marginBottom: 2 } }, `${hovered.id} ${hovered.label}`),
+                    hovered.summary ? h('div', { style: { color: C.muted } }, hovered.summary) : null,
+                    h(
+                      'div',
+                      { style: { color: C.muted, marginTop: 4 } },
+                      `${hovered.forkTurn === null ? '' : `第 ${hovered.forkTurn} 轮分叉 · `}${hovered.jobs.length} 个任务 · ${
+                        hovered.status === 'merged'
+                          ? `已汇回${hovered.mergedInto ? ` ${hovered.mergedInto}` : ''}`
+                          : hovered.status === 'abandoned'
+                            ? '已放弃'
+                            : '进行中'
+                      }`,
+                    ),
+                  )
+                : null,
+            ),
           ),
         ),
         chosen !== null
@@ -472,10 +483,11 @@ window.__ModuleLoader__.load({
               'aside',
               {
                 style: {
-                  flex: '0 0 320px',
+                  flex: '0 0 340px',
+                  minHeight: 0,
                   borderLeft: `0.5px solid ${C.border}`,
-                  padding: '18px 18px 24px',
                   overflow: 'auto',
+                  padding: '16px 18px 24px',
                   display: 'flex',
                   flexDirection: 'column',
                   gap: 10,
@@ -483,40 +495,78 @@ window.__ModuleLoader__.load({
                   color: C.text,
                 },
               },
-              h('div', { style: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 } },
+              h(
+                'div',
+                { style: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 } },
                 h('strong', { style: { fontSize: 14 } }, `${chosen.id} ${chosen.label}`),
-                h('button', {
-                  type: 'button',
-                  onClick: () => setSelected(null),
-                  'aria-label': t('graph.close'),
-                  style: { border: 0, background: 'transparent', color: C.muted, cursor: 'pointer', fontSize: 13 },
-                }, '×'),
+                h(
+                  'button',
+                  {
+                    type: 'button',
+                    onClick: () => setSelected(null),
+                    'aria-label': t('graph.close'),
+                    style: { border: 0, background: 'transparent', color: C.muted, cursor: 'pointer', fontSize: 13 },
+                  },
+                  '×',
+                ),
               ),
-              chosen.summary ? h('div', { style: { fontSize: 12, color: C.muted, lineHeight: '18px' } }, chosen.summary) : null,
-              chosen.premise ? h('div', { style: { fontSize: 12, lineHeight: '18px' } }, h('span', { style: { color: C.muted } }, `${t('graph.premise')}：`), chosen.premise) : null,
-              chosen.quotes?.length
-                ? h('div', { style: { fontSize: 12, lineHeight: '18px' } },
-                    h('div', { style: { color: C.muted, marginBottom: 2 } }, t('graph.quotes')),
-                    ...chosen.quotes.map((quote, index) => h('div', { key: index, style: { borderLeft: `2px solid ${C.border}`, paddingLeft: 8, marginBottom: 2 } }, quote)),
+              typeof onOpenStream === 'function'
+                ? h(
+                    'button',
+                    {
+                      type: 'button',
+                      onClick: () => onOpenStream(chosen.id),
+                      style: {
+                        alignSelf: 'flex-start',
+                        padding: '3px 10px',
+                        border: `0.5px solid ${C.brand}`,
+                        borderRadius: 12,
+                        background: 'transparent',
+                        color: C.brand,
+                        cursor: 'pointer',
+                        fontSize: 11,
+                      },
+                    },
+                    t('graph.openStream'),
                   )
                 : null,
-              chosen.facts?.length
-                ? h('div', { style: { fontSize: 12, lineHeight: '18px' } },
+              chosen.summary ? h('div', { style: { fontSize: 12, color: C.muted, lineHeight: '18px' } }, chosen.summary) : null,
+              chosen.premise
+                ? h('div', { style: { fontSize: 12, lineHeight: '18px' } }, h('span', { style: { color: C.muted } }, `${t('graph.premise')}：`), chosen.premise)
+                : null,
+              (chosen.quotes ?? []).length > 0
+                ? h(
+                    'div',
+                    { style: { fontSize: 12, lineHeight: '18px' } },
+                    h('div', { style: { color: C.muted, marginBottom: 2 } }, t('graph.quotes')),
+                    ...chosen.quotes.map((quote, index) =>
+                      h('div', { key: index, style: { borderLeft: `2px solid ${C.border}`, paddingLeft: 8, marginBottom: 2 } }, quote),
+                    ),
+                  )
+                : null,
+              (chosen.facts ?? []).length > 0
+                ? h(
+                    'div',
+                    { style: { fontSize: 12, lineHeight: '18px' } },
                     h('div', { style: { color: C.muted, marginBottom: 2 } }, t('graph.facts')),
                     h('div', null, chosen.facts.join('、')),
                   )
                 : null,
               h('div', { style: { fontSize: 12, color: C.muted } }, t('graph.jobs')),
-              ...(chosen.jobs.length === 0
+              ...((chosen.jobs ?? []).length === 0
                 ? [h('div', { key: 'nojob', style: { fontSize: 12, color: C.muted } }, t('graph.noJobs'))]
                 : chosen.jobs.map((job) =>
-                    h('div', { key: job.id, style: { display: 'flex', justifyContent: 'space-between', gap: 8, fontSize: 12 } },
+                    h(
+                      'div',
+                      { key: job.id, style: { display: 'flex', justifyContent: 'space-between', gap: 8, fontSize: 12 } },
                       h('span', { style: { minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' } }, `${job.id} ${job.label}`),
                       h('span', { style: { color: C.muted, flex: 'none' } }, job.state),
                     ),
                   )),
               chosen.mergeClaim
-                ? h('div', { style: { fontSize: 12, lineHeight: '18px' } },
+                ? h(
+                    'div',
+                    { style: { fontSize: 12, lineHeight: '18px' } },
                     h('div', { style: { color: C.muted, marginBottom: 2 } }, `${t('graph.merged')}${chosen.mergedInto ? ` ${chosen.mergedInto}` : ''}`),
                     chosen.mergeClaim,
                   )
@@ -534,6 +584,11 @@ window.__ModuleLoader__.load({
       const { sessionId, useProjection } = props ?? {}
       const snapshot = typeof useProjection === 'function' ? useProjection('miopiikBackstage') : undefined
       const [tab, setTab] = React.useState('graph')
+      const [streamFilter, setStreamFilter] = React.useState(null) // {branch} | null
+      const openStream = (branchId) => {
+        setStreamFilter({ branch: branchId })
+        setTab('stream')
+      }
       const tabs = [
         ['graph', t('tab.graph')],
         ['list', t('tab.list')],
@@ -584,10 +639,10 @@ window.__ModuleLoader__.load({
           'div',
           { style: { flex: '1 1 auto', minHeight: 0, overflow: 'auto', padding: tab === 'graph' ? 0 : '18px 22px' } },
           tab === 'graph'
-            ? h(FishboneView, props)
+            ? h(FishboneView, { ...props, onOpenStream: openStream })
             : tab === 'list'
               ? h(ListPane, { snapshot, sessionId })
-              : h(StreamPane, { snapshot }),
+              : h(StreamPane, { snapshot, filter: streamFilter, onClearFilter: () => setStreamFilter(null) }),
         ),
       )
     }
@@ -685,7 +740,7 @@ window.__ModuleLoader__.load({
     }
 
     /** 流水：后台做过的每一条决定。顶部是索引（按类型筛选，带计数），下面是时间倒序的记录。 */
-    function StreamPane({ snapshot }) {
+    function StreamPane({ snapshot, filter = null, onClearFilter }) {
       const audit = snapshot?.audit
       const [kind, setKind] = React.useState('all')
       const [query, setQuery] = React.useState('')
@@ -700,6 +755,7 @@ window.__ModuleLoader__.load({
       const kinds = ['all', ...Object.keys(counts)]
       const needle = query.trim().toLowerCase()
       const shown = notes
+        .filter((note) => (filter?.branch === undefined || filter?.branch === null ? true : note.branch === filter.branch))
         .filter((note) => (kind === 'all' ? true : note.kind === kind))
         .filter((note) => (needle === '' ? true : `${note.claim} ${note.branch ?? ''} ${note.why ?? ''}`.toLowerCase().includes(needle)))
 
@@ -709,6 +765,26 @@ window.__ModuleLoader__.load({
         h(
           'div',
           { style: { display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' } },
+          filter?.branch
+            ? h(
+                'button',
+                {
+                  key: 'branch-filter',
+                  type: 'button',
+                  onClick: () => (typeof onClearFilter === 'function' ? onClearFilter() : undefined),
+                  style: {
+                    padding: '3px 9px',
+                    border: `0.5px solid ${C.brand}`,
+                    borderRadius: 12,
+                    background: C.brand,
+                    color: '#fff',
+                    cursor: 'pointer',
+                    fontSize: 11,
+                  },
+                },
+                `${filter.branch} ×`,
+              )
+            : null,
           ...kinds.map((entry) =>
             h(
               'button',
@@ -1046,6 +1122,7 @@ window.__ModuleLoader__.load({
       'graph.jobs': '任务',
       'graph.noJobs': '这个分支上没有任务。',
       'graph.merged': '汇回',
+      'graph.openStream': '在流水中查看',
       'graph.demoOn': '示例数据',
       'graph.demoOff': '看示例',
       'stream.empty': '后台还没有做过任何决定。',
@@ -1124,6 +1201,7 @@ window.__ModuleLoader__.load({
       'graph.jobs': 'Jobs',
       'graph.noJobs': 'No jobs on this branch.',
       'graph.merged': 'Merged',
+      'graph.openStream': 'Open in stream',
       'graph.demoOn': 'Demo data',
       'graph.demoOff': 'Show demo',
       'stream.empty': 'The backstage has not made any decision yet.',
