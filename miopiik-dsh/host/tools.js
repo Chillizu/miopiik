@@ -514,21 +514,32 @@ export function registerTools(ctx, engines, operator, services = {}) {
           case 'approve': {
             const id = args.id ?? engine.pendingFold()?.id
             if (typeof id !== 'string') throw new Error('没有待验收的提案')
-            // compaction 在 agent preset 里被 isolate 成一个 scope；
-            // 插件根上下文看不到它，必须从该 agent 自己的上下文取。
-            let compaction = services.compaction ?? null
-            if (compaction === null && exec.agent !== undefined) {
-              try {
-                compaction = exec.agent.ctx?.get?.('compaction') ?? null
-              } catch {
-                compaction = null
-              }
-            }
+            // 原子替换交给 DSH 自己的 /compact（命令注册表是跨 scope 可见的入口）：
+            // 插件根上下文看不到被 isolate 的 compaction 服务，但可以执行这条命令。
             return engine.settleFold(id, {
               approve: true,
               archive: args.archive ?? null,
-              agent: exec.agent ?? null,
-              compaction,
+              // settleFold 通过这个回调做替换，具体机制留在引擎外，便于测试。
+              replace: async (agent) => {
+                const commands = (() => {
+                  try {
+                    return ctx.get('commands')
+                  } catch {
+                    return undefined
+                  }
+                })()
+                if (commands === undefined || agent === undefined) return { applied: false, reason: 'no-command-registry' }
+                try {
+                  const result = await commands.execute(agent, '/compact', [], AbortSignal.timeout(180_000))
+                  const outcome = result?.result
+                  if (outcome?.kind === 'success') {
+                    return { applied: true, seq: outcome.sourceEventSeq ?? null }
+                  }
+                  return { applied: false, reason: `command:${outcome?.text ?? 'unknown'}` }
+                } catch (error) {
+                  return { applied: false, reason: `command-threw:${String(error?.message ?? error).slice(0, 80)}` }
+                }
+              },
             })
           }
           case 'reject': {

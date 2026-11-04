@@ -947,7 +947,7 @@ export class Engine {
    *    有 compaction 服务就原子替换，没有就只记账（绝不偷偷改上下文）。
    *  - 退回：留下理由，重折一次。
    */
-  async settleFold(id, { approve, archive = null, reason = null, agent = null, compaction = null }) {
+  async settleFold(id, { approve, archive = null, reason = null, agent = null, replace = null }) {
     const proposal = this.state.folds.get(id)
     if (proposal === undefined) throw new Error(`没有这份折叠提案: ${id}`)
     if (proposal.status !== 'pending') throw new Error(`这份提案已经处理过：${proposal.status}`)
@@ -972,30 +972,20 @@ export class Engine {
 
     let appliedSeq = null
     let replacement = 'not-attempted'
-    if (compaction === null || typeof compaction.compactRegion !== 'function') {
-      replacement = 'no-compaction-service'
-    } else if (agent === null || agent?.session === undefined) {
-      replacement = 'no-session'
+    if (typeof replace !== 'function') {
+      replacement = 'no-replacer'
     } else {
-      // 原子替换交给 DSH：它负责把这一段标成 shadowed，并写入一条 compaction 记录。
-      // 边界必须取自真实 surface（0 不在 surface 上，会被 compactRegion 拒绝）。
-      const nodes = agent.session.surface?.nodes ?? []
-      if (nodes.length < 2) {
-        replacement = 'surface-too-short'
-      } else {
-        const start = nodes[0]
-        const end = nodes[nodes.length - 1]
-        try {
-          const result = await compaction.compactRegion(start, end, {
-            session: agent.session,
-            options: agent.options ?? {},
-          })
-          appliedSeq = Number(result?.sourceEventSeq ?? result?.seq ?? end) || end
+      // 替换动作由调用方注入（生产实现是 DSH 的 /compact；测试里可以给假实现）。
+      try {
+        const outcome = await replace(agent)
+        if (outcome?.applied === true) {
+          appliedSeq = outcome.seq ?? this.state.counters.obs
           replacement = 'applied'
-        } catch (error) {
-          // 替换失败绝不留一个「以为替换了」的状态：记账并如实说明。
-          replacement = `failed:${String(error?.message ?? error).slice(0, 80)}`
+        } else {
+          replacement = outcome?.reason ?? 'replacement-refused'
         }
+      } catch (error) {
+        replacement = `threw:${String(error?.message ?? error).slice(0, 80)}`
       }
     }
 
