@@ -242,18 +242,17 @@ test('账本按会话隔离，只有事实卡跨会话共享', async () => {
   }
 })
 
-test('旧布局迁移：根目录的账本会被搬进第一个打开它的会话', async () => {
+test('旧布局不再自动认领：留空并交给 tools/adopt-legacy.mjs 按时间戳归还', async () => {
   const root = await mkdtemp(join(tmpdir(), 'miopiik-migrate-'))
   try {
     await appendFile(join(root, 'observations.jsonl'), JSON.stringify({ seq: 1, at: 1, day: 1, turn: 1, kind: 'user', text: '旧数据' }) + '\n')
-    await appendFile(join(root, 'loops.jsonl'), JSON.stringify({ op: 'create', loop: { id: 'L-1', text: '旧线索', type: 'promise', status: 'active', createdAt: 1, lastTouchedAt: 1, lastTouchedDay: 1 } }) + '\n')
-    await appendFile(join(root, 'facts.jsonl'), JSON.stringify({ op: 'add', fact: { id: 'F-1', claim: '旧事实', provenance: [], conf: 'mid', source: 'ink', stale: false, createdAt: 1, revisedAt: 1 } }) + '\n')
+    await appendFile(join(root, 'branches.jsonl'), JSON.stringify({ op: 'create', branch: { id: 'B-1', label: '旧分支', createdAt: 1 } }) + '\n')
 
     const sessionDir = join(root, 'sessions', 's1')
     const engine = new Engine({ store: await openStore(sessionDir, 's1', { workspaceRoot: root }), sessionId: 's1' })
-    assert.equal(engine.listLoops()[0].text, '旧线索', '旧开环应被搬进会话目录')
-    assert.equal(engine.listFacts()[0].claim, '旧事实', '旧事实应并进共享区')
-    assert.ok(!existsSync(join(root, 'observations.jsonl')), '根目录不该再留旧账本')
+    // 关键：不猜、不硬塞。别人的分支不该出现在这个会话里。
+    assert.equal(engine.listBranches().length, 0, '旧账本不该被自动塞进当前会话')
+    assert.ok(existsSync(join(root, 'branches.jsonl')), '旧文件应原样保留，等认领工具处理')
   } finally {
     await rm(root, { recursive: true, force: true })
   }

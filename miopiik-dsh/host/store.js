@@ -339,11 +339,9 @@ export async function appendSharedFact(shared, record) {
 export async function openStore(dir, sessionId, options = {}) {
   const workspaceRoot = options.workspaceRoot ?? dir
   await mkdir(dir, { recursive: true })
-  try {
-    await migrateLegacyLayout(dir, workspaceRoot)
-  } catch {
-    // 迁移失败不阻塞：新布局照常工作，旧文件留在原地。
-  }
+  // 注意：绝不自动把旧布局（根目录）的账本塞进「第一个打开的会话」——
+  // 旧文件是多个会话混写的，那样会把别人的分支搬错家（已经踩过一次）。
+  // 需要认领时用 tools/adopt-legacy.mjs，按记录时间戳与会话时间轴匹配。
   const state = emptyState(sessionId)
   for (const log of LOG_NAMES) {
     let text = ''
