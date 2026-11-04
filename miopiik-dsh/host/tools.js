@@ -514,7 +514,16 @@ export function registerTools(ctx, engines, operator, services = {}) {
           case 'approve': {
             const id = args.id ?? engine.pendingFold()?.id
             if (typeof id !== 'string') throw new Error('没有待验收的提案')
-            const compaction = services.compaction ?? null
+            // compaction 在 agent preset 里被 isolate 成一个 scope；
+            // 插件根上下文看不到它，必须从该 agent 自己的上下文取。
+            let compaction = services.compaction ?? null
+            if (compaction === null && exec.agent !== undefined) {
+              try {
+                compaction = exec.agent.ctx?.get?.('compaction') ?? null
+              } catch {
+                compaction = null
+              }
+            }
             return engine.settleFold(id, {
               approve: true,
               archive: args.archive ?? null,
