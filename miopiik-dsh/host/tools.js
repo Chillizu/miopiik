@@ -20,7 +20,7 @@ function tool(definition) {
   return { ...definition, output: { schema: RESULT_SCHEMA, render } }
 }
 
-export function registerTools(ctx, engines, operator) {
+export function registerTools(ctx, engines, operator, services = {}) {
   const engineFor = (exec) => {
     const sessionId = exec?.agent?.session?.id
     const engine = sessionId === undefined ? undefined : engines.get(String(sessionId))
@@ -514,13 +514,7 @@ export function registerTools(ctx, engines, operator) {
           case 'approve': {
             const id = args.id ?? engine.pendingFold()?.id
             if (typeof id !== 'string') throw new Error('没有待验收的提案')
-            const compaction = (() => {
-              try {
-                return ctx.get('compaction')
-              } catch {
-                return null
-              }
-            })()
+            const compaction = services.compaction ?? null
             return engine.settleFold(id, {
               approve: true,
               archive: args.archive ?? null,

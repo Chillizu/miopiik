@@ -164,7 +164,13 @@ export function apply(ctx, config) {
   registerProjection()
   registerBackstageCommand(ctx, engines)
 
+  // 跨插件服务要走 ctx.inject（直接 ctx.get 在没声明依赖时拿不到）。
+  const services = { compaction: null }
+  ctx.inject(['compaction'], (scope) => {
+    services.compaction = scope.compaction ?? null
+  })
+
   const operator = createOperator({ ctx, engines, config, warn })
-  registerTools(ctx, engines, operator)
+  registerTools(ctx, engines, operator, services)
   registerPrompt(ctx, engines)
 }
