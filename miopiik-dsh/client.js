@@ -629,6 +629,19 @@ window.__ModuleLoader__.load({
         ctx.effect(() => ctx.locale.register(NS, { zh, en }), 'miopiik: dictionaries')
         t = ctx.locale.bind(NS)
 
+        ctx.slots.inject('settings.section', () =>
+          ctx.slots.register(
+            {
+              name: 'settings.section',
+              id: 'miopiik',
+              order: 60,
+              locale: NS,
+              label: () => t('settings.title'),
+            },
+            SettingsSection,
+          ),
+        )
+
         ctx.slots.inject('conversation.composer.dock', () =>
           ctx.slots.register(
             { name: 'conversation.composer.dock', id: 'miopiik-presence', order: 40, locale: NS },

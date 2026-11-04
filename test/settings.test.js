@@ -51,3 +51,16 @@ test('真正用到的常量来自同一张表（改一处即全站生效）', as
   assert.equal(loops.FOLDED_AFTER_DAYS, DEFAULTS.foldedAfterDays)
   assert.equal(inbox.MAX_FULL_PREVIEWS, DEFAULTS.inboxMaxPreviews)
 })
+
+test('关键客户端注册点都在（防止替换静默失效）', () => {
+  for (const needle of [
+    "ctx.slots.inject('settings.section'",
+    "ctx.slots.inject('conversation.composer.dock'",
+    "name: 'settings.section'",
+    "name: 'conversation.composer.dock'",
+    'function SettingsSection(',
+    'function Presence(',
+  ]) {
+    assert.ok(clientSource.includes(needle), `client.js 缺少：${needle}`)
+  }
+})
