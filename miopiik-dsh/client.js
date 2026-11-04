@@ -685,7 +685,7 @@ window.__ModuleLoader__.load({
           key: 'facts',
           title: t('tab.facts'),
           accent: C.success,
-          count: facts?.active ?? 0,
+          count: (facts?.items ?? []).filter(isSettled).length,
           body: h(FactsPane, { snapshot, sessionId, compact: true }),
         },
         {
@@ -904,37 +904,57 @@ window.__ModuleLoader__.load({
       )
     }
 
+    /** 事实分两档：用户说过的 / 高置信的算「已定」，其余只能在「待核」里等确认。 */
+    function isSettled(fact) {
+      return fact.source === 'user' || fact.conf === 'high'
+    }
+
+    function FactRow({ fact, sessionId }) {
+      return h(
+        'div',
+        { style: styles.row },
+        h(
+          'div',
+          { style: styles.rowText },
+          fact.claim,
+          h('div', { style: styles.meta }, `${fact.id} · ${fact.conf} · ${fact.source}`),
+        ),
+        h(
+          'button',
+          {
+            type: 'button',
+            style: styles.action,
+            onClick: () => runBackstageCommand(sessionId, `/miopiik fact invalidate ${fact.id}`),
+          },
+          t('facts.invalidate'),
+        ),
+      )
+    }
+
     function FactsPane({ snapshot, sessionId, compact = false }) {
       const facts = snapshot?.facts
       if (facts === undefined) return h('div', { style: styles.empty }, t('facts.offline'))
       const items = facts.items ?? []
+      const settled = items.filter(isSettled)
+      const pending = items.filter((fact) => !isSettled(fact))
+      if (items.length === 0) {
+        return h('div', { style: styles.empty }, t('facts.empty'))
+      }
       return h(
         'div',
         { style: { display: 'flex', flexDirection: 'column', gap: 8 } },
         compact ? null : h('div', { style: styles.meta }, t('facts.subtitle')),
-        items.length === 0
-          ? h('div', { style: styles.empty }, t('facts.empty'))
-          : items.map((fact) =>
-              h(
-                'div',
-                { key: fact.id, style: styles.row },
-                h(
-                  'div',
-                  { style: styles.rowText },
-                  fact.claim,
-                  h('div', { style: styles.meta }, `${fact.id} · ${fact.conf} · ${fact.source}`),
-                ),
-                h(
-                  'button',
-                  {
-                    type: 'button',
-                    style: styles.action,
-                    onClick: () => runBackstageCommand(sessionId, `/miopiik fact invalidate ${fact.id}`),
-                  },
-                  t('facts.invalidate'),
-                ),
-              ),
-            ),
+        settled.length > 0
+          ? h('div', { style: { display: 'flex', flexDirection: 'column', gap: 8 } }, ...settled.map((fact) => h(FactRow, { key: fact.id, fact, sessionId })))
+          : null,
+        pending.length > 0
+          ? h(
+              'div',
+              { style: { display: 'flex', flexDirection: 'column', gap: 8, marginTop: settled.length > 0 ? 6 : 0 } },
+              h('div', { style: { fontSize: 11, color: C.muted } }, t('facts.pending')),
+              ...pending.map((fact) => h(FactRow, { key: fact.id, fact, sessionId })),
+            )
+          : null,
       )
     }
 
@@ -1164,7 +1184,8 @@ window.__ModuleLoader__.load({
       'loops.close': '关闭',
       'loops.dormant': '休眠',
       'loops.closed': '已关闭',
-      'facts.subtitle': '已确认的结论。标记失效比重新解释更省事。',
+      'facts.subtitle': '你确认过、或高置信的结论。标记失效比重新解释更省事。',
+      'facts.pending': '待核（低置信或只有后台推断，尚未与你确认）',
       'facts.empty': '尚无已记录的结论。',
       'facts.offline': '该会话的后台尚未连接。',
       'facts.invalidate': '标记失效',
@@ -1242,7 +1263,8 @@ window.__ModuleLoader__.load({
       'loops.close': 'Close',
       'loops.dormant': 'dormant',
       'loops.closed': 'closed',
-      'facts.subtitle': 'Conclusions we confirmed. Invalidating one beats explaining again.',
+      'facts.subtitle': 'Conclusions you confirmed, or high-confidence ones. Invalidating one beats explaining again.',
+      'facts.pending': 'Unconfirmed (low confidence or backstage inference only)',
       'facts.empty': 'No settled facts recorded yet.',
       'facts.offline': 'The backstage for this session is not connected yet.',
       'facts.invalidate': 'Invalidate',
