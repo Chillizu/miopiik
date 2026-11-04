@@ -620,3 +620,34 @@ test('收工信号不误报：普通聊天不算道别', async () => {
     await ctx.cleanup()
   }
 })
+
+test('鱼骨图数据：主干轮次 + 分支分叉点/任务/汇回点', async () => {
+  const ctx = await fixture()
+  try {
+    const say = (text) =>
+      ctx.engine.observe({
+        type: 'user/message',
+        data: { source: { kind: 'user' }, content: [{ type: 'text', text }] },
+      })
+    ctx.engine.turn = 1
+    say('第一轮的问题')
+    ctx.engine.turn = 5
+    say('第五轮的问题')
+    await ctx.engine.queue
+    const branch = await ctx.engine.openBranch({ label: '竞品扫描', forkedAtTurn: 3 })
+    await ctx.engine.addJob({ id: 'J-1', label: '扫描', branchId: branch.id, state: 'running' })
+    await ctx.engine.mergeBranch(branch.id, { claim: '结论' })
+
+    const graph = ctx.engine.backstageSnapshot().graph
+    assert.deepEqual(graph.trunk.map((node) => node.turn), [1, 5])
+    assert.equal(graph.branches.length, 1)
+    const node = graph.branches[0]
+    assert.equal(node.id, branch.id)
+    assert.equal(node.forkTurn, 3)
+    assert.equal(node.status, 'merged')
+    assert.equal(node.jobs.length, 1)
+    assert.ok(node.mergedInto !== null, '汇回后应带 note 号')
+  } finally {
+    await ctx.cleanup()
+  }
+})

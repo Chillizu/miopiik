@@ -188,6 +188,7 @@ export function applyRecord(state, log, record) {
         branch.status = record.op === 'merge' ? 'merged' : 'abandoned'
         branch.settledAt = record.at
         branch.mergedInto = record.mergedInto ?? null
+        branch.mergedAtTurn = record.turn ?? branch.mergedAtTurn ?? null
         branch.updatedAt = record.at
       }
       return

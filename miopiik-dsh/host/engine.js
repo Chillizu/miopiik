@@ -69,7 +69,9 @@ export class Engine {
         // 只收真人提示：goal 轮次、时间上下文、审批等系统注入不是用户说的话。
         if (event.data?.source?.kind !== 'user') return
         const text = textOf(event.data?.content)
-        if (text !== '') this.enqueue(() => this.recordObservation('user', text, this.turn))
+        // 轮次必须在「到达时」取，不能等到写入时再读 this.turn——否则同一批入队的消息会共用最后的轮次。
+        const turn = this.turn
+        if (text !== '') this.enqueue(() => this.recordObservation('user', text, turn))
       } else if (type === 'assistant/message') {
         const text = textOf(event.data?.message?.content)
         const turn = event.data?.turn ?? this.turn
@@ -509,6 +511,50 @@ export class Engine {
         open: this.listDrafts().length,
         items: this.listDrafts().slice(0, 5).map((draft) => ({ id: draft.id, title: draft.title, conf: draft.conf })),
       },
+      /**
+       * 鱼骨图的原始数据（客户端只做布局，不做语义判断）：
+       * 主干 = 有用户发言的轮次；分支 = 分叉点、任务、汇回点。
+       */
+      graph: (() => {
+        const turns = new Map()
+        for (const entry of this.state.observations) {
+          if (entry.kind !== 'user') continue
+          const turn = entry.turn
+          if (typeof turn !== 'number') continue
+          if (!turns.has(turn)) {
+            const firstLine = String(entry.text ?? '').split('\n').map((line) => line.trim()).find((line) => line !== '')
+            turns.set(turn, { turn, at: entry.at ?? null, label: (firstLine ?? '').slice(0, 28) })
+          }
+        }
+        const ordered = [...turns.values()].sort((a, b) => a.turn - b.turn).slice(-14)
+        const branchNodes = [...this.state.branches.values()]
+          .filter((branch) => branch.forkedAtTurn !== null)
+          .sort((a, b) => a.createdAt - b.createdAt)
+          .slice(-8)
+          .map((branch) => ({
+            id: branch.id,
+            label: branch.label,
+            summary: branch.summary,
+            status: branch.status,
+            forkTurn: branch.forkedAtTurn,
+            mergeTurn: branch.mergedAtTurn ?? null,
+            mergedInto: branch.mergedInto ?? null,
+            jobs: branch.jobs
+              .map((jobId) => this.state.jobs.get(jobId))
+              .filter((job) => job !== undefined)
+              .map((job) => ({ id: job.id, label: job.label.slice(0, 20), state: job.state })),
+          }))
+        return {
+          trunk: ordered,
+          branches: branchNodes,
+          counts: {
+            activeLoops: this.listLoops().filter((loop) => loop.status === 'active').length,
+            facts: this.listFacts().length,
+            running: [...this.state.jobs.values()].filter((job) => job.state === 'running').length,
+            drafts: this.listDrafts().length,
+          },
+        }
+      })(),
       branches: {
         open: this.listBranches().length,
         items: this.listBranches()
@@ -924,7 +970,7 @@ export class Engine {
       newConclusion: true,
     })
     await this.enqueue(() =>
-      appendRecord(this.store, 'branches', { op: 'merge', branchId: id, mergedInto: note.id, at: this.now() }),
+      appendRecord(this.store, 'branches', { op: 'merge', branchId: id, mergedInto: note.id, turn: this.turn, at: this.now() }),
     )
     return { branch: this.state.branches.get(id), note }
   }

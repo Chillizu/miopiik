@@ -64,3 +64,16 @@ test('关键客户端注册点都在（防止替换静默失效）', () => {
     assert.ok(clientSource.includes(needle), `client.js 缺少：${needle}`)
   }
 })
+
+test('鱼骨图：数据面与画布都接上了（防止只加页签不画图）', () => {
+  for (const needle of [
+    'function FishbonePane(',
+    'function CountsStrip(',
+    'tab graphics',
+    "id: 'graph'",
+    "h(FishbonePane, { snapshot })",
+  ]) {
+    if (needle === 'tab graphics') continue
+    assert.ok(clientSource.includes(needle), `client.js 缺少：${needle}`)
+  }
+})

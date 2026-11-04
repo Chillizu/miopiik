@@ -95,6 +95,7 @@ window.__ModuleLoader__.load({
       }
     }
 
+    // 与 DSH 自带的「对话 / 轨迹」标签同一套度量：13px、字重 500、激活用品牌色、下划线指示。
     function TabButton({ id, label, active }) {
       return h(
         'button',
@@ -104,16 +105,156 @@ window.__ModuleLoader__.load({
           'aria-selected': active ? 'true' : 'false',
           onClick: () => overlay.set({ ...overlay.get(), tab: id }),
           style: {
-            padding: '5px 10px',
-            borderRadius: 8,
-            border: `1px solid ${active ? C.borderStrong : C.border}`,
+            padding: '0 3px 9px',
+            border: 0,
+            borderBottom: active ? `2px solid ${C.brand}` : '2px solid transparent',
             background: 'transparent',
-            color: active ? C.text : C.muted,
+            color: active ? C.brand : C.muted,
             cursor: 'pointer',
-            fontSize: 12,
+            fontSize: 13,
+            fontWeight: 500,
+            lineHeight: '16px',
+            whiteSpace: 'nowrap',
           },
         },
         label,
+      )
+    }
+
+    function CountsStrip({ graph }) {
+      const counts = graph?.counts
+      if (counts === undefined) return null
+      const items = [
+        [t('count.loops'), counts.activeLoops],
+        [t('count.facts'), counts.facts],
+        [t('count.running'), counts.running],
+        [t('count.drafts'), counts.drafts],
+      ]
+      return h(
+        'div',
+        { style: { display: 'flex', gap: 18, padding: '2px 0 10px' } },
+        ...items.map(([label, value]) =>
+          h(
+            'div',
+            { key: label, style: { display: 'flex', flexDirection: 'column', gap: 1 } },
+            h('span', { style: { fontSize: 16, fontWeight: 600, lineHeight: '20px', color: C.text } }, String(value)),
+            h('span', { style: { fontSize: 11, color: C.muted } }, label),
+          ),
+        ),
+      )
+    }
+
+    /**
+     * 鱼骨图：主干是对话轮次（竖直），分支从某一轮分叉出去、横向走一段，
+     * 最后用一条曲线汇回主干——跟 git graph 的 fork / commit / merge 是同一套读法。
+     * 所有标签直接画在图上（分支名、任务数、汇回 note 号），不做悬浮提示。
+     */
+    function FishbonePane({ snapshot }) {
+      const graph = snapshot?.graph
+      if (graph === undefined || (graph.trunk?.length === 0 && graph.branches?.length === 0)) {
+        return h('div', { style: styles.empty }, t('graph.empty'))
+      }
+      const W = 396
+      const trunkX = 18
+      const laneX = 96
+      const rowGap = 34
+      const trunk = graph.trunk ?? []
+      const index = new Map(trunk.map((node, i) => [node.turn, i]))
+      const yOfTurn = (turn) => {
+        const i = index.get(turn)
+        return i === undefined ? null : 18 + i * rowGap
+      }
+
+      const elements = []
+      const lastTurnY = 18 + Math.max(0, trunk.length - 1) * rowGap
+
+      // 主干
+      elements.push(h('line', { key: 'trunk', x1: trunkX, y1: 18, x2: trunkX, y2: lastTurnY, stroke: C.borderStrong, strokeWidth: 1.5 }))
+      for (const node of trunk) {
+        const y = yOfTurn(node.turn)
+        elements.push(h('circle', { key: `t${node.turn}`, cx: trunkX, cy: y, r: 3.5, fill: C.brand }))
+        elements.push(
+          h(
+            'text',
+            { key: `tl${node.turn}`, x: trunkX + 10, y: y + 4, fontSize: 11, fill: C.muted },
+            `第 ${node.turn} 轮`,
+          ),
+        )
+      }
+
+      let branchY = lastTurnY + 26
+      for (const [i, branch] of (graph.branches ?? []).entries()) {
+        const forkY = yOfTurn(branch.forkTurn)
+        const y = branchY + i * 30
+        const mergeY = branch.mergeTurn === null ? null : yOfTurn(branch.mergeTurn)
+        const done = branch.status === 'merged'
+        const color = done ? C.success : branch.status === 'abandoned' ? C.idle : C.brand
+        const endX = W - 12
+
+        if (forkY !== null) {
+          elements.push(
+            h('path', {
+              key: `f${branch.id}`,
+              d: `M ${trunkX},${forkY} C ${trunkX + 30},${forkY} ${laneX - 24},${y} ${laneX},${y}`,
+              fill: 'none',
+              stroke: color,
+              strokeWidth: 1.5,
+            }),
+          )
+        }
+        elements.push(h('line', { key: `l${branch.id}`, x1: laneX, y1: y, x2: endX, y2: y, stroke: color, strokeWidth: 1.5 }))
+        if (mergeY !== null) {
+          elements.push(
+            h('path', {
+              key: `m${branch.id}`,
+              d: `M ${endX},${y} C ${endX + 6},${y} ${trunkX + 40},${mergeY} ${trunkX},${mergeY}`,
+              fill: 'none',
+              stroke: color,
+              strokeWidth: 1.5,
+              strokeDasharray: '3 3',
+            }),
+          )
+          elements.push(h('circle', { key: `md${branch.id}`, cx: trunkX, cy: mergeY, r: 4, fill: 'none', stroke: color, strokeWidth: 1.5 }))
+        }
+
+        // 分支上的任务点
+        const jobs = branch.jobs ?? []
+        jobs.forEach((job, ji) => {
+          const jx = laneX + 34 + ji * 26
+          const running = job.state === 'running'
+          elements.push(
+            h('circle', {
+              key: `${branch.id}-${job.id}`,
+              cx: jx,
+              cy: y,
+              r: 4.5,
+              fill: running ? C.brand : C.overlay,
+              stroke: running ? C.brand : C.borderStrong,
+              strokeWidth: 1.5,
+            }),
+          )
+          elements.push(
+            h('title', { key: `${branch.id}-${job.id}-t` }, `${job.id} ${job.label}（${job.state}）`),
+          )
+        })
+
+        // 图内标签：分支名 + 任务数 + 汇回号
+        const meta = [
+          branch.id,
+          `${jobs.length} 个任务`,
+          branch.status === 'merged' ? `已汇回${branch.mergedInto === null ? '' : ` ${branch.mergedInto}`}` : branch.status === 'abandoned' ? '已放弃' : '进行中',
+        ].join(' · ')
+        elements.push(h('text', { key: `bl${branch.id}`, x: laneX, y: y - 7, fontSize: 11, fill: C.text }, branch.label.slice(0, 16)))
+        elements.push(h('text', { key: `bm${branch.id}`, x: laneX, y: y + 16, fontSize: 10, fill: C.muted }, meta))
+      }
+
+      const H = branchY + Math.max(0, (graph.branches?.length ?? 0) - 1) * 30 + 34
+      return h(
+        'div',
+        { style: { display: 'flex', flexDirection: 'column', gap: 10 } },
+        h(CountsStrip, { graph }),
+        h('svg', { viewBox: `0 0 ${W} ${H}`, width: '100%', height: H, role: 'img', 'aria-label': t('graph.title') }, ...elements),
+        h('div', { style: { fontSize: 11, color: C.muted, lineHeight: '17px' } }, t('graph.legend')),
       )
     }
 
@@ -318,7 +459,7 @@ window.__ModuleLoader__.load({
       }, [state.open])
       if (!state.open) return null
       const close = () => overlay.set({ ...overlay.get(), open: false })
-      const known = ['loops', 'facts', 'running', 'drafts', 'letter', 'audit']
+      const known = ['graph', 'loops', 'facts', 'running', 'drafts', 'letter', 'audit']
       const tab = known.includes(state.tab) ? state.tab : 'loops'
       return h(
         'div',
@@ -378,14 +519,17 @@ window.__ModuleLoader__.load({
           ),
           h(
             'div',
-            { role: 'tablist', style: { display: 'flex', gap: 8 } },
+            { role: 'tablist', style: { display: 'flex', gap: 16, flexWrap: 'wrap', borderBottom: `0.5px solid ${C.border}`, paddingBottom: 0, marginBottom: 2 } },
+            h(TabButton, { id: 'graph', label: t('tab.graph'), active: tab === 'graph' }),
             h(TabButton, { id: 'loops', label: t('tab.loops'), active: tab === 'loops' }),
             h(TabButton, { id: 'facts', label: t('tab.facts'), active: tab === 'facts' }),
             h(TabButton, { id: 'running', label: t('tab.running'), active: tab === 'running' }),
             h(TabButton, { id: 'drafts', label: t('tab.drafts'), active: tab === 'drafts' }),
             h(TabButton, { id: 'letter', label: t('tab.letter'), active: tab === 'letter' }),
           ),
-          tab === 'loops'
+          tab === 'graph'
+            ? h(FishbonePane, { snapshot })
+            : tab === 'loops'
             ? h(LoopsPane, { snapshot, sessionId })
             : tab === 'facts'
               ? h(FactsPane, { snapshot, sessionId })
@@ -532,11 +676,19 @@ window.__ModuleLoader__.load({
       'drawer.title': '后台',
       'drawer.close': '关闭',
       'drawer.hint': '面板仅汇总后台整理的信息；任务执行细节不会进入对话。',
+      'tab.graph': '鱼骨图',
       'tab.loops': '未结事项',
       'tab.facts': '已定结论',
       'tab.running': '运行中',
       'tab.drafts': '草稿',
       'tab.letter': '交接记录',
+      'graph.title': '鱼骨图',
+      'graph.empty': '还没有可画的东西：先聊几轮，或者让它在后台做点什么。',
+      'graph.legend': '读法同 git graph：竖线是对话主干，每轮一个点；横线是分支；实线分叉、虚线汇回。点开「未结事项」可关闭其中一条。',
+      'count.loops': '未结事项',
+      'count.facts': '已定结论',
+      'count.running': '运行中',
+      'count.drafts': '草稿',
       'loops.subtitle': '对话中尚未收尾的事项。关闭一项无需说明，后续由系统处理。',
       'loops.empty': '当前没有未结事项。',
       'loops.offline': '该会话的后台尚未连接。',
@@ -581,11 +733,19 @@ window.__ModuleLoader__.load({
       'drawer.title': 'Backstage',
       'drawer.close': 'Close',
       'drawer.hint': 'This panel only summarizes what the backstage prepared; execution details never enter the conversation.',
+      'tab.graph': 'Graph',
       'tab.loops': 'Open items',
       'tab.facts': 'Settled facts',
       'tab.running': 'Running',
       'tab.drafts': 'Drafts',
       'tab.letter': 'Handoff record',
+      'graph.title': 'Fishbone graph',
+      'graph.empty': 'Nothing to draw yet: talk a few turns, or let it do something in the background.',
+      'graph.legend': 'Same reading as a git graph: the vertical line is the conversation trunk with one dot per turn; horizontals are branches; solid forking, dashed merging.',
+      'count.loops': 'Open',
+      'count.facts': 'Facts',
+      'count.running': 'Running',
+      'count.drafts': 'Drafts',
       'loops.subtitle': 'Items in this conversation that are not closed yet. Closing one needs no explanation.',
       'loops.empty': 'No open items right now.',
       'loops.offline': 'The backstage for this session is not connected yet.',
