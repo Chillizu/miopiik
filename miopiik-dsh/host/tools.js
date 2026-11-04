@@ -544,38 +544,50 @@ export function registerTools(ctx, engines, operator, services = {}) {
           case 'approve': {
             const id = args.id ?? engine.pendingFold()?.id
             if (typeof id !== 'string') throw new Error('没有待验收的提案')
-            // 先前试过 ctx.get / agent.ctx.get / commands.execute，都拿不到被 isolate 的
-            // compaction。现在试 preset 注册表的 serviceFor：它专门用来「为某个 agent 解析服务」。
-            const presetService = (() => {
-              try {
-                const registry = ctx.get('agentPresets')
-                return registry?.serviceFor?.(exec.agent, 'compaction') ?? null
-              } catch {
-                return null
-              }
-            })()
-            return engine.settleFold(id, {
+            // 压缩服务只能通过 preset 注册表按 agent 解析（ctx.get / agent.ctx.get 都拿不到）。
+            let compaction = null
+            try {
+              compaction = ctx.get('agentPresets')?.serviceFor?.(exec.agent, 'compaction') ?? null
+            } catch {
+              compaction = null
+            }
+            const approved = await engine.settleFold(id, {
               approve: true,
               archive: args.archive ?? null,
-              // 替换需要真实的 agent（会话 surface 与模型选项都在它身上）。
-              agent: exec.agent ?? null,
-              replace: async (agent) => {
-                if (presetService === null || typeof presetService.compactRegion !== 'function') {
-                  return { applied: false, reason: 'no-compaction-service' }
-                }
-                const nodes = agent?.session?.surface?.nodes ?? []
-                if (nodes.length < 2) return { applied: false, reason: 'surface-too-short' }
-                try {
-                  const result = await presetService.compactRegion(nodes[0], nodes[nodes.length - 1], {
-                    session: agent.session,
-                    options: agent.options ?? {},
-                  })
-                  return { applied: true, seq: Number(result?.sourceEventSeq ?? result?.seq ?? 0) || null }
-                } catch (error) {
-                  return { applied: false, reason: `compaction:${String(error?.message ?? error).slice(0, 90)}` }
-                }
-              },
             })
+            if (compaction === null || typeof compaction.compactRegion !== 'function') {
+              return { ...approved, contextReplaced: false, reason: 'no-compaction-service' }
+            }
+            // 回合中间不能切：compactRegion 要求边界是完整回合。排到下一个 turn/end 再替换。
+            const agent = exec.agent
+            let done = false
+            const off = ctx.on('turn/end', async () => {
+              if (done) return
+              done = true
+              try {
+                off?.()
+              } catch {
+                /* 已卸载 */
+              }
+              try {
+                const nodes = agent?.session?.surface?.nodes ?? []
+                if (nodes.length < 2) return
+                const result = await compaction.compactRegion(nodes[0], nodes[nodes.length - 1], {
+                  session: agent.session,
+                  options: agent.options ?? {},
+                })
+                const seq = Number(result?.sourceEventSeq ?? result?.seq ?? 0) || null
+                await engine.markFoldReplaced(id, seq)
+              } catch (error) {
+                await engine.markFoldReplaced(id, null)
+              }
+            })
+            return {
+              ...approved,
+              contextReplaced: false,
+              reason: 'scheduled-after-turn',
+              note: '上下文替换已排到本回合结束（回合中间切会切断步骤）。',
+            }
           }
           case 'reject': {
             const id = args.id ?? engine.pendingFold()?.id

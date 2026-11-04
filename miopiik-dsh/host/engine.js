@@ -1263,6 +1263,14 @@ export class Engine {
     })
   }
 
+  /** 回合结束后真正完成替换时补记（提案状态不变，只补 appliedSeq）。 */
+  async markFoldReplaced(id, appliedSeq) {
+    await this.enqueue(() =>
+      appendRecord(this.store, 'folds', { op: 'apply-late', foldId: id, appliedSeq, at: this.now() }),
+    )
+    return this.state.folds.get(id)
+  }
+
   status() {
     const loops = this.listLoops()
     const view = this.inboxView({ all: true })
