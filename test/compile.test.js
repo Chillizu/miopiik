@@ -2,6 +2,7 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 
 import { fallbackPreview, parseCompileOutput } from '../miopiik-dsh/host/compile.js'
+import { tierOf } from '../miopiik-dsh/host/inbox.js'
 
 test('编译输出：容忍代码围栏与前后废话', () => {
   const parsed = parseCompileOutput('好的，结果如下：\n```json\n{"kind":"preview","claim":"竞品定位与假设相反","question":"要不要改定位？","conf":"high","detail":"3 家中 2 家提了 X"}\n```\n以上。')
@@ -43,4 +44,16 @@ test('降级预览：带原文指针与开环指针，让 Mind 自己判断', ()
   assert.deepEqual(note.refs, ['J-3'])
   assert.deepEqual(note.loops, ['L-7'])
   assert.equal(note.conf, 'low')
+})
+
+test('分支上的任务：编译出的预览带分支指针（落在 T1，而不是掉进 T3）', () => {
+  const note = fallbackPreview(
+    { id: 'J-6', loopId: 'L-10', branchId: 'B-2', contract: { goal: '复述分支前提' } },
+    '「复述分支前提」有结果了',
+    '要不要看原始结果？',
+    '报告正文',
+  )
+  assert.equal(note.branch, 'B-2')
+  const item = { blocking: false, loopId: null, branchId: 'B-2', newConclusion: false, epoch: 0, createdAt: 1 }
+  assert.equal(tierOf(item, { currentEpoch: 0, activeLoopIds: new Set() }), 1)
 })

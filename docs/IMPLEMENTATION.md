@@ -7,7 +7,7 @@
 |---|---|---|
 | §1.1 用户只与 Mind 说话 | `host/prompt.js` 章程；`host/tools.js` 无向对话写内容的路径 | ✅ |
 | §1.2 观测/决定不互写 | `host/store.js`（观测、note、jobs、briefings 分文件） | ✅ |
-| §1.3 双鱼骨 = 同一日志两个分辨率 | 观测日志（`observations.jsonl`）+ L3（`engine.l3Text`） | 🟡 无显式「两个视图」抽象 |
+| §1.3 双鱼骨 = 同一日志两个分辨率 | 观测日志 + L3；分支 = 鱼骨肋骨（`branches.js`、`ink_branch`、切片渲染） | ✅ 分支/切片/汇回均已实测 |
 | §1.4 Ink 永不阻塞 | `engine.enqueue` 串行化、`operator` 异步回调 | ✅ |
 | §1.5 主动终点是收件箱 | `engine.deliverNote` → `inbox.jsonl`；`tools.ink_inbox` | ✅ |
 | §1.6 自答必须带引用 | 章程 + `notes.danglingRefs`；无自动出口校验 | 🟡 |

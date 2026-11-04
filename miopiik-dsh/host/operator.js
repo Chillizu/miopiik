@@ -106,7 +106,7 @@ export function createOperator({ ctx, engines, config, warn }) {
     const timer = setTimeout(() => {
       // 守夜：超时只投递 [阻塞] 预览，不替 Mind/用户做回滚决定（SPEC §3.4）。
       engine.updateJob(jobId, { state: 'timeout' }).catch(() => undefined)
-      const synthetic = { id: jobId, loopId: loop.id, label: input.goal.slice(0, 40) }
+      const synthetic = { id: jobId, loopId: loop.id, branchId, label: input.goal.slice(0, 40) }
       engine
         .deliverNote(fallbackPreview(synthetic, `O-${jobId} 超时未回（预算：${input.budget}）`, '要不要停掉它？'), {
           blocking: true,
@@ -132,7 +132,7 @@ export function createOperator({ ctx, engines, config, warn }) {
           endedAt: Date.now(),
           stopReason: result?.stopReason ?? null,
         })
-        const job = { id: jobId, loopId: loop.id, label: input.goal.slice(0, 40) }
+        const job = { id: jobId, loopId: loop.id, branchId, label: input.goal.slice(0, 40) }
         const note = await compileResult({ ctx, engine, job, resultText: text, config, warn })
         await engine.deliverNote(note)
       })
@@ -142,7 +142,7 @@ export function createOperator({ ctx, engines, config, warn }) {
         childEngines.delete(String(activation.childId))
         try {
           await engine.updateJob(jobId, { state: 'failed', endedAt: Date.now(), stopReason: 'settle-threw' })
-          const job = { id: jobId, loopId: loop.id, label: input.goal.slice(0, 40) }
+          const job = { id: jobId, loopId: loop.id, branchId, label: input.goal.slice(0, 40) }
           await engine.deliverNote(
             fallbackPreview(job, `O-${jobId} 失败：${String(error?.message ?? error).slice(0, 80)}`, '要不要重试？'),
             { blocking: true },

@@ -61,6 +61,7 @@ export function fallbackPreview(job, claim, question, rawText = null) {
     conf: 'low',
     refs: [job.id],
     loops: [job.loopId],
+    branch: job.branchId ?? null,
     detail: text === '' ? null : ['## Operator 原始报告', text.slice(0, 20_000)].join('\n'),
   }
 }
