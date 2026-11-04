@@ -204,7 +204,10 @@ window.__ModuleLoader__.load({
           const isHot = false
           marks.push(h('circle', { key: `t-${item.turn.turn}`, cx: leftX, cy: y, r: isHot ? 4.5 : 3.5, fill: C.brand }))
           marks.push(h('text', { key: `tt-${item.turn.turn}`, x: leftX - 40, y: y + 4, fontSize: 10, fill: C.muted, textAnchor: 'end' }, `第${item.turn.turn}轮`))
-          marks.push(h('text', { key: `tl-${item.turn.turn}`, x: leftX + 10, y: y + 4, fontSize: 11, fill: C.muted }, (item.turn.label ?? '').slice(0, 16)))
+          const readable = (item.turn.label ?? '').startsWith('Ciallo') ? '' : (item.turn.label ?? '').slice(0, 16)
+          if (readable !== '') {
+            marks.push(h('text', { key: `tl-${item.turn.turn}`, x: leftX + 10, y: y + 4, fontSize: 11, fill: C.muted }, readable))
+          }
           continue
         }
         const event = item.event
@@ -215,7 +218,9 @@ window.__ModuleLoader__.load({
         const forkRow = eventRow(`fork:${branch.id}`)
         const mergeEventId = `merge:${branch.id}`
         const mergeRow = eventRow(mergeEventId)
-        const mergeY = mergeRow === undefined ? null : yOf(mergeRow)
+        // 汇回发生在第几轮，就连到左脊的那一行；老分支没记录轮次时退回同一行。
+        const mergeTurnRow = branch.mergeTurn === null ? undefined : rowOf.get(`turn:${branch.mergeTurn}`)
+        const mergeY = mergeTurnRow !== undefined ? yOf(mergeTurnRow) : mergeRow === undefined ? null : yOf(mergeRow)
 
         // 从「对话脊」连到「后台脊」：这就是「第几轮派出去的」
         if (event.kind === 'fork' && forkRow !== undefined) {
