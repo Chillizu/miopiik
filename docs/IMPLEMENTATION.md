@@ -34,13 +34,13 @@
 | §4.1 契约与验收样例 | `contract.js` | ✅ |
 | §4.1 早期形状检查 | 只写进 Operator 提示词 | 🟡 |
 | §4.1 验产物不验过程 | Ink 只看 `activation.result.output` | ✅ |
-| §4.2 纠错（Mind 的承诺也是 claim） | 未实现 utterance→claim 链接 | ⬜ |
+| §4.2 纠错 | `engine.recentUtterances` + `compile` 的 contradicts 标记 → 「更正候选」note | 🟡 最近窗口，无持久链接 |
 | §4.3 开环六型/生命周期/老化/上限 | `host/loops.js` + `engine` | ✅ |
 | §4.4 派发自检 | `contract.js` + `ink_dispatch` 拒绝 | ✅ |
 | §4.5 展示 | 无阈值；章程约束 | 🟡 无信号面板 |
 | §4.6 上下文布局 / 缓存 | L3 只在 prompt context；无显式 L0–L5 组装 | 🟡 DSH 负责前缀缓存 |
 | §5.1 三种折叠 | 开环老化 + 简报；叙事折叠=DSH compaction | 🟡 |
-| §5.2 收工/硬断 | `ink_brief save`（Mind 显式） | 🟡 无自动检测 |
+| §5.2 收工/硬断 | `detectGap`/`foldDay` 事后折叠 + L3 断点横幅；收工仍手动 | 🟡 自动收工未做 |
 | §5.3 交接简报 | `saveBriefing`（单屏上限）/ `appendBriefingUpdate` / L3 隔夜置顶与更新 | ✅ |
 | §5.4 隔夜三不变式 | 无自动 commit；Ink 不写对话；挂起不猜（章程） | 🟡 |
 | §5.5 开工 | L3：简报 → 开环 → 收件箱 | ✅ |
