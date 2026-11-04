@@ -419,6 +419,66 @@ window.__ModuleLoader__.load({
       )
     }
 
+    // 可调项（与 host/config-defaults.js 的 DEFAULTS 保持一致；test/settings.test.js 会校验漂移）
+    const KNOBS = [
+      ['stateRoot', '账本目录（相对工作区）', '.dsh/miopiik'],
+      ['activeLoopCap', '活跃开环上限', 12],
+      ['dormantAfterDays', '几天没被碰到就休眠', 2],
+      ['foldedAfterDays', '几天后折成一行', 7],
+      ['draftExpireDays', '草稿几天没人碰自动丢弃', 7],
+      ['briefingMaxChars', '简报字数上限', 1800],
+      ['inboxMaxPreviews', '每轮最多几条完整预览', 3],
+      ['operatorTimeoutMs', 'Operator 超时（毫秒）', 1200000],
+      ['operatorStallMs', '多久没新观测算卡住（毫秒）', 360000],
+      ['inkModel', 'Ink 编译模型（空=跟随会话）', null],
+    ]
+
+    function SettingsSection() {
+      return h(
+        'div',
+        { style: { display: 'flex', flexDirection: 'column', gap: 14, padding: '4px 2px', color: C.text } },
+        h(
+          'div',
+          { style: { fontSize: 13, lineHeight: '20px', color: C.muted } },
+          h('div', null, t('settings.intro')),
+          h('div', { style: { marginTop: 6 } }, t('settings.where')),
+        ),
+        h(
+          'div',
+          { style: { display: 'flex', flexDirection: 'column', gap: 0, border: `1px solid ${C.border}`, borderRadius: 10, overflow: 'hidden' } },
+          ...KNOBS.map(([key, label, value], index) =>
+            h(
+              'div',
+              {
+                key,
+                style: {
+                  display: 'flex',
+                  alignItems: 'baseline',
+                  justifyContent: 'space-between',
+                  gap: 12,
+                  padding: '9px 12px',
+                  borderTop: index === 0 ? 'none' : `1px solid ${C.border}`,
+                  fontSize: 12,
+                },
+              },
+              h(
+                'div',
+                { style: { display: 'flex', flexDirection: 'column', gap: 2, minWidth: 0 } },
+                h('span', null, label),
+                h('span', { style: { fontSize: 11, color: C.muted } }, key),
+              ),
+              h(
+                'span',
+                { style: { flex: 'none', color: C.muted, fontVariantNumeric: 'tabular-nums' } },
+                value === null ? t('settings.followSession') : String(value),
+              ),
+            ),
+          ),
+        ),
+        h('div', { style: { fontSize: 11, color: C.muted, lineHeight: '17px' } }, t('settings.hotReload')),
+      )
+    }
+
     function Presence(props) {
       const { sessionId, useProjection } = props ?? {}
       const state = useStore(overlay)
@@ -490,6 +550,11 @@ window.__ModuleLoader__.load({
       'branches.empty': '现在没有分支。',
       'branches.noSummary': '还没写一句话',
       'branches.jobs': '个任务',
+      'settings.title': 'MiOpIIk',
+      'settings.intro': '这些是后台（Ink）的可调项。默认值就够用，改之前先想清楚要换掉哪个判断。',
+      'settings.where': '改法：编辑 profile 的 cordis.patch.yml，在 miopiik-dsh 的 config 段里写要覆盖的字段，保存后热重载生效。',
+      'settings.followSession': '跟随会话默认',
+      'settings.hotReload': '本页只读：配置以文件为准，避免界面上改出和文件不一致的第二份真相。',
       'tab.drafts': '草稿',
       'tab.letter': '今天的信',
       'drafts.subtitle': '没到交付门槛的半成品；一周没人碰会自己消失。',
@@ -534,6 +599,11 @@ window.__ModuleLoader__.load({
       'branches.empty': 'No branches right now.',
       'branches.noSummary': 'no one-liner yet',
       'branches.jobs': 'jobs',
+      'settings.title': 'MiOpIIk',
+      'settings.intro': 'Knobs of the backstage (Ink). Defaults are fine; think about which judgement you want to change before changing a number.',
+      'settings.where': 'How: edit cordis.patch.yml in your profile, under the miopiik-dsh config block, then save — hot reload applies it.',
+      'settings.followSession': 'follow session',
+      'settings.hotReload': 'Read-only on purpose: the file is the only source, so the UI can never disagree with it.',
       'tab.drafts': 'Drafts',
       'tab.letter': "Today's letter",
       'drafts.subtitle': 'Half-finished work below the commit bar; untouched for a week and it disappears.',

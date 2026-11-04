@@ -18,11 +18,13 @@ export const LOOP_TYPES = Object.freeze([
 ])
 
 /** 活跃开环进入上下文的上限（SPEC §4.3：约 12）。休眠不设限。 */
-export const ACTIVE_LOOP_CAP = 12
+import { DEFAULTS } from './config-defaults.js'
+
+export const ACTIVE_LOOP_CAP = DEFAULTS.activeLoopCap
 
 /** 隔多少天休眠 / 折成一行（SPEC §5.6）。 */
-export const DORMANT_AFTER_DAYS = 2
-export const FOLDED_AFTER_DAYS = 7
+export const DORMANT_AFTER_DAYS = DEFAULTS.dormantAfterDays
+export const FOLDED_AFTER_DAYS = DEFAULTS.foldedAfterDays
 
 const DAY_MS = 24 * 60 * 60 * 1000
 

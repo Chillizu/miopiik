@@ -7,6 +7,7 @@
  */
 
 import { renderContractPrompt, renderDraftPrompt, validateContract, validateDraft } from './contract.js'
+import { DEFAULTS } from './config-defaults.js'
 import { compileResult, fallbackPreview } from './compile.js'
 
 /**
@@ -119,7 +120,7 @@ export function createOperator({ ctx, engines, config, warn }) {
 
     // 无进展守夜（SPEC §3.4）：不是「跑太久」，而是「跑着但没动静」。
     // 判据是观测日志里有没有新事件（工具结果、回合边界都算），不是猜它在想什么。
-    const stallMs = Number(config?.operatorStallMs ?? 6 * 60 * 1000)
+    const stallMs = Number(config?.operatorStallMs ?? DEFAULTS.operatorStallMs)
     let lastSeen = engine.state.counters.obs
     let lastProgressAt = Date.now()
     let stalled = false
@@ -160,7 +161,7 @@ export function createOperator({ ctx, engines, config, warn }) {
     }, Math.max(30_000, Math.floor(stallMs / 3)))
     if (typeof stallTimer.unref === 'function') stallTimer.unref()
 
-    const timeoutMs = Number(config?.operatorTimeoutMs ?? 20 * 60 * 1000)
+    const timeoutMs = Number(config?.operatorTimeoutMs ?? DEFAULTS.operatorTimeoutMs)
     const timer = setTimeout(() => {
       clearInterval(stallTimer)
       // 超时守夜：只投递 [阻塞] 预览，不替 Mind/用户做回滚决定（SPEC §3.4）。

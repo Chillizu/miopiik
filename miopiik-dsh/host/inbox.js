@@ -8,7 +8,9 @@
  */
 
 export const TIER = Object.freeze({ T0: 0, T1: 1, T2: 2, T3: 3 })
-export const MAX_FULL_PREVIEWS = 3
+import { DEFAULTS } from './config-defaults.js'
+
+export const MAX_FULL_PREVIEWS = DEFAULTS.inboxMaxPreviews
 const TIER_NAMES = ['T0', 'T1', 'T2', 'T3']
 
 /** 待读状态（已读/星标不算待读，但仍在三区里可见）。 */

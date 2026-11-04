@@ -19,13 +19,14 @@ import { openStore } from './host/store.js'
 import { registerPrompt } from './host/prompt.js'
 import { createOperator } from './host/operator.js'
 import { registerBackstageCommand } from './host/commands.js'
+import { DEFAULTS } from './host/config-defaults.js'
 import { registerTools } from './host/tools.js'
 
 /** Host 依赖：工具注册是必须的；其余通过 ctx.get 取，缺了也不让插件装不上。 */
 export const inject = ['tools']
 
 export function apply(ctx, config) {
-  const stateRoot = String(config?.stateRoot ?? '.dsh/miopiik')
+  const stateRoot = String(config?.stateRoot ?? DEFAULTS.stateRoot)
   const engines = new Map()
 
   const warn = (message) => {

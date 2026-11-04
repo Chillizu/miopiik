@@ -16,6 +16,7 @@ import { makeNote, validateNote } from './notes.js'
 import { activeFacts, makeFact, validateFact } from './facts.js'
 import { makeCase, matchCase, matchFacts, similarity } from './cases.js'
 import { buildArchive, makeProposal, settlementDraft, verifyProposal } from './fold.js'
+import { DEFAULTS } from './config-defaults.js'
 import { describeBranches, makeBranch, renderBranchSlice } from './branches.js'
 import { appendRecord } from './store.js'
 
@@ -411,7 +412,9 @@ export class Engine {
       throw new Error('简报至少要有"推进"或"下步"，否则明天的你会认不出自己')
     }
     const total = fields.progress.length + fields.loops.length + fields.running.length + fields.drafts.length + fields.next.length
-    if (total > 1800) throw new Error(`简报超过一屏（${total} 字 > 1800），重新折一次再写`)
+    if (total > DEFAULTS.briefingMaxChars) {
+      throw new Error(`简报超过一屏（${total} 字 > ${DEFAULTS.briefingMaxChars}），重新折一次再写`)
+    }
     const record = { day: dayOf(this.now()), at: this.now(), ...fields }
     await this.enqueue(() => appendRecord(this.store, 'briefings', record))
     return record
@@ -556,7 +559,7 @@ export class Engine {
     const expired = []
     for (const draft of this.state.drafts.values()) {
       if (draft.status !== 'open') continue
-      if (day - draft.createdDay >= 7) {
+      if (day - draft.createdDay >= DEFAULTS.draftExpireDays) {
         await this.settleDraft(draft.id, { status: 'expired', reason: 'aging:7d' })
         expired.push(draft.id)
       }
