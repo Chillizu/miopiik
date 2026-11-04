@@ -17,6 +17,7 @@ import { join } from 'node:path'
 import { Engine, INK_TOOL_NAMES } from './host/engine.js'
 import { openStore } from './host/store.js'
 import { registerPrompt } from './host/prompt.js'
+import { createOperator } from './host/operator.js'
 import { registerTools } from './host/tools.js'
 
 /** Host 依赖：工具注册是必须的；其余通过 ctx.get 取，缺了也不让插件装不上。 */
@@ -87,6 +88,7 @@ export function apply(ctx, config) {
     if (engine !== undefined) engine.observe(event)
   })
 
-  registerTools(ctx, engines)
+  const operator = createOperator({ ctx, engines, config, warn })
+  registerTools(ctx, engines, operator)
   registerPrompt(ctx, engines)
 }

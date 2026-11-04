@@ -10,7 +10,7 @@
 import { mkdir, readFile, appendFile } from 'node:fs/promises'
 import { join } from 'node:path'
 
-export const LOG_NAMES = Object.freeze(['observations', 'notes', 'loops', 'facts', 'inbox', 'briefings'])
+export const LOG_NAMES = Object.freeze(['observations', 'notes', 'loops', 'facts', 'inbox', 'briefings', 'jobs'])
 
 export function emptyState(sessionId) {
   return {
@@ -21,7 +21,8 @@ export function emptyState(sessionId) {
     facts: new Map(),
     inbox: new Map(),
     briefings: [],
-    counters: { obs: 0, note: 0, loop: 0, fact: 0, inbox: 0 },
+    jobs: new Map(),
+    counters: { obs: 0, note: 0, loop: 0, fact: 0, inbox: 0, job: 0 },
     epoch: 0,
   }
 }
@@ -101,6 +102,17 @@ export function applyRecord(state, log, record) {
       else if (record.op === 'unstar') item.status = 'unread'
       else if (record.op === 'defer') item.status = 'deferred'
       else if (record.op === 'supersede') item.status = 'superseded'
+      return
+    }
+    case 'jobs': {
+      if (record.op === 'create') {
+        state.jobs.set(record.job.id, { ...record.job })
+        state.counters.job = bump(state.counters.job, record.job.id)
+        return
+      }
+      const job = state.jobs.get(record.jobId)
+      if (job === undefined) return
+      if (record.op === 'update') Object.assign(job, record.patch ?? {})
       return
     }
     case 'briefings':

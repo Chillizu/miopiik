@@ -350,4 +350,6 @@ Mind 说过的每句话也是带 provenance 的 claim。Operator 的结果与旧
 - **存储介质**：未使用 DSH 的 `ctx.storageDomain`（`defineDomain` 需要 zod 运行时依赖，workspace link 安装的 bundle 解析不到 `@deepseek-ai/*`）。改为 `<cwd>/.dsh/miopiik/<sessionId>/*.jsonl`：append-only、可回放、无损存储、可肉眼审计。语义与 §2 一致，只是介质不同。
 - **会话投影**：未使用 `ctx.sessionProjections`（同一 zod 依赖原因）。改为直接监听 `session/event` 并写入自己的观测日志；重启时回放 JSONL 恢复状态。§4.6 的「账本是数据、上下文是索引」不变。
 - **叙事压缩**：仍由 DSH 的 compaction 负责。§5.1 的两阶段（Ink 影子折叠 → 仍持旧上下文的 Mind 验收 → 原子替换）尚未实现，计划在 Batch 4 接入；届时若不成立，在此记录原因。
+- **commit 闸门的留痕**：闸门通过 `ink_commit` 直接问用户（`ctx.userQuestions.ask`），不额外写 note；用户答复以工具结果的形式留在会话日志里，属于观测日志，符合「决定只由 Ink 写、观测由 Mind/Operator 写」的分工。
+- **守夜不执行回滚**：超时只投递 `[阻塞]` 预览并记录 job 超时状态；是否中断/回滚由 Mind 或用户决定（§3.5 的回滚优先留给后续批次实现）。
 - **台账**：以上偏差只影响实现路径，不改变 §1 十二条不变式与 §3/§4 的机制定义。

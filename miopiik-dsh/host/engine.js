@@ -16,7 +16,7 @@ import { makeNote, validateNote } from './notes.js'
 import { activeFacts, makeFact, validateFact } from './facts.js'
 import { appendRecord } from './store.js'
 
-export const INK_TOOL_NAMES = Object.freeze(['ink_status', 'ink_loops', 'ink_facts', 'ink_inbox'])
+export const INK_TOOL_NAMES = Object.freeze(['ink_status', 'ink_loops', 'ink_facts', 'ink_inbox', 'ink_dispatch', 'ink_commit'])
 
 const MAX_L3_LINES = 14
 
@@ -244,6 +244,63 @@ export class Engine {
   markInbox(id, action) {
     if (!this.state.inbox.has(id)) throw new Error(`没有这条收件箱条目: ${id}`)
     return this.enqueue(() => appendRecord(this.store, 'inbox', { op: action, itemId: id, at: this.now() }))
+  }
+
+  // ── 派发与投递 ────────────────────────────────────────────────────────
+
+  async addJob(job) {
+    const at = this.now()
+    await this.enqueue(() => appendRecord(this.store, 'jobs', { op: 'create', job: { ...job, createdAt: at } }))
+    return job
+  }
+
+  async updateJob(jobId, patch) {
+    await this.enqueue(() => appendRecord(this.store, 'jobs', { op: 'update', jobId, patch, at: this.now() }))
+    return this.state.jobs.get(jobId)
+  }
+
+  listJobs() {
+    return [...this.state.jobs.values()]
+  }
+
+  /**
+   * 投递一条 note。kind=preview 时同时进收件箱；同一开环只保留一条待读，
+   * 后来的把前一条标 superseded（SPEC §3.3）。
+   */
+  async deliverNote(input, { blocking = false } = {}) {
+    const note = makeNote({
+      id: `D-${this.state.counters.note + 1}`,
+      epoch: this.state.epoch,
+      at: this.now(),
+      ...input,
+    })
+    const errors = validateNote(note)
+    if (errors.length > 0) throw new Error(`note 不成立：${errors.join('；')}`)
+    await this.enqueue(() => appendRecord(this.store, 'notes', note))
+    if (note.kind !== 'preview') return note
+
+    const loopId = Array.isArray(note.loops) && note.loops.length > 0 ? note.loops[0] : null
+    for (const item of [...this.state.inbox.values()]) {
+      if (loopId !== null && item.loopId === loopId && (item.status === 'unread' || item.status === 'deferred')) {
+        await this.enqueue(() => appendRecord(this.store, 'inbox', { op: 'supersede', itemId: item.id, at: this.now() }))
+      }
+    }
+    await this.enqueue(() =>
+      appendRecord(this.store, 'inbox', {
+        op: 'deliver',
+        item: makeItem({
+          id: `I-${this.state.counters.inbox + 1}`,
+          noteId: note.id,
+          loopId,
+          epoch: note.epoch,
+          claim: note.claim,
+          question: note.question,
+          blocking,
+          at: this.now(),
+        }),
+      }),
+    )
+    return note
   }
 
   status() {

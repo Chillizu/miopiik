@@ -1,0 +1,151 @@
+/**
+ * Ink 的编译 —— SPEC §3.1 / §3.2。
+ *
+ * 把 Operator 的产物编译成「对话能消化的一条预览」：去术语、留证据、标置信。
+ * 关于 Operator 的 note 从产物生成，不从 Operator 自述生成 —— 这里只信 resultText。
+ * 编译失败不编造：降级为一条带原文指针的 preview，让 Mind 自己判断要不要看。
+ */
+
+const COMPILE_SYSTEM = `You are Ink, the backstage compiler of MiOpIIk.
+You receive the final report of a background Operator and the contract it was given.
+Compile the result into ONE note for Mind, the conversational agent. Mind never sees the raw report.
+Output STRICT JSON only, no prose, no markdown fences:
+{"kind":"preview"|"absorb","claim":"<=40 chars, concrete, no jargon","question":"a question Mind can ask the user, or empty","conf":"low"|"mid"|"high","detail":"the evidence that matters, <=120 chars"}
+Rules:
+- kind="preview" only when the report changes what the user or Mind should do next, or answers something still open. Otherwise "absorb".
+- claim states what changed, not what was done. No "I completed" phrasing.
+- question must be answerable by the user in one sentence.
+- Never invent facts that are not in the report. If unsure, lower conf.`
+
+/** 从模型输出里抽 JSON（容忍代码围栏与前后废话）。 */
+export function parseCompileOutput(text) {
+  if (typeof text !== 'string' || text.trim() === '') return null
+  const cleaned = text.replace(/```[a-zA-Z]*/gu, '```')
+  const start = cleaned.indexOf('{')
+  const end = cleaned.lastIndexOf('}')
+  if (start < 0 || end <= start) return null
+  let data
+  try {
+    data = JSON.parse(cleaned.slice(start, end + 1))
+  } catch {
+    return null
+  }
+  const kind = data?.kind === 'preview' ? 'preview' : data?.kind === 'absorb' ? 'absorb' : null
+  if (kind === null) return null
+  const claim = typeof data.claim === 'string' ? data.claim.trim() : ''
+  if (claim === '') return null
+  const question = typeof data.question === 'string' ? data.question.trim() : ''
+  const conf = ['low', 'mid', 'high'].includes(data.conf) ? data.conf : 'mid'
+  const detail = typeof data.detail === 'string' ? data.detail : null
+  return { kind, claim, question: question === '' ? null : question, conf, detail }
+}
+
+/** 降级预览：编译失败或超时也要让 Mind 有得看，但不能编造内容。 */
+export function fallbackPreview(job, claim, question, blocking = false) {
+  return {
+    kind: 'preview',
+    claim,
+    why: 'compile:fallback',
+    question,
+    conf: 'low',
+    refs: [job.id],
+    loops: [job.loopId],
+    detail: null,
+    blocking,
+  }
+}
+
+function resolveModel(ctx, engine, config) {
+  const configured = config?.inkModel
+  if (configured?.provider !== undefined && configured?.model !== undefined) {
+    return { provider: String(configured.provider), model: String(configured.model) }
+  }
+  const selection = engine?.modelHint
+  if (selection?.provider !== undefined && selection?.model !== undefined) return selection
+  try {
+    const current = ctx.get('agentDefaultModel')?.currentSelection?.()
+    if (current?.provider !== undefined && current?.model !== undefined) {
+      return { provider: current.provider, model: current.model }
+    }
+  } catch {
+    // 没有默认模型服务时走降级。
+  }
+  return undefined
+}
+
+/**
+ * 编译一份 Operator 结果。
+ * @returns 一条 note 输入（交给 engine.deliverNote），失败时返回降级 preview。
+ */
+export async function compileResult({ ctx, engine, job, resultText, config, warn }) {
+  const text = String(resultText ?? '').trim()
+  if (text === '') return fallbackPreview(job, `O-${job.id} 结束了但没有产出`, '要不要重试？', true)
+
+  const llm = (() => {
+    try {
+      return ctx.get('llm')
+    } catch {
+      return undefined
+    }
+  })()
+  const model = resolveModel(ctx, engine, config)
+  if (llm === undefined || model === undefined) {
+    return fallbackPreview(job, `O-${job.id} 有结果了：${text.slice(0, 30)}…`, '要不要看原始结果？')
+  }
+
+  let output = ''
+  try {
+    const stream = llm.stream({
+      provider: model.provider,
+      model: model.model,
+      system: COMPILE_SYSTEM,
+      messages: [
+        {
+          role: 'user',
+          content: [
+            {
+              type: 'text',
+              text: `## Contract goal\n${job.contract?.goal ?? job.label}\n\n## Operator report (raw)\n${text.slice(0, 12000)}`,
+            },
+          ],
+        },
+      ],
+      maxTokens: 600,
+      signal: AbortSignal.timeout(90_000),
+    })
+    for await (const chunk of stream) {
+      if (chunk?.type === 'text-delta') output += chunk.text ?? ''
+    }
+  } catch (error) {
+    warn?.(`Ink 编译调用失败：${error?.message ?? error}`)
+    return fallbackPreview(job, `O-${job.id} 有结果了：${text.slice(0, 30)}…`, '要不要看原始结果？')
+  }
+
+  const parsed = parseCompileOutput(output)
+  if (parsed === null) {
+    return fallbackPreview(job, `O-${job.id} 有结果了：${text.slice(0, 30)}…`, '要不要看原始结果？')
+  }
+
+  if (parsed.kind === 'absorb') {
+    return {
+      kind: 'absorb',
+      claim: parsed.claim,
+      why: 'compile:no-signal',
+      conf: parsed.conf,
+      refs: [],
+      loops: [],
+      detail: null,
+    }
+  }
+
+  return {
+    kind: 'preview',
+    claim: parsed.claim,
+    why: 'compile:operator-result',
+    conf: parsed.conf,
+    refs: [job.id],
+    loops: [job.loopId],
+    question: parsed.question ?? '要不要看看结果？',
+    detail: parsed.detail ?? text.slice(0, 4000),
+  }
+}

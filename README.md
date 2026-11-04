@@ -24,7 +24,7 @@ Host 侧用 `sessionProjections` / `storageDomain` / `ctx.llm` / `subagents`；C
 | 0 | SPEC.md + 仓库骨架 | 完成 |
 | 1 | bundle 骨架 + 存在感指示 + 抽屉 + 占位页，可安装可见 | 完成（界面验收待重启后确认） |
 | 2 | Ink 确定性核心：观测日志、账本、开环老化、收件箱分层、L3、窄工具面、23 项单测 | 完成 |
-| 3 | 判断层：LLM 编译、Operator 派发、commit 闸门 | 待办 |
+| 3 | 判断层：LLM 编译、Operator 派发、commit 闸门 | 完成（宿主侧，待重启验证） |
 | 4 | 折叠与跨天：简报、隔夜不变式、开工恢复 | 待办 |
 | 5 | 两个页面 + 后台抽屉 + 审计视图 + 设置页 | 待办 |
 

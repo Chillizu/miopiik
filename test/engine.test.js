@@ -154,3 +154,57 @@ test('观测只收真人提示：goal 轮次与时间上下文不算用户消息
     await ctx.cleanup()
   }
 })
+
+test('派发任务与笔记：job 落盘、preview 进收件箱、同开环只留一条待读', async () => {
+  const ctx = await fixture()
+  try {
+    const loop = await ctx.engine.addLoop({ text: 'O-J-1：验证定位', type: 'pending-dispatch' })
+    await ctx.engine.addJob({ id: 'J-1', label: '验证定位', loopId: loop.id, state: 'running' })
+    await ctx.engine.updateJob('J-1', { state: 'done' })
+
+    await ctx.engine.deliverNote({
+      kind: 'preview',
+      claim: '结果一：定位与假设相反',
+      why: 'compile:operator-result',
+      refs: ['J-1'],
+      loops: [loop.id],
+      question: '要不要改定位？',
+      conf: 'high',
+    })
+    await ctx.engine.deliverNote({
+      kind: 'preview',
+      claim: '结果二：又跑了一遍',
+      why: 'compile:operator-result',
+      refs: ['J-1'],
+      loops: [loop.id],
+      question: '要不要再看？',
+      conf: 'mid',
+    })
+    assert.equal(ctx.engine.inboxView().previews.length, 1, '同一开环只保留一条待读')
+
+    const reopened = await openStore(ctx.dir, 'session-1')
+    assert.equal(reopened.state.jobs.get('J-1').state, 'done')
+    assert.equal(reopened.state.inbox.size, 2, '被合并的条目保留在账本里')
+    assert.equal(reopened.state.notes.filter((note) => note.kind === 'preview').length, 2)
+  } finally {
+    await ctx.cleanup()
+  }
+})
+
+test('absorb 不进收件箱（看了、判定无需理会）', async () => {
+  const ctx = await fixture()
+  try {
+    const note = await ctx.engine.deliverNote({
+      kind: 'absorb',
+      claim: '结果与当前方向无关',
+      why: 'compile:no-signal',
+      refs: [],
+      loops: [],
+      conf: 'low',
+    })
+    assert.equal(note.kind, 'absorb')
+    assert.equal(ctx.engine.inboxView().previews.length, 0)
+  } finally {
+    await ctx.cleanup()
+  }
+})

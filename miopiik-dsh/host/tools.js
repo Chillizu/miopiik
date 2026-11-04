@@ -20,7 +20,7 @@ function tool(definition) {
   return { ...definition, output: { schema: RESULT_SCHEMA, render } }
 }
 
-export function registerTools(ctx, engines) {
+export function registerTools(ctx, engines, operator) {
   const engineFor = (exec) => {
     const sessionId = exec?.agent?.session?.id
     const engine = sessionId === undefined ? undefined : engines.get(String(sessionId))
@@ -182,6 +182,75 @@ export function registerTools(ctx, engines) {
         if (typeof args.id !== 'string') throw new Error(`${args.action} 需要 id`)
         await engine.markInbox(args.id, args.action)
         return { ok: true, id: args.id, action: args.action }
+      },
+    }),
+  )
+  ctx.tools.register(
+    tool({
+      name: 'ink_dispatch',
+      description:
+        'Hand a well-formed piece of work to a background Operator. The contract must be complete: goal, deliverables, acceptance criteria, acceptance sample, boundary, budget. If any is missing this refuses and tells you what is missing — keep talking with the user instead of dispatching on a half-formed picture.',
+      parameters: {
+        type: 'object',
+        properties: {
+          goal: { type: 'string', description: 'One-sentence restatement of the goal, as the user would recognize it.' },
+          deliverables: { type: 'string', description: 'What exactly is handed back.' },
+          acceptance: { type: 'string', description: 'How it will be judged done.' },
+          acceptanceSample: { type: 'string', description: 'What "good" roughly looks like — a sample beats a standard.' },
+          boundary: { type: 'string', description: 'What must not change.' },
+          budget: { type: 'string', description: 'Time/cost budget, stated in the contract.' },
+        },
+        required: ['goal', 'deliverables', 'acceptance', 'acceptanceSample', 'boundary', 'budget'],
+        additionalProperties: false,
+      },
+      async execute(args, exec) {
+        if (operator === undefined) throw new Error('MiOpIIk: 没有可用的 Operator 派发器')
+        const engine = engineFor(exec)
+        return operator.start({ agent: exec.agent, engine, input: args })
+      },
+    }),
+  )
+
+  ctx.tools.register(
+    tool({
+      name: 'ink_commit',
+      description:
+        'The one outward gate, bound to a commit. Ask the user to accept or reject a whole change — the user only needs to answer "行" or "不行". Never batch several questions here, and never ask the user to repair the work: rejection must be complete by itself.',
+      parameters: {
+        type: 'object',
+        properties: {
+          title: { type: 'string', description: 'One line naming the change.' },
+          summary: { type: 'string', description: 'What the user is accepting, in their terms.' },
+        },
+        required: ['title', 'summary'],
+        additionalProperties: false,
+      },
+      async execute(args, exec) {
+        const questions = (() => {
+          try {
+            return ctx.get('userQuestions')
+          } catch {
+            return undefined
+          }
+        })()
+        if (questions === undefined) throw new Error('这个 profile 没有 userQuestions 服务，无法立闸门')
+        const questionId = `miopiik-commit-${Date.now()}`
+        const answer = await questions.ask({
+          agent: exec.agent,
+          questions: [
+            {
+              id: questionId,
+              header: 'commit',
+              question: `要提交「${args.title}」吗？`,
+              detail: args.summary,
+              options: [{ label: '行' }, { label: '不行' }],
+            },
+          ],
+        })
+        const item = answer?.answers?.find((entry) => entry.id === questionId)
+        const selected = item?.selected ?? []
+        const approved = selected.includes('行') || selected.includes('approve') || selected.includes('Approve')
+        return { approved, selected, custom: item?.custom ?? null }
       },
     }),
   )
