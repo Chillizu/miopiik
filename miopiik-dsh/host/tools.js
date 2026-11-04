@@ -557,6 +557,8 @@ export function registerTools(ctx, engines, operator, services = {}) {
             return engine.settleFold(id, {
               approve: true,
               archive: args.archive ?? null,
+              // 替换需要真实的 agent（会话 surface 与模型选项都在它身上）。
+              agent: exec.agent ?? null,
               replace: async (agent) => {
                 if (presetService === null || typeof presetService.compactRegion !== 'function') {
                   return { applied: false, reason: 'no-compaction-service' }
