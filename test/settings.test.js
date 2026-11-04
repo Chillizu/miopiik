@@ -102,3 +102,13 @@ test('界面上用到的每个文案键都在字典里（防止把 key 直接渲
   const missing = [...used].filter((key) => !defined.has(key))
   assert.deepEqual(missing, [], `这些键没有中文文案：${missing.join(', ')}`)
 })
+
+test('回调在两侧都要在场（防止传了没接：以前 onOpenGraph 就栽在这）', () => {
+  // 调用方传参
+  assert.ok(/onOpenGraph:\s*openGraph/u.test(clientSource), '调用方应传 onOpenGraph')
+  // 接收方解构
+  assert.ok(/function StreamPane\(\{[^}]*onOpenGraph/u.test(clientSource), 'StreamPane 应解构 onOpenGraph')
+  assert.ok(/function FishboneView\([^)]*\)/u.test(clientSource))
+  assert.ok(/onOpenStream:\s*openStream/u.test(clientSource), '调用方应传 onOpenStream')
+  assert.ok(/onOpenStream,/u.test(clientSource), 'FishboneView 应解构 onOpenStream')
+})

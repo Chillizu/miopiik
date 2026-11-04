@@ -689,7 +689,7 @@ window.__ModuleLoader__.load({
     }
 
     /** 流水：后台做过的每一条决定。顶部是索引（按类型筛选，带计数），下面是时间倒序的记录。 */
-    function StreamPane({ snapshot, filter = null, onClearFilter }) {
+    function StreamPane({ snapshot, filter = null, onClearFilter, onOpenGraph }) {
       const audit = snapshot?.audit
       const [kind, setKind] = React.useState('all')
       const [query, setQuery] = React.useState('')
