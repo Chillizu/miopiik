@@ -1263,7 +1263,8 @@ export class Engine {
   fullDetail(note) {
     if (note === undefined || note === null) return null
     if (typeof note.detailRef === 'string' && note.detailRef !== '') {
-      const entry = this.state.details.get(note.detailRef)
+      // state.details 是追加的数组（不是 Map），按 hash 找最近一条。
+      const entry = [...this.state.details].reverse().find((item) => item?.hash === note.detailRef)
       if (entry !== undefined && typeof entry.text === 'string') return entry.text.slice(0, 4000)
     }
     return typeof note.detail === 'string' ? note.detail.slice(0, 4000) : null
