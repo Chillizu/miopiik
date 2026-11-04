@@ -168,85 +168,106 @@ window.__ModuleLoader__.load({
         return h('div', { style: { padding: 32, color: C.muted, fontSize: 13 } }, t('graph.empty'))
       }
 
-      // 行 = 事件（按时间）。分支画成横线：从分叉那一行向右走，汇回时曲线回落到汇回那一行。
-      const rows = new Map(events.map((event, index) => [event.id, index]))
-      const padTop = 18
-      const rowGap = 30
-      const trunkX = 16
-      const laneStart = 118
-      const laneEnd = 520
-      const yOfRow = (row) => padTop + row * rowGap
-      const H = Math.max(padTop + events.length * rowGap + 24, 180)
-      const W = laneEnd + 30
-
-      // 同一时间重叠的分支，横向轻微错开，避免两条横线压在一起。
-      const tops = []
-      const layout = new Map()
-      for (const branch of [...branches].sort((a, b) => a.forkAt - b.forkAt)) {
-        const forkRow = rows.get(`fork:${branch.id}`) ?? 0
-        const mergeRow = branch.mergeAt === null ? events.length - 1 : rows.get(`merge:${branch.id}`) ?? events.length - 1
-        let offset = 0
-        while (tops.some((top) => Math.abs(top - yOfRow(forkRow)) < 16)) offset += 14
-        const y = yOfRow(forkRow) + offset
-        tops.push(y)
-        layout.set(branch.id, { forkRow, mergeRow, y })
-      }
+      // 甘特式：每行一条分支，横向按时间铺开；枯荣一眼可见，不靠曲线脑补。
+      const padTop = 22
+      const rowH = 34
+      const labelW = 168
+      const barLeft = labelW + 12
+      const barRight = 660
+      const times = branches.flatMap((branch) => [branch.forkAt, branch.mergeAt ?? branch.forkAt])
+      const tMin = times.length === 0 ? 0 : Math.min(...times)
+      const tMax = times.length === 0 ? 1 : Math.max(...times)
+      const span = Math.max(tMax - tMin, 1)
+      const xOf = (at) => barLeft + Math.round(((at - tMin) / span) * (barRight - barLeft))
+      const H = Math.max(padTop + branches.length * rowH + 24, 150)
+      const W = barRight + 24
 
       const marks = []
-      marks.push(h('line', { key: 'spine', x1: trunkX, y1: padTop, x2: trunkX, y2: H - 20, stroke: C.borderStrong, strokeWidth: 1.5 }))
-      for (const event of events) {
-        const y = yOfRow(rows.get(event.id))
-        marks.push(h('circle', { key: `ev-${event.id}`, cx: trunkX, cy: y, r: 2.5, fill: C.borderStrong }))
-      }
+      const rows = new Map()
+      branches.forEach((branch, index) => rows.set(branch.id, padTop + index * rowH))
 
-      for (const branch of branches) {
-        const { mergeRow, y } = layout.get(branch.id)
-        const yMerge = yOfRow(mergeRow)
-        const color = branch.status === 'merged' ? C.success : branch.status === 'abandoned' ? C.idle : C.brand
+      for (const [id, y] of rows) {
+        const branch = branches.find((entry) => entry.id === id)
         const isHot = selected === branch.id || hover === branch.id
-        const stroke = isHot ? 2.5 : 1.5
+        const color = branch.status === 'merged' ? C.success : branch.status === 'abandoned' ? C.idle : C.brand
+        const x0 = xOf(branch.forkAt)
+        const x1 = branch.mergeAt === null ? barRight : xOf(branch.mergeAt)
+        const solid = branch.mergeAt === null
 
-        marks.push(h('path', {
-          key: `lane-${branch.id}`,
-          d: `M ${trunkX},${y} L ${laneStart},${y} L ${laneEnd},${y}${branch.mergeAt === null ? '' : ` C ${laneEnd},${y} ${laneEnd},${yMerge} ${laneEnd - 24},${yMerge} L ${trunkX},${yMerge}`}`,
-          fill: 'none',
-          stroke: color,
-          strokeWidth: stroke,
-          strokeDasharray: branch.mergeAt === null ? undefined : undefined,
-          style: { cursor: 'pointer' },
-          onMouseEnter: () => setHover(branch.id),
-          onMouseLeave: () => setHover(null),
-          onClick: () => setSelected(selected === branch.id ? null : branch.id),
-        }))
+        // 行底：极淡的分隔，方便对齐
+        marks.push(h('line', { key: `row-${id}`, x1: 12, y1: y + rowH / 2, x2: W - 12, y2: y + rowH / 2, stroke: C.border, strokeWidth: 0.5, opacity: 0.5 }))
 
-        const labelX = Math.min(laneStart + 8, laneEnd - 4)
+        // 左侧：分支名 + 分叉轮次
         marks.push(h('text', {
-          key: `label-${branch.id}`,
-          x: labelX,
-          y: y - 8,
+          key: `name-${id}`,
+          x: 16,
+          y: y + rowH / 2 + 4,
           fontSize: 12,
           fontWeight: 500,
           fill: isHot ? C.brand : C.text,
-          stroke: C.base,
-          strokeWidth: 3,
-          paintOrder: 'stroke',
           style: { cursor: 'pointer' },
-          onMouseEnter: () => setHover(branch.id),
+          onMouseEnter: () => setHover(id),
           onMouseLeave: () => setHover(null),
-          onClick: () => setSelected(selected === branch.id ? null : branch.id),
-        }, branch.label.slice(0, 20)))
+          onClick: () => setSelected(selected === id ? null : id),
+        }, branch.label.slice(0, 14)))
+        marks.push(h('text', {
+          key: `fork-${id}`,
+          x: 16,
+          y: y + rowH / 2 + 18,
+          fontSize: 10,
+          fill: C.muted,
+        }, `${branch.id}${branch.forkTurn === null ? '' : ` · 第${branch.forkTurn}轮`}`))
 
-        const ownJobEvents = events.filter((event) => event.kind === 'job' && event.branchId === branch.id)
-        for (const [index, event] of ownJobEvents.entries()) {
-          if (event.kind !== 'job' || event.branchId !== branch.id) continue
-          const job = (branch.jobs ?? []).find((entry) => entry.id === event.jobId)
-          const jx = laneStart + 74 + index * 22
+        // 条：从分叉到汇回（未汇回则画到右端并留开口）
+        marks.push(h('line', {
+          key: `bar-${id}`,
+          x1: x0,
+          y1: y + rowH / 2,
+          x2: x1,
+          y2: y + rowH / 2,
+          stroke: color,
+          strokeWidth: isHot ? 5 : 4,
+          strokeLinecap: 'round',
+          strokeDasharray: solid ? '1 6' : undefined,
+          opacity: isHot ? 1 : 0.85,
+          style: { cursor: 'pointer' },
+          onMouseEnter: () => setHover(id),
+          onMouseLeave: () => setHover(null),
+          onClick: () => setSelected(selected === id ? null : id),
+        }))
+        // 分叉点（空心）与汇回点（实心）
+        marks.push(h('circle', {
+          key: `dot0-${id}`, cx: x0, cy: y + rowH / 2, r: 4.5,
+          fill: C.base, stroke: color, strokeWidth: 2,
+          style: { cursor: 'pointer' },
+          onMouseEnter: () => setHover(id), onMouseLeave: () => setHover(null),
+          onClick: () => setSelected(selected === id ? null : id),
+        }))
+        if (branch.mergeAt !== null) {
           marks.push(h('circle', {
-            key: `job-${event.id}`,
-            cx: jx, cy: y, r: 3.5,
-            fill: job?.state === 'running' ? color : C.overlay,
-            stroke: color, strokeWidth: 1.2,
+            key: `dot1-${id}`, cx: x1, cy: y + rowH / 2, r: 4.5, fill: color,
+            style: { cursor: 'pointer' },
+            onMouseEnter: () => setHover(id), onMouseLeave: () => setHover(null),
+            onClick: () => setSelected(selected === id ? null : id),
           }))
+          if (branch.mergedInto !== null) {
+            marks.push(h('text', {
+              key: `merge-${id}`, x: Math.min(x1 + 8, W - 40), y: y + rowH / 2 + 4, fontSize: 10, fill: C.muted,
+            }, branch.mergedInto))
+          }
+        }
+
+        // 任务点：按各自时间落在条上
+        for (const job of branch.jobs ?? []) {
+          const at = job.startedAt ?? branch.forkAt
+          const jx = Math.min(Math.max(xOf(at), x0 + 8), x1 - 6)
+          const running = job.state === 'running'
+          marks.push(h('circle', {
+            key: `job-${id}-${job.id}`,
+            cx: jx, cy: y + rowH / 2, r: 3.2,
+            fill: running ? color : C.base, stroke: color, strokeWidth: 1.2,
+          }))
+          marks.push(h('title', { key: `jobt-${id}-${job.id}` }, `${job.id} ${job.label}（${job.state}）`))
         }
       }
 
@@ -254,8 +275,8 @@ window.__ModuleLoader__.load({
       const chosen = selected === null ? null : branches.find((branch) => branch.id === selected)
       const hoverPos = (() => {
         if (hovered === null) return null
-        const spot = layout.get(hovered.id)
-        return { x: laneStart + 24, y: (spot?.y ?? yOfRow(0)) - 16 }
+        const y = rows.get(hovered.id) ?? 0
+        return { x: labelW + 24, y: Math.max(y - 12, 0) }
       })()
 
       return h(
