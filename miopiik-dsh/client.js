@@ -190,6 +190,7 @@ window.__ModuleLoader__.load({
       const jobs = snapshot?.jobs
       if (jobs === undefined) return h('div', { style: styles.empty }, t('running.offline'))
       const items = jobs.items ?? []
+      const branches = snapshot?.branches?.items ?? []
       const drafts = snapshot?.drafts?.items ?? []
       return h(
         'div',
@@ -206,6 +207,25 @@ window.__ModuleLoader__.load({
                   { style: styles.rowText },
                   job.label,
                   h('div', { style: styles.meta }, job.id),
+                ),
+              ),
+            ),
+        h('div', { style: styles.meta }, t('branches.title')),
+        branches.length === 0
+          ? h('div', { style: styles.empty }, t('branches.empty'))
+          : branches.map((branch) =>
+              h(
+                'div',
+                { key: branch.id, style: styles.row },
+                h(
+                  'div',
+                  { style: styles.rowText },
+                  branch.label,
+                  h(
+                    'div',
+                    { style: styles.meta },
+                    `${branch.id} · ${branch.summary || t('branches.noSummary')} · ${branch.jobs} ${t('branches.jobs')}`,
+                  ),
                 ),
               ),
             ),
@@ -423,6 +443,10 @@ window.__ModuleLoader__.load({
       'running.subtitle': '后台在做什么；细节不会进对话。',
       'running.empty': '现在没有在跑的东西。',
       'running.offline': '这个会话的后台还没连上。',
+      'branches.title': '鱼骨分支（从哪句话长出来的事）',
+      'branches.empty': '现在没有分支。',
+      'branches.noSummary': '还没写一句话',
+      'branches.jobs': '个任务',
       'drafts.title': '草稿（未达 commit 门槛的东西）',
       'drafts.empty': '现在没有草稿。',
       'audit.entry': '取证',
@@ -453,6 +477,10 @@ window.__ModuleLoader__.load({
       'running.subtitle': 'What the backstage is doing; details stay out of the conversation.',
       'running.empty': 'Nothing is running right now.',
       'running.offline': 'The backstage of this session is not connected yet.',
+      'branches.title': 'Branches (what grew out of which sentence)',
+      'branches.empty': 'No branches right now.',
+      'branches.noSummary': 'no one-liner yet',
+      'branches.jobs': 'jobs',
       'drafts.title': 'Drafts (below the commit bar)',
       'drafts.empty': 'No drafts right now.',
       'audit.entry': 'Evidence',
