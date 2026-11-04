@@ -21,6 +21,7 @@ export function makeItem(input) {
     id: input.id,
     noteId: input.noteId ?? null,
     loopId: input.loopId ?? null,
+    branchId: input.branchId ?? null,
     blocking: input.blocking === true,
     newConclusion: input.newConclusion === true,
     epoch: input.epoch ?? 0,
@@ -36,10 +37,11 @@ export function tierOf(item, { currentEpoch, activeLoopIds }) {
   let tier
   if (item.blocking) tier = TIER.T0
   else if (item.loopId !== null && activeLoopIds.has(item.loopId)) tier = TIER.T1
+  else if (item.branchId !== null) tier = TIER.T1 // 鱼骨分支也是「连着对话节点」，同样算相关
   else if (item.newConclusion) tier = TIER.T2
   else tier = TIER.T3
-  // 指不上开环的预览不能占最前面（相关性就是结构）。
-  if (tier === TIER.T1 && item.loopId === null) tier = TIER.T3
+  // 指不上任何对话节点的预览不能占最前面（相关性就是结构）。
+  if (tier === TIER.T1 && item.loopId === null && item.branchId === null) tier = TIER.T3
   // 过期不等于作废：降一级，不逐级叠降。
   if (item.epoch !== currentEpoch && tier < TIER.T3) tier += 1
   return tier
@@ -58,15 +60,16 @@ export function mergeByLoop(items) {
   const superseded = []
   for (const item of items) {
     if (!PENDING_STATUSES.includes(item.status)) continue
-    if (item.loopId === null) continue
-    const kept = best.get(item.loopId)
+    const key = item.loopId ?? (item.branchId === null ? null : `branch:${item.branchId}`)
+    if (key === null) continue
+    const kept = best.get(key)
     if (kept === undefined) {
-      best.set(item.loopId, item)
+      best.set(key, item)
       continue
     }
     if (item.createdAt >= kept.createdAt) {
       superseded.push(kept.id)
-      best.set(item.loopId, item)
+      best.set(key, item)
     } else {
       superseded.push(item.id)
     }

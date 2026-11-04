@@ -27,6 +27,7 @@ export function makeNote(input) {
     why: String(input.why ?? '').trim(),
     refs: Array.isArray(input.refs) ? input.refs.map(String) : [],
     loops: Array.isArray(input.loops) ? input.loops.map(String) : [],
+    branch: input.branch ?? null,
     conf: input.conf ?? 'mid',
     question: input.question ?? null,
     detail: input.detail ?? null,
@@ -56,7 +57,10 @@ export function validateNote(note) {
     errors.push(`${note.kind} 必须带 refs`)
   }
   if (note.kind === 'preview') {
-    if (!Array.isArray(note.loops) || note.loops.length === 0) errors.push('preview 必须带开环指针')
+    // 预览必须连着一个对话节点：一条开环，或一条鱼骨分支（分支本身就是「从哪句话长出来的」）。
+    const hasLoop = Array.isArray(note.loops) && note.loops.length > 0
+    const hasBranch = typeof note.branch === 'string' && note.branch !== ''
+    if (!hasLoop && !hasBranch) errors.push('preview 必须带开环或分支指针')
     if (typeof note.question !== 'string' || note.question.trim() === '') errors.push('preview 必须以一个问题结尾')
   }
   if (note.kind === 'verify' && (typeof note.detail !== 'string' || note.detail.trim() === '')) {

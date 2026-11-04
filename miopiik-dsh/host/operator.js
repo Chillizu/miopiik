@@ -33,7 +33,7 @@ export function createOperator({ ctx, engines, config, warn }) {
     }
   }
 
-  const start = async ({ agent, engine, input }) => {
+  const start = async ({ agent, engine, input, branchId = null }) => {
     const { ok, missing } = validateContract(input)
     if (!ok) {
       throw new Error(`契约缺要素，只能算草稿：${missing.join('、')}。补齐后再派发。`)
@@ -62,6 +62,7 @@ export function createOperator({ ctx, engines, config, warn }) {
         budget: input.budget,
       },
       loopId: loop.id,
+      branchId,
       childId: null,
       state: 'running',
       startedAt: Date.now(),
@@ -88,6 +89,7 @@ export function createOperator({ ctx, engines, config, warn }) {
     }
 
     await engine.updateJob(jobId, { childId: String(activation.childId) })
+    if (branchId !== null) await engine.attachJobToBranch(branchId, jobId)
     childEngines.set(String(activation.childId), engine)
 
     const timeoutMs = Number(config?.operatorTimeoutMs ?? 20 * 60 * 1000)

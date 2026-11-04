@@ -206,6 +206,10 @@ export function registerTools(ctx, engines, operator) {
           acceptanceSample: { type: 'string', description: 'What "good" roughly looks like — a sample beats a standard.' },
           boundary: { type: 'string', description: 'What must not change.' },
           budget: { type: 'string', description: 'Time/cost budget, stated in the contract.' },
+          branch: {
+            type: 'string',
+            description: 'Fishbone branch label: which conversation thread this work grew out of. Reuses an open branch with the same label, otherwise forks a new one at the current turn.',
+          },
         },
         required: ['goal', 'deliverables', 'acceptance', 'acceptanceSample', 'boundary', 'budget'],
         additionalProperties: false,
@@ -213,7 +217,14 @@ export function registerTools(ctx, engines, operator) {
       async execute(args, exec) {
         if (operator === undefined) throw new Error('MiOpIIk: 没有可用的 Operator 派发器')
         const engine = engineFor(exec)
-        return operator.start({ agent: exec.agent, engine, input: args })
+        let branch = null
+        const label = typeof args.branch === 'string' ? args.branch.trim() : ''
+        if (label !== '') {
+          const existing = engine.listBranches().find((entry) => entry.label === label)
+          branch = existing ?? (await engine.openBranch({ label, summary: args.goal }))
+        }
+        const started = await operator.start({ agent: exec.agent, engine, input: args, branchId: branch?.id ?? null })
+        return { ...started, branch: branch?.id ?? null }
       },
     }),
   )
@@ -386,6 +397,57 @@ export function registerTools(ctx, engines, operator) {
         const engine = operator.engineForChild(sessionId) ?? engines.get(sessionId)
         if (engine === undefined) throw new Error('MiOpIIk: 这个会话没有对应的 Ink 运行时')
         return engine.answerOperatorQuestion({ question: args.question, childId: sessionId })
+      },
+    }),
+  )
+  ctx.tools.register(
+    tool({
+      name: 'ink_branch',
+      description:
+        'The fishbone: branches that grew out of a point in this conversation. A branch is not a task — it is "which sentence this work came from". Open one, keep its one-line summary current, and merge it back into the trunk when it has a conclusion.',
+      parameters: {
+        type: 'object',
+        properties: {
+          action: { type: 'string', enum: ['list', 'open', 'summary', 'merge', 'abandon'] },
+          id: { type: 'string', description: 'Branch id such as B-1.' },
+          label: { type: 'string', description: 'Short name of the thread, as the user would say it.' },
+          summary: { type: 'string', description: 'One line: what this branch is after.' },
+          claim: { type: 'string', description: 'For merge: the conclusion, one line.' },
+          detail: { type: 'string', description: 'For merge: the evidence that matters.' },
+          forkedAtTurn: { type: 'number', description: 'Which conversation turn this branch grew out of.' },
+          reason: { type: 'string' },
+        },
+        required: ['action'],
+        additionalProperties: false,
+      },
+      async execute(args, exec) {
+        const engine = engineFor(exec)
+        switch (args.action) {
+          case 'list':
+            return { branches: engine.listBranches({ includeSettled: true }) }
+          case 'open': {
+            const branch = await engine.openBranch({
+              label: args.label,
+              summary: args.summary,
+              forkedAtTurn: args.forkedAtTurn,
+            })
+            return { branch }
+          }
+          case 'summary': {
+            if (typeof args.id !== 'string') throw new Error('summary 需要 id')
+            return { branch: await engine.updateBranchSummary(args.id, args.summary) }
+          }
+          case 'merge': {
+            if (typeof args.id !== 'string') throw new Error('merge 需要 id')
+            return engine.mergeBranch(args.id, { claim: args.claim, detail: args.detail })
+          }
+          case 'abandon': {
+            if (typeof args.id !== 'string') throw new Error('abandon 需要 id')
+            return { branch: await engine.abandonBranch(args.id, { reason: args.reason }) }
+          }
+          default:
+            throw new Error(`未知 action: ${args.action}`)
+        }
       },
     }),
   )

@@ -10,7 +10,7 @@
 import { mkdir, readFile, appendFile } from 'node:fs/promises'
 import { join } from 'node:path'
 
-export const LOG_NAMES = Object.freeze(['observations', 'notes', 'loops', 'facts', 'inbox', 'briefings', 'jobs', 'drafts', 'cases'])
+export const LOG_NAMES = Object.freeze(['observations', 'notes', 'loops', 'facts', 'inbox', 'briefings', 'jobs', 'drafts', 'cases', 'branches'])
 
 export function emptyState(sessionId) {
   return {
@@ -24,7 +24,8 @@ export function emptyState(sessionId) {
     jobs: new Map(),
     drafts: new Map(),
     cases: [],
-    counters: { obs: 0, note: 0, loop: 0, fact: 0, inbox: 0, job: 0, draft: 0, case: 0 },
+    branches: new Map(),
+    counters: { obs: 0, note: 0, loop: 0, fact: 0, inbox: 0, job: 0, draft: 0, case: 0, branch: 0 },
     epoch: 0,
   }
 }
@@ -127,6 +128,28 @@ export function applyRecord(state, log, record) {
       const draft = state.drafts.get(record.draftId)
       if (draft === undefined) return
       if (record.op === 'update') Object.assign(draft, record.patch ?? {})
+      return
+    }
+    case 'branches': {
+      if (record.op === 'create') {
+        state.branches.set(record.branch.id, { ...record.branch })
+        state.counters.branch = bump(state.counters.branch, record.branch.id)
+        return
+      }
+      const branch = state.branches.get(record.branchId)
+      if (branch === undefined) return
+      if (record.op === 'summary') {
+        branch.summary = record.summary
+        branch.updatedAt = record.at
+      } else if (record.op === 'attach-job') {
+        if (!branch.jobs.includes(record.jobId)) branch.jobs.push(record.jobId)
+        branch.updatedAt = record.at
+      } else if (record.op === 'merge' || record.op === 'abandon') {
+        branch.status = record.op === 'merge' ? 'merged' : 'abandoned'
+        branch.settledAt = record.at
+        branch.mergedInto = record.mergedInto ?? null
+        branch.updatedAt = record.at
+      }
       return
     }
     case 'cases':

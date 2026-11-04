@@ -15,9 +15,10 @@ import { makeItem, selectView } from './inbox.js'
 import { makeNote, validateNote } from './notes.js'
 import { activeFacts, makeFact, validateFact } from './facts.js'
 import { makeCase, matchCase, matchFacts } from './cases.js'
+import { describeBranches, makeBranch } from './branches.js'
 import { appendRecord } from './store.js'
 
-export const INK_TOOL_NAMES = Object.freeze(['ink_status', 'ink_loops', 'ink_facts', 'ink_inbox', 'ink_dispatch', 'ink_commit', 'ink_brief', 'ink_epoch', 'ink_draft'])
+export const INK_TOOL_NAMES = Object.freeze(['ink_status', 'ink_loops', 'ink_facts', 'ink_inbox', 'ink_dispatch', 'ink_commit', 'ink_brief', 'ink_epoch', 'ink_draft', 'ink_branch'])
 
 const MAX_L3_LINES = 14
 
@@ -294,6 +295,10 @@ export class Engine {
   async addJob(job) {
     const at = this.now()
     await this.enqueue(() => appendRecord(this.store, 'jobs', { op: 'create', job: { ...job, createdAt: at } }))
+    // 任务属于哪条分支，在创建时就定下来：鱼骨的肋骨不是后挂的。
+    if (typeof job?.branchId === 'string' && this.state.branches.has(job.branchId)) {
+      await this.attachJobToBranch(job.branchId, job.id)
+    }
     return job
   }
 
@@ -325,8 +330,12 @@ export class Engine {
 
     const loopId =
       note.kind === 'preview' && Array.isArray(note.loops) && note.loops.length > 0 ? note.loops[0] : null
+    const branchId = note.kind === 'preview' && typeof note.branch === 'string' ? note.branch : null
     for (const item of [...this.state.inbox.values()]) {
-      if (loopId !== null && item.loopId === loopId && (item.status === 'unread' || item.status === 'deferred')) {
+      const sameAnchor =
+        (loopId !== null && item.loopId === loopId) ||
+        (loopId === null && branchId !== null && item.branchId === branchId)
+      if (sameAnchor && (item.status === 'unread' || item.status === 'deferred')) {
         await this.enqueue(() => appendRecord(this.store, 'inbox', { op: 'supersede', itemId: item.id, at: this.now() }))
       }
     }
@@ -337,6 +346,7 @@ export class Engine {
           id: `I-${this.state.counters.inbox + 1}`,
           noteId: note.id,
           loopId,
+          branchId,
           epoch: note.epoch,
           claim: note.claim,
           question: note.question,
@@ -443,6 +453,18 @@ export class Engine {
       drafts: {
         open: this.listDrafts().length,
         items: this.listDrafts().slice(0, 5).map((draft) => ({ id: draft.id, title: draft.title, conf: draft.conf })),
+      },
+      branches: {
+        open: this.listBranches().length,
+        items: this.listBranches()
+          .slice(0, 5)
+          .map((branch) => ({
+            id: branch.id,
+            label: branch.label,
+            summary: branch.summary,
+            jobs: branch.jobs.length,
+            forkedAtTurn: branch.forkedAtTurn,
+          })),
       },
       audit: {
         notes: this.state.notes
@@ -722,6 +744,76 @@ export class Engine {
     return parts.join('；')
   }
 
+  // ── 鱼骨：分支（SPEC §1.3 / §4.6） ───────────────────────────────────
+
+  /**
+   * 从对话的当前节点开一条分支。forkedAtTurn 是「对话的哪一轮」，
+   * 这就是鱼骨的分叉点：分支不是凭空出现的，它总连着一句话。
+   */
+  async openBranch({ label, summary = '', forkedAtTurn = null }) {
+    const text = String(label ?? '').trim()
+    if (text === '') throw new Error('分支要有个名字')
+    const branch = makeBranch({
+      id: `B-${this.state.counters.branch + 1}`,
+      label: text,
+      summary,
+      forkedAtTurn: forkedAtTurn ?? this.turn,
+      forkedAtSeq: this.state.counters.obs,
+      at: this.now(),
+    })
+    await this.enqueue(() => appendRecord(this.store, 'branches', { op: 'create', branch }))
+    return branch
+  }
+
+  listBranches({ includeSettled = false } = {}) {
+    const all = [...this.state.branches.values()].sort((a, b) => b.createdAt - a.createdAt)
+    return includeSettled ? all : all.filter((branch) => branch.status === 'open')
+  }
+
+  async updateBranchSummary(id, summary) {
+    if (!this.state.branches.has(id)) throw new Error(`没有这条分支: ${id}`)
+    await this.enqueue(() =>
+      appendRecord(this.store, 'branches', { op: 'summary', branchId: id, summary: String(summary ?? '').trim(), at: this.now() }),
+    )
+    return this.state.branches.get(id)
+  }
+
+  async attachJobToBranch(branchId, jobId) {
+    if (!this.state.branches.has(branchId)) throw new Error(`没有这条分支: ${branchId}`)
+    await this.enqueue(() => appendRecord(this.store, 'branches', { op: 'attach-job', branchId, jobId, at: this.now() }))
+    return this.state.branches.get(branchId)
+  }
+
+  /** 汇回主干：分支的结论变成一条带指针的 note，进收件箱（不是塞进对话）。 */
+  async mergeBranch(id, { claim, detail = null, loops = [] } = {}) {
+    const branch = this.state.branches.get(id)
+    if (branch === undefined) throw new Error(`没有这条分支: ${id}`)
+    const note = await this.deliverNote({
+      kind: 'preview',
+      claim: String(claim ?? '').trim() || `${branch.label} 有结论了`,
+      why: 'branch:merge',
+      refs: [id, ...branch.jobs],
+      loops,
+      question: `要不要把「${branch.label}」的结论接回刚才那条线？`,
+      conf: 'mid',
+      detail,
+      branch: id,
+      newConclusion: true,
+    })
+    await this.enqueue(() =>
+      appendRecord(this.store, 'branches', { op: 'merge', branchId: id, mergedInto: note.id, at: this.now() }),
+    )
+    return { branch: this.state.branches.get(id), note }
+  }
+
+  async abandonBranch(id, { reason = null } = {}) {
+    if (!this.state.branches.has(id)) throw new Error(`没有这条分支: ${id}`)
+    await this.enqueue(() =>
+      appendRecord(this.store, 'branches', { op: 'abandon', branchId: id, at: this.now(), reason }),
+    )
+    return this.state.branches.get(id)
+  }
+
   status() {
     const loops = this.listLoops()
     const view = this.inboxView({ all: true })
@@ -803,7 +895,8 @@ export class Engine {
         lines.push('')
       }
     }
-    if (loops.length === 0 && view.previews.length === 0 && lines.length === 0) return ''
+    const openBranchCount = this.listBranches().length
+    if (loops.length === 0 && view.previews.length === 0 && openBranchCount === 0 && lines.length === 0) return ''
     lines.push('## 后台（Ink）')
     if (view.previews.length > 0) {
       lines.push(`收件箱待读 ${view.previews.length + view.hiddenCount} 条：`)
@@ -824,6 +917,14 @@ export class Engine {
         lines.push(`- [${loop.id}] ${loop.text}${condition}`)
       }
       if (loops.length > 5) lines.push(`- …还有 ${loops.length - 5} 条活跃开环`)
+    }
+    const branchLines = describeBranches(
+      [...this.state.branches.values()],
+      [...this.state.jobs.values()],
+    )
+    if (branchLines.length > 0) {
+      lines.push('鱼骨分支：')
+      for (const line of branchLines) lines.push(`- ${line}`)
     }
     return lines.slice(0, MAX_L3_LINES).join('\n')
   }
