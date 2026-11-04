@@ -55,7 +55,9 @@ export function apply(ctx, config) {
     }
   }
 
-  ctx.on('agent/created', async ({ agent }) => {
+  const initializing = new Set()
+
+  const initAgent = async (agent) => {
     const sessionId = String(agent.session.id)
     try {
       if (!isRootSession(agent)) {
@@ -67,13 +69,35 @@ export function apply(ctx, config) {
         }
         return
       }
-      if (engines.has(sessionId)) return
-      const store = await openStore(join(cwdOf(agent.session), stateRoot), sessionId)
-      engines.set(sessionId, new Engine({ store, sessionId }))
+      if (engines.has(sessionId) || initializing.has(sessionId)) return
+      initializing.add(sessionId)
+      try {
+        const store = await openStore(join(cwdOf(agent.session), stateRoot), sessionId)
+        engines.set(sessionId, new Engine({ store, sessionId }))
+      } finally {
+        initializing.delete(sessionId)
+      }
     } catch (error) {
       warn(`无法为会话 ${sessionId} 打开 Ink 账本：${error?.message ?? error}`)
     }
+  }
+
+  ctx.on('agent/created', ({ agent }) => {
+    void initAgent(agent)
   })
+
+  // 插件热重载（profile bundle 开关）后，已存在的 agent 不会重新触发 agent/created。
+  // 启动时扫一次存量，再延迟兜底一次，避免运行中的会话没有 Ink 运行时。
+  const sweep = () => {
+    try {
+      for (const agent of ctx.get('agents')?.list?.() ?? []) void initAgent(agent)
+    } catch {
+      // 服务未就绪时交给 agent/created。
+    }
+  }
+  sweep()
+  const sweepTimer = setTimeout(sweep, 2000)
+  if (typeof sweepTimer.unref === 'function') sweepTimer.unref()
 
   ctx.on('agent/disposed', ({ agent }) => {
     try {

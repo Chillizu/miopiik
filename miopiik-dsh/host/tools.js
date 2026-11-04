@@ -254,4 +254,37 @@ export function registerTools(ctx, engines, operator) {
       },
     }),
   )
+  ctx.tools.register(
+    tool({
+      name: 'ink_brief',
+      description:
+        'The handoff briefing between days. actions: "materials" returns what Ink knows (open loops, running jobs, drafts, inbox); "save" writes the briefing YOU compose (progress/loops/running/drafts/next); "latest" reads the last one. The briefing is written by you, not by Ink — a machine-written one makes tomorrow\'s you unrecognizable.',
+      parameters: {
+        type: 'object',
+        properties: {
+          action: { type: 'string', enum: ['materials', 'save', 'latest'] },
+          progress: { type: 'string', description: 'What got done today.' },
+          loops: { type: 'string', description: 'Which threads are still alive.' },
+          running: { type: 'string', description: 'What is still running in the background.' },
+          drafts: { type: 'string', description: 'What is sitting unfinished in the draft area.' },
+          next: { type: 'string', description: 'What you want to talk about next — your own opinion, not a summary.' },
+        },
+        required: ['action'],
+        additionalProperties: false,
+      },
+      async execute(args, exec) {
+        const engine = engineFor(exec)
+        if (args.action === 'materials') return engine.briefingMaterials()
+        if (args.action === 'latest') return { briefing: engine.latestBriefing() }
+        const briefing = await engine.saveBriefing({
+          progress: args.progress,
+          loops: args.loops,
+          running: args.running,
+          drafts: args.drafts,
+          next: args.next,
+        })
+        return { briefing }
+      },
+    }),
+  )
 }

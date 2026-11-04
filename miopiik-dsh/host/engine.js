@@ -16,7 +16,7 @@ import { makeNote, validateNote } from './notes.js'
 import { activeFacts, makeFact, validateFact } from './facts.js'
 import { appendRecord } from './store.js'
 
-export const INK_TOOL_NAMES = Object.freeze(['ink_status', 'ink_loops', 'ink_facts', 'ink_inbox', 'ink_dispatch', 'ink_commit'])
+export const INK_TOOL_NAMES = Object.freeze(['ink_status', 'ink_loops', 'ink_facts', 'ink_inbox', 'ink_dispatch', 'ink_commit', 'ink_brief'])
 
 const MAX_L3_LINES = 14
 
@@ -303,6 +303,40 @@ export class Engine {
     return note
   }
 
+  // ── 交接简报与跨天恢复（SPEC §5.3 / §5.5） ──────────────────────────
+
+  latestBriefing() {
+    return this.state.briefings.length === 0 ? null : this.state.briefings[this.state.briefings.length - 1]
+  }
+
+  briefingMaterials() {
+    const loops = this.listLoops()
+    const running = [...this.state.jobs.values()].filter((job) => job.state === 'running' || job.state === 'timeout')
+    return {
+      activeLoops: loops
+        .filter((loop) => loop.status === 'active')
+        .map((loop) => ({ id: loop.id, text: loop.text, closureCondition: loop.closureCondition })),
+      dormant: loops.filter((loop) => loop.status === 'dormant').length,
+      running: running.map((job) => ({ id: job.id, label: job.label, state: job.state })),
+      drafts: [],
+      inboxPending: this.inboxView({ all: true }).previews.length,
+    }
+  }
+
+  /** Mind 自己写简报；Ink 只存。五段：推进/开环/在跑/草稿/下步（SPEC §5.3）。 */
+  async saveBriefing(input) {
+    const fields = {}
+    for (const key of ['progress', 'loops', 'running', 'drafts', 'next']) {
+      fields[key] = String(input?.[key] ?? '').trim()
+    }
+    if (fields.progress === '' && fields.next === '') {
+      throw new Error('简报至少要有"推进"或"下步"，否则明天的你会认不出自己')
+    }
+    const record = { day: dayOf(this.now()), at: this.now(), ...fields }
+    await this.enqueue(() => appendRecord(this.store, 'briefings', record))
+    return record
+  }
+
   status() {
     const loops = this.listLoops()
     const view = this.inboxView({ all: true })
@@ -334,9 +368,21 @@ export class Engine {
     const loops = activeLoops(this.listLoops())
     const dormant = this.listLoops().filter((loop) => loop.status === 'dormant').length
     const view = this.inboxView({ all: false })
-    if (loops.length === 0 && view.previews.length === 0) return ''
 
-    const lines = ['## 后台（Ink）']
+    const lines = []
+    const briefing = this.latestBriefing()
+    const today = dayOf(this.now())
+    if (briefing !== null && briefing.day < today) {
+      lines.push(`## 交接简报（${briefing.day} 写的，今天是 ${today}——开工先看这个）`)
+      if (briefing.progress) lines.push(`推进：${briefing.progress}`)
+      if (briefing.loops) lines.push(`开环：${briefing.loops}`)
+      if (briefing.running) lines.push(`在跑：${briefing.running}`)
+      if (briefing.drafts) lines.push(`草稿：${briefing.drafts}`)
+      if (briefing.next) lines.push(`下步（你昨天想的）：${briefing.next}`)
+      lines.push('')
+    }
+    if (loops.length === 0 && view.previews.length === 0 && lines.length === 0) return ''
+    lines.push('## 后台（Ink）')
     if (loops.length > 0) {
       lines.push(`悬着的事：活跃 ${loops.length} / 休眠 ${dormant}（上限 ${ACTIVE_LOOP_CAP}）`)
       for (const loop of loops.slice(0, 5)) {

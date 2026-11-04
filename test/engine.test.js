@@ -208,3 +208,43 @@ test('absorb 不进收件箱（看了、判定无需理会）', async () => {
     await ctx.cleanup()
   }
 })
+
+test('交接简报：Mind 写、Ink 存；隔夜后在 L3 顶部出现（开工先看这个）', async () => {
+  const ctx = await fixture()
+  try {
+    await assert.rejects(() => ctx.engine.saveBriefing({}), /至少要有/)
+    await ctx.engine.saveBriefing({
+      progress: '定了双日志与三层存根',
+      loops: '展示时机未定',
+      running: 'J-1 审计在跑',
+      drafts: '定位方案 B',
+      next: '想先聊展示时机',
+    })
+    assert.equal(ctx.engine.latestBriefing().progress, '定了双日志与三层存根')
+
+    // 当天：L3 不该出现简报（简报是给明天的自己）
+    assert.doesNotMatch(ctx.engine.l3Text(), /交接简报/)
+
+    // 隔夜：L3 顶部出现简报与「下步」
+    ctx.advance(DAY)
+    const l3 = ctx.engine.l3Text()
+    assert.match(l3, /交接简报/)
+    assert.match(l3, /下步（你昨天想的）：想先聊展示时机/)
+  } finally {
+    await ctx.cleanup()
+  }
+})
+
+test('简报素材：活跃开环、在跑任务、草稿与收件箱', async () => {
+  const ctx = await fixture()
+  try {
+    const loop = await ctx.engine.addLoop({ text: '一个活跃线索', type: 'promise' })
+    await ctx.engine.addJob({ id: 'J-1', label: '审计', loopId: loop.id, state: 'running' })
+    const materials = ctx.engine.briefingMaterials()
+    assert.equal(materials.activeLoops.length, 1)
+    assert.equal(materials.running.length, 1)
+    assert.deepEqual(materials.drafts, [])
+  } finally {
+    await ctx.cleanup()
+  }
+})
