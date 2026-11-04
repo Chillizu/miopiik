@@ -476,6 +476,8 @@ export function registerTools(ctx, engines, operator, services = {}) {
               label: args.label,
               summary: args.summary,
               premise: args.premise,
+              quotes: args.quotes,
+              facts: args.facts,
               forkedAtTurn: args.forkedAtTurn,
             })
             return { branch }
