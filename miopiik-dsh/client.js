@@ -916,8 +916,6 @@ window.__ModuleLoader__.load({
           h('span', null, `${t('stream.observed')} ${obs.user ?? 0} / ${obs.assistant ?? 0} / ${obs.tool ?? 0}`),
           h('span', null, `${t('stream.decisions')} ${notes.length}`),
         ),
-        verbose ? h(ObservedSection, { audit }) : null,
-        verbose ? h(ExecSection, { audit }) : null,
         shown.length === 0
           ? h('div', { style: styles.empty }, t('stream.empty'))
           : shown.map((note) =>
@@ -988,6 +986,8 @@ window.__ModuleLoader__.load({
                   : null,
               ),
             ),
+        verbose ? h(ObservedSection, { audit }) : null,
+        verbose ? h(ExecSection, { audit }) : null,
       )
     }
 
