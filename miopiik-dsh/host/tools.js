@@ -531,11 +531,16 @@ export function registerTools(ctx, engines, operator, services = {}) {
                 if (commands === undefined || agent === undefined) return { applied: false, reason: 'no-command-registry' }
                 try {
                   const result = await commands.execute(agent, '/compact', [], AbortSignal.timeout(180_000))
-                  const outcome = result?.result
+                  const outcome = result?.result ?? result
                   if (outcome?.kind === 'success') {
                     return { applied: true, seq: outcome.sourceEventSeq ?? null }
                   }
-                  return { applied: false, reason: `command:${outcome?.text ?? 'unknown'}` }
+                  const shape = JSON.stringify({
+                    resultKind: outcome?.kind ?? null,
+                    text: outcome?.text ?? null,
+                    keys: outcome === null || outcome === undefined ? null : Object.keys(outcome).slice(0, 6),
+                  })
+                  return { applied: false, reason: `command:${shape}` }
                 } catch (error) {
                   return { applied: false, reason: `command-threw:${String(error?.message ?? error).slice(0, 80)}` }
                 }
