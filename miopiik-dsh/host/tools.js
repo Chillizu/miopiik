@@ -233,6 +233,7 @@ export function registerTools(ctx, engines, operator) {
             enum: ['low', 'mid', 'high'],
             description: 'How sure you are it will be accepted. low refuses the gate: keep it in the draft area instead.',
           },
+          draftId: { type: 'string', description: 'The draft this commit promotes, if any. Approval settles it as committed; rejection settles it as rejected — no repair is asked of the user.' },
         },
         required: ['title', 'summary'],
         additionalProperties: false,
@@ -265,7 +266,14 @@ export function registerTools(ctx, engines, operator) {
         const item = answer?.answers?.find((entry) => entry.id === questionId)
         const selected = item?.selected ?? []
         const approved = selected.includes('行') || selected.includes('approve') || selected.includes('Approve')
-        return { approved, selected, custom: item?.custom ?? null }
+        let draft = null
+        if (typeof args.draftId === 'string' && args.draftId !== '') {
+          draft = await engineFor(exec).settleDraft(args.draftId, {
+            status: approved ? 'committed' : 'rejected',
+            reason: approved ? 'gate:approved' : 'gate:rejected-by-user',
+          })
+        }
+        return { approved, selected, custom: item?.custom ?? null, draft }
       },
     }),
   )
@@ -319,6 +327,42 @@ export function registerTools(ctx, engines, operator) {
       async execute(args, exec) {
         if (args.action !== 'advance') throw new Error(`未知 action: ${args.action}`)
         return engineFor(exec).advanceEpoch({ note: args.note ?? null })
+      },
+    }),
+  )
+  ctx.tools.register(
+    tool({
+      name: 'ink_draft',
+      description:
+        'The draft area: work that is not ready for the commit gate. Drafts are discardable by construction, age out after a week, and never reach the user. Promote one through ink_commit when you are sure it will be accepted.',
+      parameters: {
+        type: 'object',
+        properties: {
+          action: { type: 'string', enum: ['list', 'add', 'drop'] },
+          id: { type: 'string', description: 'Draft id such as P-1.' },
+          title: { type: 'string' },
+          summary: { type: 'string' },
+          artifact: { type: 'string', description: 'Where the work lives (file path, task id, or note).' },
+          conf: { type: 'string', enum: ['low', 'mid', 'high'] },
+        },
+        required: ['action'],
+        additionalProperties: false,
+      },
+      async execute(args, exec) {
+        const engine = engineFor(exec)
+        if (args.action === 'list') return { drafts: engine.listDrafts() }
+        if (args.action === 'add') {
+          const draft = await engine.addDraft({
+            title: args.title,
+            summary: args.summary,
+            artifact: args.artifact,
+            conf: args.conf,
+          })
+          return { draft }
+        }
+        if (typeof args.id !== 'string') throw new Error('drop 需要 id')
+        const draft = await engine.settleDraft(args.id, { status: 'dropped', reason: 'mind:dropped' })
+        return { draft }
       },
     }),
   )

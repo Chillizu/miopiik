@@ -10,7 +10,7 @@
 import { mkdir, readFile, appendFile } from 'node:fs/promises'
 import { join } from 'node:path'
 
-export const LOG_NAMES = Object.freeze(['observations', 'notes', 'loops', 'facts', 'inbox', 'briefings', 'jobs'])
+export const LOG_NAMES = Object.freeze(['observations', 'notes', 'loops', 'facts', 'inbox', 'briefings', 'jobs', 'drafts'])
 
 export function emptyState(sessionId) {
   return {
@@ -22,7 +22,8 @@ export function emptyState(sessionId) {
     inbox: new Map(),
     briefings: [],
     jobs: new Map(),
-    counters: { obs: 0, note: 0, loop: 0, fact: 0, inbox: 0, job: 0 },
+    drafts: new Map(),
+    counters: { obs: 0, note: 0, loop: 0, fact: 0, inbox: 0, job: 0, draft: 0 },
     epoch: 0,
   }
 }
@@ -114,6 +115,17 @@ export function applyRecord(state, log, record) {
       const job = state.jobs.get(record.jobId)
       if (job === undefined) return
       if (record.op === 'update') Object.assign(job, record.patch ?? {})
+      return
+    }
+    case 'drafts': {
+      if (record.op === 'create') {
+        state.drafts.set(record.draft.id, { ...record.draft })
+        state.counters.draft = bump(state.counters.draft, record.draft.id)
+        return
+      }
+      const draft = state.drafts.get(record.draftId)
+      if (draft === undefined) return
+      if (record.op === 'update') Object.assign(draft, record.patch ?? {})
       return
     }
     case 'briefings':

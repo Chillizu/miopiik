@@ -190,6 +190,7 @@ window.__ModuleLoader__.load({
       const jobs = snapshot?.jobs
       if (jobs === undefined) return h('div', { style: styles.empty }, t('running.offline'))
       const items = jobs.items ?? []
+      const drafts = snapshot?.drafts?.items ?? []
       return h(
         'div',
         { style: { display: 'flex', flexDirection: 'column', gap: 8 } },
@@ -208,6 +209,43 @@ window.__ModuleLoader__.load({
                 ),
               ),
             ),
+        h('div', { style: styles.meta }, t('drafts.title')),
+        drafts.length === 0
+          ? h('div', { style: styles.empty }, t('drafts.empty'))
+          : drafts.map((draft) =>
+              h(
+                'div',
+                { key: draft.id, style: styles.row },
+                h(
+                  'div',
+                  { style: styles.rowText },
+                  draft.title,
+                  h('div', { style: styles.meta }, `${draft.id} · ${draft.conf}`),
+                ),
+              ),
+            ),
+      )
+    }
+
+    function AuditPane({ snapshot }) {
+      const notes = snapshot?.audit?.notes ?? []
+      if (notes.length === 0) return h('div', { style: styles.empty }, t('audit.empty'))
+      return h(
+        'div',
+        { style: { display: 'flex', flexDirection: 'column', gap: 6 } },
+        h('div', { style: styles.meta }, t('audit.subtitle')),
+        notes.map((note) =>
+          h(
+            'div',
+            { key: note.id, style: styles.row },
+            h(
+              'div',
+              { style: styles.rowText },
+              note.claim,
+              h('div', { style: styles.meta }, `${note.id} · ${note.kind}`),
+            ),
+          ),
+        ),
       )
     }
 
@@ -223,7 +261,8 @@ window.__ModuleLoader__.load({
       }, [state.open])
       if (!state.open) return null
       const close = () => overlay.set({ ...overlay.get(), open: false })
-      const tab = state.tab === 'facts' ? 'facts' : state.tab === 'running' ? 'running' : 'loops'
+      const tab =
+        state.tab === 'facts' ? 'facts' : state.tab === 'running' ? 'running' : state.tab === 'audit' ? 'audit' : 'loops'
       return h(
         'div',
         {
@@ -291,7 +330,27 @@ window.__ModuleLoader__.load({
             ? h(LoopsPane, { snapshot, sessionId })
             : tab === 'facts'
               ? h(FactsPane, { snapshot, sessionId })
-              : h(RunningPane, { snapshot }),
+              : tab === 'audit'
+                ? h(AuditPane, { snapshot })
+                : h(RunningPane, { snapshot }),
+          h(
+            'button',
+            {
+              type: 'button',
+              onClick: () => overlay.set({ ...overlay.get(), tab: tab === 'audit' ? 'loops' : 'audit' }),
+              style: {
+                alignSelf: 'flex-start',
+                border: 0,
+                background: 'transparent',
+                color: C.muted,
+                fontSize: 11,
+                cursor: 'pointer',
+                padding: 0,
+                opacity: 0.7,
+              },
+            },
+            tab === 'audit' ? t('audit.back') : t('audit.entry'),
+          ),
           h('div', { style: { fontSize: 11, color: C.muted, lineHeight: '17px' } }, t('drawer.hint')),
         ),
       )
@@ -364,6 +423,12 @@ window.__ModuleLoader__.load({
       'running.subtitle': '后台在做什么；细节不会进对话。',
       'running.empty': '现在没有在跑的东西。',
       'running.offline': '这个会话的后台还没连上。',
+      'drafts.title': '草稿（未达 commit 门槛的东西）',
+      'drafts.empty': '现在没有草稿。',
+      'audit.entry': '取证',
+      'audit.back': '收起取证',
+      'audit.subtitle': 'Ink 的决定账（审计视图，不是给你日常看的）。',
+      'audit.empty': '还没有决定记录。',
     }
 
     const en = {
@@ -388,6 +453,12 @@ window.__ModuleLoader__.load({
       'running.subtitle': 'What the backstage is doing; details stay out of the conversation.',
       'running.empty': 'Nothing is running right now.',
       'running.offline': 'The backstage of this session is not connected yet.',
+      'drafts.title': 'Drafts (below the commit bar)',
+      'drafts.empty': 'No drafts right now.',
+      'audit.entry': 'Evidence',
+      'audit.back': 'Hide evidence',
+      'audit.subtitle': 'Ink\'s decision ledger (an audit view, not something to read daily).',
+      'audit.empty': 'No decisions recorded yet.',
     }
 
     return {

@@ -16,7 +16,7 @@ import { makeNote, validateNote } from './notes.js'
 import { activeFacts, makeFact, validateFact } from './facts.js'
 import { appendRecord } from './store.js'
 
-export const INK_TOOL_NAMES = Object.freeze(['ink_status', 'ink_loops', 'ink_facts', 'ink_inbox', 'ink_dispatch', 'ink_commit', 'ink_brief', 'ink_epoch'])
+export const INK_TOOL_NAMES = Object.freeze(['ink_status', 'ink_loops', 'ink_facts', 'ink_inbox', 'ink_dispatch', 'ink_commit', 'ink_brief', 'ink_epoch', 'ink_draft'])
 
 const MAX_L3_LINES = 14
 
@@ -111,6 +111,8 @@ export class Engine {
       await appendRecord(this.store, 'loops', { op: 'status', loopId: id, status, at: now })
       if (status === 'dormant') await this.deliverAgingPreview(loop, { epoch, today })
     }
+
+    await this.expireDrafts({ today })
 
     for (const id of overflowToDormant([...this.state.loops.values()], ACTIVE_LOOP_CAP)) {
       await appendRecord(this.store, 'loops', { op: 'status', loopId: id, status: 'dormant', at: now })
@@ -333,8 +335,13 @@ export class Engine {
 
   // ── 交接简报与跨天恢复（SPEC §5.3 / §5.5） ──────────────────────────
 
+  /** 最近一份「主体」简报；隔夜更新（kind=overnight）不算主体。 */
   latestBriefing() {
-    return this.state.briefings.length === 0 ? null : this.state.briefings[this.state.briefings.length - 1]
+    for (let index = this.state.briefings.length - 1; index >= 0; index -= 1) {
+      const record = this.state.briefings[index]
+      if (record.kind !== 'overnight') return record
+    }
+    return null
   }
 
   briefingMaterials() {
@@ -346,7 +353,7 @@ export class Engine {
         .map((loop) => ({ id: loop.id, text: loop.text, closureCondition: loop.closureCondition })),
       dormant: loops.filter((loop) => loop.status === 'dormant').length,
       running: running.map((job) => ({ id: job.id, label: job.label, state: job.state })),
-      drafts: [],
+      drafts: this.listDrafts().map((draft) => ({ id: draft.id, title: draft.title, conf: draft.conf })),
       inboxPending: this.inboxView({ all: true }).previews.length,
     }
   }
@@ -360,6 +367,8 @@ export class Engine {
     if (fields.progress === '' && fields.next === '') {
       throw new Error('简报至少要有"推进"或"下步"，否则明天的你会认不出自己')
     }
+    const total = fields.progress.length + fields.loops.length + fields.running.length + fields.drafts.length + fields.next.length
+    if (total > 1800) throw new Error(`简报超过一屏（${total} 字 > 1800），重新折一次再写`)
     const record = { day: dayOf(this.now()), at: this.now(), ...fields }
     await this.enqueue(() => appendRecord(this.store, 'briefings', record))
     return record
@@ -416,7 +425,85 @@ export class Engine {
         })),
       },
       jobs: { running: running.length, items: running.slice(0, 5).map((job) => ({ id: job.id, label: job.label })) },
+      drafts: {
+        open: this.listDrafts().length,
+        items: this.listDrafts().slice(0, 5).map((draft) => ({ id: draft.id, title: draft.title, conf: draft.conf })),
+      },
+      audit: {
+        notes: this.state.notes
+          .slice(-8)
+          .reverse()
+          .map((note) => ({ id: note.id, kind: note.kind, claim: note.claim })),
+      },
     }
+  }
+
+  // ── 草稿区（SPEC §2.5 / §4.1） ──────────────────────────────────────
+
+  async addDraft(input) {
+    const title = String(input?.title ?? '').trim()
+    if (title === '') throw new Error('草稿至少要有标题')
+    const at = this.now()
+    const draft = {
+      id: `P-${this.state.counters.draft + 1}`,
+      title,
+      summary: String(input?.summary ?? '').trim(),
+      artifact: input?.artifact ?? null,
+      conf: ['low', 'mid', 'high'].includes(input?.conf) ? input.conf : 'mid',
+      source: input?.source ?? 'mind',
+      status: 'open',
+      createdAt: at,
+      createdDay: dayOf(at),
+      settledAt: null,
+    }
+    await this.enqueue(() => appendRecord(this.store, 'drafts', { op: 'create', draft }))
+    return draft
+  }
+
+  listDrafts({ includeSettled = false } = {}) {
+    const all = [...this.state.drafts.values()].sort((a, b) => b.createdAt - a.createdAt)
+    return includeSettled ? all : all.filter((draft) => draft.status === 'open')
+  }
+
+  async settleDraft(id, { status, reason = null } = {}) {
+    if (!this.state.drafts.has(id)) throw new Error(`没有这张草稿: ${id}`)
+    if (!['committed', 'rejected', 'expired', 'dropped'].includes(status)) throw new Error(`未知草稿状态: ${status}`)
+    await this.enqueue(() =>
+      appendRecord(this.store, 'drafts', {
+        op: 'update',
+        draftId: id,
+        patch: { status, settledAt: this.now(), settleReason: reason },
+        at: this.now(),
+      }),
+    )
+    return this.state.drafts.get(id)
+  }
+
+  /** 草稿天轴老化：一周没碰自动丢（SPEC §5.6）。返回被丢的 id。 */
+  async expireDrafts({ today } = {}) {
+    const day = today ?? dayOf(this.now())
+    const expired = []
+    for (const draft of this.state.drafts.values()) {
+      if (draft.status !== 'open') continue
+      if (day - draft.createdDay >= 7) {
+        await this.settleDraft(draft.id, { status: 'expired', reason: 'aging:7d' })
+        expired.push(draft.id)
+      }
+    }
+    return expired
+  }
+
+  // ── 交接简报：单屏校验与隔夜追加（SPEC §5.3） ────────────────────────
+
+  /** 隔夜更新：追加一条，不覆盖原句（SPEC §5.3）。 */
+  async appendBriefingUpdate(text) {
+    const value = String(text ?? '').trim()
+    if (value === '') throw new Error('隔夜更新不能为空')
+    const briefing = this.latestBriefing()
+    if (briefing === null) throw new Error('还没有任何交接简报，先写一份主体再追加更新')
+    const record = { kind: 'overnight', day: dayOf(this.now()), at: this.now(), text: value, afterBriefingAt: briefing.at }
+    await this.enqueue(() => appendRecord(this.store, 'briefings', record))
+    return record
   }
 
   status() {
@@ -461,7 +548,17 @@ export class Engine {
       if (briefing.running) lines.push(`在跑：${briefing.running}`)
       if (briefing.drafts) lines.push(`草稿：${briefing.drafts}`)
       if (briefing.next) lines.push(`下步（你昨天想的）：${briefing.next}`)
+      const updates = this.state.briefings.filter(
+        (record) => record.kind === 'overnight' && record.afterBriefingAt === briefing.at,
+      )
+      for (const update of updates) lines.push(`隔夜更新：${update.text}`)
       lines.push('')
+    } else if (briefing === null) {
+      const lastDay = this.state.observations.length === 0 ? today : this.state.observations[this.state.observations.length - 1].day
+      if (Number.isFinite(lastDay) && today - lastDay >= 1 && this.state.observations.length > 0) {
+        lines.push(`## 上次对话停在第 ${lastDay} 天，没有收工简报——先承认断点，再继续（SPEC §5.2）`)
+        lines.push('')
+      }
     }
     if (loops.length === 0 && view.previews.length === 0 && lines.length === 0) return ''
     lines.push('## 后台（Ink）')

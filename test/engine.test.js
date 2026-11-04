@@ -347,3 +347,71 @@ test('L3：收件箱预览带结尾问题，顺序为简报→收件箱→开环
     await ctx.cleanup()
   }
 })
+
+test('草稿区：add/list/drop，闸门批准后转 committed，拒绝后转 rejected（不要求用户修理）', async () => {
+  const ctx = await fixture()
+  try {
+    const draft = await ctx.engine.addDraft({ title: '定位方案 B', summary: '还缺用户偏好', conf: 'mid' })
+    assert.equal(draft.id, 'P-1')
+    assert.equal(ctx.engine.listDrafts().length, 1)
+    assert.equal(ctx.engine.briefingMaterials().drafts[0].title, '定位方案 B')
+
+    const committed = await ctx.engine.settleDraft('P-1', { status: 'committed', reason: 'gate:approved' })
+    assert.equal(committed.status, 'committed')
+    assert.equal(ctx.engine.listDrafts().length, 0, 'settled 草稿不再出现在待办列表')
+
+    const draft2 = await ctx.engine.addDraft({ title: '另一个', conf: 'low' })
+    const rejected = await ctx.engine.settleDraft(draft2.id, { status: 'rejected', reason: 'gate:rejected-by-user' })
+    assert.equal(rejected.status, 'rejected')
+    const reopened = await openStore(ctx.dir, 'session-1')
+    assert.equal(reopened.state.drafts.get('P-1').status, 'committed')
+    assert.equal(reopened.state.drafts.get(draft2.id).status, 'rejected')
+  } finally {
+    await ctx.cleanup()
+  }
+})
+
+test('草稿天轴老化：一周没碰自动 expired', async () => {
+  const ctx = await fixture()
+  try {
+    const draft = await ctx.engine.addDraft({ title: '会过期的草稿' })
+    ctx.advance(8 * DAY)
+    await ctx.engine.finishTurn(1)
+    assert.equal(ctx.engine.listDrafts().length, 0)
+    assert.equal(ctx.engine.state.drafts.get(draft.id).status, 'expired')
+  } finally {
+    await ctx.cleanup()
+  }
+})
+
+test('简报：超过一屏拒绝；隔夜更新追加且不覆盖原句；L3 逐条显示', async () => {
+  const ctx = await fixture()
+  try {
+    await assert.rejects(() => ctx.engine.saveBriefing({ progress: '长'.repeat(2000), next: 'x' }), /超过一屏/)
+    await ctx.engine.saveBriefing({ progress: '完成 Batch 5', next: '补草稿区' })
+    await ctx.engine.appendBriefingUpdate('凌晨 Operator 跑完了，结论在 I-1')
+    ctx.advance(DAY)
+    const l3 = ctx.engine.l3Text()
+    assert.match(l3, /交接简报/)
+    assert.match(l3, /隔夜更新：凌晨 Operator 跑完了/)
+    assert.match(l3, /下步（你昨天想的）：补草稿区/)
+  } finally {
+    await ctx.cleanup()
+  }
+})
+
+test('硬断：跨天但没有收工简报时，L3 要求先承认断点', async () => {
+  const ctx = await fixture()
+  try {
+    ctx.engine.observe({
+      type: 'user/message',
+      data: { source: { kind: 'user' }, content: [{ type: 'text', text: '先这样，明天再聊' }] },
+    })
+    await ctx.engine.queue
+    ctx.advance(DAY)
+    const l3 = ctx.engine.l3Text()
+    assert.match(l3, /没有收工简报——先承认断点/)
+  } finally {
+    await ctx.cleanup()
+  }
+})
