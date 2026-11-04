@@ -434,6 +434,14 @@ L3 之外，Mind 还能从 L3 末尾看到一行鱼骨：「B-1 定位验证：�
 | `ink_fold approve` 返回自相矛盾 | 真：`applied` 同时表示「验收」与「替换」 | 拆成 `settled`（提案状态）/ `contextReplaced`（上下文是否真被替换）/ `reason` |
 | `ink_branch open` 的 quotes 没落库 | 真：open 只写 premise，quotes 要另调 context | open 直接接收并落库 premise/quotes/facts；实测 `get` 能读回 |
 
+
+### 11.4 迁移事故与处理（2026-11-04）
+
+| 现象 | 原因 | 处理 |
+|---|---|---|
+| 修好「账本按会话隔离」后，某些会话的鱼骨消失 | 旧布局（根目录混合账本）的自动迁移把**整批混写记录塞给了升级后第一个打开的会话**，于是 A 会话的分支被搬进 B 会话的目录 | 取消自动认领；新增 `tools/adopt-legacy.mjs`，按「记录时间戳落在哪个会话的活动区间」归还；已修复 `/home/data/models`（38 条记录回到「确定性推理与外置知识」，其中 `B-3 知识-推理解耦 / Spark 4B`），备份在 `.dsh/miopiik.bak` |
+| 误以为那两个会话「完全没用过 Ink」 | 用工具名在日志里计数，数到的是**请求头里的 schema**，不是调用 | 真正的调用事件在 `tool-call` 块里：该会话 `ink_branch`×6、`ink_facts`×6、`ink_loops`×2 —— 用了，是数据被搬错了家 |
+
 ### 11.2b 已知边界（不是缺口，是代价；不打算靠加机制消除）
 
 | 边界 | 为什么保留 |
