@@ -81,3 +81,17 @@ test('鱼骨主视图：注册在会话视图、按事件画、带悬停与详�
   assert.ok(!clientSource.includes('graph.legend'), '解释性图例不该存在')
   assert.ok(!clientSource.includes("conversation.session.header.utilities"), '入口已合并，不该再占顶栏')
 })
+
+test('界面上用到的每个文案键都在字典里（防止把 key 直接渲染出来）', () => {
+  const zhStart = clientSource.indexOf('const zh = {')
+  const zhEnd = clientSource.indexOf('const en = {')
+  const zhBlock = clientSource.slice(zhStart, zhEnd)
+  const defined = new Set()
+  for (const match of zhBlock.matchAll(/'([a-zA-Z0-9_.]+)':/gu)) defined.add(match[1])
+  const used = new Set()
+  // 前面不能紧跟字母（否则 inject('...') 里的 t(' 会被误吃）
+  for (const match of clientSource.matchAll(/(?<![A-Za-z_])t\('([a-zA-Z0-9_.]+)'/gu)) used.add(match[1])
+  for (const match of clientSource.matchAll(/t\(`\$\{([^}]+)\}\.[a-z]+`/gu)) used.add(match[1])
+  const missing = [...used].filter((key) => !defined.has(key))
+  assert.deepEqual(missing, [], `这些键没有中文文案：${missing.join(', ')}`)
+})

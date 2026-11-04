@@ -700,6 +700,7 @@ window.__ModuleLoader__.load({
       'tab.drafts': '草稿',
       'tab.letter': '交接记录',
       'view.miopiik': 'MiOpIIk',
+      'tab.graph': '鱼骨',
       'tab.audit': '审计',
       'graph.title': '鱼骨图',
       'graph.empty': '还没有分支。',
@@ -753,6 +754,7 @@ window.__ModuleLoader__.load({
     }
 
     const en = {
+      'tab.graph': 'Fishbone',
       'presence.label': 'Backstage',
       'presence.title': 'Open the backstage panel',
       'drawer.title': 'Backstage',
@@ -764,6 +766,7 @@ window.__ModuleLoader__.load({
       'tab.drafts': 'Drafts',
       'tab.letter': 'Handoff record',
       'view.miopiik': 'MiOpIIk',
+      'tab.graph': '鱼骨',
       'tab.audit': 'Audit',
       'graph.title': 'Fishbone graph',
       'graph.empty': 'No branches yet.',
