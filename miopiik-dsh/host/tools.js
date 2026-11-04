@@ -381,10 +381,11 @@ export function registerTools(ctx, engines, operator) {
         if (operator === undefined || typeof operator.engineForChild !== 'function') {
           throw new Error('MiOpIIk: 没有可用的 Ink 运行时映射')
         }
-        const childId = String(exec.agent?.session?.id ?? '')
-        const engine = operator.engineForChild(childId)
-        if (engine === undefined) throw new Error('MiOpIIk: 这个子会话没有对应的 Ink 运行时')
-        return engine.answerOperatorQuestion({ question: args.question, childId })
+        const sessionId = String(exec.agent?.session?.id ?? '')
+        // Operator 子会话走子会话映射；Mind 自己问也能问（查询/召回属窄工具面）。
+        const engine = operator.engineForChild(sessionId) ?? engines.get(sessionId)
+        if (engine === undefined) throw new Error('MiOpIIk: 这个会话没有对应的 Ink 运行时')
+        return engine.answerOperatorQuestion({ question: args.question, childId: sessionId })
       },
     }),
   )

@@ -21,14 +21,14 @@
 | §2.2 note 字段与 kind | `host/notes.js`；`engine.deliverNote` | 🟡 detail hash/索引未做 |
 | §2.2 判决缓存 | `notes.findVerdict` | 🟡 无调用方 |
 | §2.3 三份记忆 | 叙事=DSH 会话；开环=`loops`；事实=`facts` | ✅ |
-| §2.4 判例 | `findVerdict` | ⬜ 无 Operator↔Ink 问答通道 |
+| §2.4 判例 | `host/cases.js` + `engine.recordCase/listCases` | ✅ 确定性匹配，可引用 |
 | §2.5 草稿区 | `engine.addDraft/settleDraft/expireDrafts`；`tools.ink_draft`；抽屉展示 | ✅ |
 | §3.1 编译 | `host/compile.js`（`ctx.llm` 单次调用 + JSON 解析 + 降级） | ✅ |
 | §3.1 两级翻译 | 第一级在 `compile.js`；第二级由 Mind（章程） | ✅ |
-| §3.2 自答/上报 | 章程 + `compile` 只产出预览不叙事 | 🟡 |
+| §3.2 自答/上报 | `engine.answerOperatorQuestion`（判例→事实卡→上报）；`tools.ink_ask` | ✅ 三态实测 |
 | §3.3 收件箱分层 | `host/inbox.js`（T0–T3、stale、merge、cap 3） | ✅ |
 | §3.3 预览 = 状态+连接点+问题 | `compile.js` JSON 契约；`loops.asQuestion` | ✅ |
-| §3.4 守夜 | `operator.js` 超时 → `[阻塞]` 预览 | ✅ |
+| §3.4 守夜 | `operator.js` 超时 → `[阻塞]` 预览；无连续无进展检测 | 🟡 |
 | §3.5 回滚 > 打补丁 | — | ⬜ |
 | §4.1 闸门只要求判断 | `ink_commit` 行/不行 + 自定义文本回传 | ✅ |
 | §4.1 契约与验收样例 | `contract.js` | ✅ |
