@@ -55,9 +55,9 @@ test('真正用到的常量来自同一张表（改一处即全站生效）', as
 test('关键客户端注册点都在（防止替换静默失效）', () => {
   for (const needle of [
     "ctx.slots.inject('settings.section'",
-    "ctx.slots.inject('conversation.composer.dock'",
+    "ctx.slots.inject('conversation.session.header.utilities'",
     "name: 'settings.section'",
-    "name: 'conversation.composer.dock'",
+    "name: 'conversation.session.header.utilities'",
     'function SettingsSection(',
     'function Presence(',
   ]) {

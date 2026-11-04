@@ -2,7 +2,7 @@
  * miopiik-dsh — Client 半边（Web）。
  *
  * SPEC §6：不做导航栏，次级视图从对话里长出来。
- *  - conversation.composer.dock —— 存在感（一个点 +「后台」，有在跑的任务时才带数字）
+ *  - conversation.session.header.utilities —— 存在感胶囊（一个点 +「后台」，有在跑时才带数字）
  *  - 抽屉（固定覆盖层，从存在感点开）—— 悬着的事 / 我们一起定的 / 后台在跑
  *
  * 数据：Host 的 session projection `miopiikBackstage`（已计算好，客户端不折事件）。
@@ -496,18 +496,19 @@ window.__ModuleLoader__.load({
             'aria-expanded': state.open ? 'true' : 'false',
             onClick: () => overlay.set({ ...overlay.get(), open: !overlay.get().open }),
             style: {
-              display: 'flex',
+              display: 'inline-flex',
               alignItems: 'center',
-              justifyContent: 'flex-end',
               gap: 6,
-              width: '100%',
-              padding: '2px 8px',
+              height: 26,
+              padding: '0 9px',
               background: 'transparent',
-              border: 0,
+              border: `1px solid ${C.border}`,
+              borderRadius: 13,
               cursor: 'pointer',
-              color: C.muted,
-              fontSize: 11,
-              lineHeight: '16px',
+              color: running > 0 ? C.text : C.muted,
+              fontSize: 12,
+              lineHeight: '18px',
+              whiteSpace: 'nowrap',
             },
           },
           h('span', {
@@ -643,9 +644,10 @@ window.__ModuleLoader__.load({
           ),
         )
 
-        ctx.slots.inject('conversation.composer.dock', () =>
+        // 会话级顶栏工具位：和「计划任务」同级，属于这个会话的状态，不是全局导航。
+        ctx.slots.inject('conversation.session.header.utilities', () =>
           ctx.slots.register(
-            { name: 'conversation.composer.dock', id: 'miopiik-presence', order: 40, locale: NS },
+            { name: 'conversation.session.header.utilities', id: 'miopiik-backstage', order: 0, locale: NS },
             Presence,
           ),
         )
