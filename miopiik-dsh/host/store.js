@@ -156,6 +156,16 @@ export function applyRecord(state, log, record) {
       if (record.op === 'summary') {
         branch.summary = record.summary
         branch.updatedAt = record.at
+      } else if (record.op === 'context') {
+        // 切片是追加语义：引用与事实只增不删，前提可被改写（改写本身留痕在日志里）。
+        if (typeof record.premise === 'string') branch.context.premise = record.premise
+        for (const quote of record.quotes ?? []) {
+          if (!branch.context.quotes.includes(quote)) branch.context.quotes.push(quote)
+        }
+        for (const id of record.facts ?? []) {
+          if (!branch.context.facts.includes(id)) branch.context.facts.push(id)
+        }
+        branch.updatedAt = record.at
       } else if (record.op === 'attach-job') {
         if (!branch.jobs.includes(record.jobId)) branch.jobs.push(record.jobId)
         branch.updatedAt = record.at

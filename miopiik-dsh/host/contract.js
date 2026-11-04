@@ -24,8 +24,11 @@ export function validateContract(input) {
   return { ok: missing.length === 0, missing }
 }
 
-/** 把契约渲染成给 Operator 的派发提示。Operator 只认契约，看不到对话。 */
-export function renderContractPrompt(contract) {
+/**
+ * 把契约渲染成给 Operator 的派发提示。
+ * Operator 看不到对话；它能看到的是契约 + 它所属分支的上下文切片（如果有）。
+ */
+export function renderContractPrompt(contract, branchSlice = null) {
   return [
     'You are an Operator working in the background. You never talk to the user.',
     'You get a contract and nothing else. Your job is to satisfy it and report back.',
@@ -42,6 +45,7 @@ export function renderContractPrompt(contract) {
     '',
     `## Budget\n${contract.budget}`,
     '',
+    ...(branchSlice === null ? [] : [branchSlice, '']),
     '## Rules',
     '- Start by producing the cheapest early shape (outline / plan / first screen) so it can be checked early.',
     '- Do not ask the user anything. If the contract is ambiguous, pick the reading the sample supports and say so in your final report.',

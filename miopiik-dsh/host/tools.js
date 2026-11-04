@@ -408,13 +408,27 @@ export function registerTools(ctx, engines, operator) {
       parameters: {
         type: 'object',
         properties: {
-          action: { type: 'string', enum: ['list', 'open', 'summary', 'merge', 'abandon'] },
+          action: { type: 'string', enum: ['list', 'open', 'get', 'summary', 'context', 'merge', 'abandon'] },
           id: { type: 'string', description: 'Branch id such as B-1.' },
           label: { type: 'string', description: 'Short name of the thread, as the user would say it.' },
           summary: { type: 'string', description: 'One line: what this branch is after.' },
           claim: { type: 'string', description: 'For merge: the conclusion, one line.' },
           detail: { type: 'string', description: 'For merge: the evidence that matters.' },
           forkedAtTurn: { type: 'number', description: 'Which conversation turn this branch grew out of.' },
+          premise: {
+            type: 'string',
+            description: 'The premise at the fork: why this branch exists and what the context was, in your own words.',
+          },
+          quotes: {
+            type: 'array',
+            items: { type: 'string' },
+            description: 'Verbatim lines from the trunk that this branch depends on. Quote, never paraphrase.',
+          },
+          facts: {
+            type: 'array',
+            items: { type: 'string' },
+            description: 'Fact ids this branch relies on (F-1, …).',
+          },
           reason: { type: 'string' },
         },
         required: ['action'],
@@ -429,7 +443,21 @@ export function registerTools(ctx, engines, operator) {
             const branch = await engine.openBranch({
               label: args.label,
               summary: args.summary,
+              premise: args.premise,
               forkedAtTurn: args.forkedAtTurn,
+            })
+            return { branch }
+          }
+          case 'get': {
+            if (typeof args.id !== 'string') throw new Error('get 需要 id')
+            return engine.branchSlice(args.id)
+          }
+          case 'context': {
+            if (typeof args.id !== 'string') throw new Error('context 需要 id')
+            const branch = await engine.updateBranchContext(args.id, {
+              premise: args.premise,
+              quotes: args.quotes,
+              facts: args.facts,
             })
             return { branch }
           }

@@ -111,3 +111,77 @@ test('数据卫生：历史上被误记为 user 的系统注入消息，回放�
     await rmDir(dir, { recursive: true, force: true })
   }
 })
+
+test('分支上下文切片：前提 + 主干引用 + 依赖事实，组装成 Operator 能读的一段', async () => {
+  const ctx = await fixture()
+  try {
+    const fact = await ctx.engine.addFact({ claim: '中间层叫 Ink', provenance: ['SPEC'], source: 'user' })
+    const branch = await ctx.engine.openBranch({ label: '定位验证', summary: '确认假设', forkedAtTurn: 7 })
+    await ctx.engine.updateBranchContext(branch.id, {
+      premise: '用户说竞品都在打价格战，我不确定',
+      quotes: ['“我觉得他们其实是在防御”'],
+      facts: [fact.id],
+    })
+    const slice = ctx.engine.branchSlice(branch.id)
+    assert.match(slice.text, /分支 B-1：定位验证/)
+    assert.match(slice.text, /在追什么：确认假设/)
+    assert.match(slice.text, /前提（从第 7 轮分叉）：用户说竞品都在打价格战/)
+    assert.match(slice.text, /主干原文（引用，不要改写）：/)
+    assert.match(slice.text, /已定事实（按 id 引用，不要重新推导）：/)
+    assert.match(slice.text, new RegExp(`\\[${fact.id}\\] 中间层叫 Ink`))
+  } finally {
+    await ctx.cleanup()
+  }
+})
+
+test('分支切片引用不存在的事实卡时拒收（不静默）', async () => {
+  const ctx = await fixture()
+  try {
+    const branch = await ctx.engine.openBranch({ label: 'x' })
+    await assert.rejects(() => ctx.engine.updateBranchContext(branch.id, { facts: ['F-99'] }), /不存在的事实卡/)
+  } finally {
+    await ctx.cleanup()
+  }
+})
+
+test('派发提示带分支切片：Operator 拿到的是这一段的前提，不是整个对话', async () => {
+  const ctx = await fixture()
+  try {
+    const { renderContractPrompt } = await import('../miopiik-dsh/host/contract.js')
+    const branch = await ctx.engine.openBranch({ label: '定位验证', summary: '确认假设' })
+    await ctx.engine.updateBranchContext(branch.id, { premise: '用户怀疑竞品在防御定价' })
+    const slice = ctx.engine.branchSlice(branch.id).text
+    const prompt = renderContractPrompt(
+      {
+        goal: 'g',
+        deliverables: 'd',
+        acceptance: 'a',
+        acceptanceSample: 's',
+        boundary: 'b',
+        budget: '20min',
+      },
+      slice,
+    )
+    assert.match(prompt, /分支 B-1：定位验证/)
+    assert.match(prompt, /用户怀疑竞品在防御定价/)
+    assert.ok(prompt.indexOf('## Budget') < prompt.indexOf('分支 B-1'), '切片在契约之后、规则之前')
+  } finally {
+    await ctx.cleanup()
+  }
+})
+
+test('分支切片跨回放存活，且引用与事实只增不删', async () => {
+  const { openStore: reopen } = await import('../miopiik-dsh/host/store.js')
+  const ctx = await fixture()
+  try {
+    const branch = await ctx.engine.openBranch({ label: 'x' })
+    await ctx.engine.updateBranchContext(branch.id, { quotes: ['第一句'], premise: '前提一' })
+    await ctx.engine.updateBranchContext(branch.id, { quotes: ['第二句'] })
+    const store = await reopen(ctx.dir, 's1')
+    const restored = store.state.branches.get(branch.id)
+    assert.deepEqual(restored.context.quotes, ['第一句', '第二句'])
+    assert.equal(restored.context.premise, '前提一')
+  } finally {
+    await ctx.cleanup()
+  }
+})

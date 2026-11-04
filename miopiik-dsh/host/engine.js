@@ -15,7 +15,7 @@ import { makeItem, selectView } from './inbox.js'
 import { makeNote, validateNote } from './notes.js'
 import { activeFacts, makeFact, validateFact } from './facts.js'
 import { makeCase, matchCase, matchFacts } from './cases.js'
-import { describeBranches, makeBranch } from './branches.js'
+import { describeBranches, makeBranch, renderBranchSlice } from './branches.js'
 import { appendRecord } from './store.js'
 
 export const INK_TOOL_NAMES = Object.freeze(['ink_status', 'ink_loops', 'ink_facts', 'ink_inbox', 'ink_dispatch', 'ink_commit', 'ink_brief', 'ink_epoch', 'ink_draft', 'ink_branch'])
@@ -750,13 +750,14 @@ export class Engine {
    * 从对话的当前节点开一条分支。forkedAtTurn 是「对话的哪一轮」，
    * 这就是鱼骨的分叉点：分支不是凭空出现的，它总连着一句话。
    */
-  async openBranch({ label, summary = '', forkedAtTurn = null }) {
+  async openBranch({ label, summary = '', forkedAtTurn = null, premise = '' }) {
     const text = String(label ?? '').trim()
     if (text === '') throw new Error('分支要有个名字')
     const branch = makeBranch({
       id: `B-${this.state.counters.branch + 1}`,
       label: text,
       summary,
+      premise,
       forkedAtTurn: forkedAtTurn ?? this.turn,
       forkedAtSeq: this.state.counters.obs,
       at: this.now(),
@@ -776,6 +777,43 @@ export class Engine {
       appendRecord(this.store, 'branches', { op: 'summary', branchId: id, summary: String(summary ?? '').trim(), at: this.now() }),
     )
     return this.state.branches.get(id)
+  }
+
+  /**
+   * 给分支补上下文切片（SPEC §2.4b）：前提 / 主干原文引用 / 依赖的事实卡。
+   * 引用与事实只增不删；前提可改写，历史留在日志里。
+   */
+  async updateBranchContext(id, { premise, quotes = [], facts = [] } = {}) {
+    const branch = this.state.branches.get(id)
+    if (branch === undefined) throw new Error(`没有这条分支: ${id}`)
+    const unknown = facts.filter((factId) => !this.state.facts.has(factId))
+    if (unknown.length > 0) throw new Error(`引用了不存在的事实卡：${unknown.join('、')}`)
+    await this.enqueue(() =>
+      appendRecord(this.store, 'branches', {
+        op: 'context',
+        branchId: id,
+        premise: typeof premise === 'string' ? premise.trim() : undefined,
+        quotes: quotes.map((quote) => String(quote).trim()).filter((quote) => quote !== ''),
+        facts,
+        at: this.now(),
+      }),
+    )
+    return this.state.branches.get(id)
+  }
+
+  /** 读一条分支的切片（Mind 需要「进分支里看」时用）。 */
+  branchSlice(id) {
+    const branch = this.state.branches.get(id)
+    if (branch === undefined) throw new Error(`没有这条分支: ${id}`)
+    const notes = this.state.notes.filter(
+      (note) => note.branch === id || (Array.isArray(note.loops) && false),
+    )
+    return {
+      branch,
+      text: renderBranchSlice(branch, this.state.facts),
+      notes: notes.slice(-5),
+      jobs: [...this.state.jobs.values()].filter((job) => job.branchId === id),
+    }
   }
 
   async attachJobToBranch(branchId, jobId) {

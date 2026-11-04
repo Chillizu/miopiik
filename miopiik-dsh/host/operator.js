@@ -70,6 +70,16 @@ export function createOperator({ ctx, engines, config, warn }) {
       stopReason: null,
     })
 
+    // 分支上下文切片：Operator 拿到的不是整个对话，是这一段工作需要的前提。
+    let branchSlice = null
+    if (branchId !== null && typeof engine.branchSlice === 'function') {
+      try {
+        branchSlice = engine.branchSlice(branchId).text
+      } catch {
+        branchSlice = null
+      }
+    }
+
     const controller = new AbortController()
     let activation
     try {
@@ -78,7 +88,7 @@ export function createOperator({ ctx, engines, config, warn }) {
         label: `O-${jobId} ${input.goal.slice(0, 24)}`,
         request: {
           parent: agent,
-          prompt: [{ type: 'text', text: renderContractPrompt(input) }],
+          prompt: [{ type: 'text', text: renderContractPrompt(input, branchSlice) }],
         },
         signal: controller.signal,
         delivery: 'caller',
