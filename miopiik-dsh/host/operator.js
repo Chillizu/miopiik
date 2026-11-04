@@ -11,6 +11,7 @@ import { compileResult, fallbackPreview } from './compile.js'
 
 export function createOperator({ ctx, engines, config, warn }) {
   const running = new Map()
+  const childEngines = new Map()
 
   const subagents = () => {
     try {
@@ -87,6 +88,7 @@ export function createOperator({ ctx, engines, config, warn }) {
     }
 
     await engine.updateJob(jobId, { childId: String(activation.childId) })
+    childEngines.set(String(activation.childId), engine)
 
     const timeoutMs = Number(config?.operatorTimeoutMs ?? 20 * 60 * 1000)
     const timer = setTimeout(() => {
@@ -107,6 +109,7 @@ export function createOperator({ ctx, engines, config, warn }) {
       .then(async (result) => {
         clearTimeout(timer)
         running.delete(jobId)
+        childEngines.delete(String(activation.childId))
         const text = (result?.output ?? [])
           .filter((block) => block?.type === 'text')
           .map((block) => block.text ?? '')
@@ -124,6 +127,7 @@ export function createOperator({ ctx, engines, config, warn }) {
       .catch(async (error) => {
         clearTimeout(timer)
         running.delete(jobId)
+        childEngines.delete(String(activation.childId))
         try {
           await engine.updateJob(jobId, { state: 'failed', endedAt: Date.now(), stopReason: 'settle-threw' })
           const job = { id: jobId, loopId: loop.id, label: input.goal.slice(0, 40) }
@@ -140,6 +144,7 @@ export function createOperator({ ctx, engines, config, warn }) {
   }
 
   const list = () => [...running.keys()]
+  const engineForChild = (sessionId) => childEngines.get(String(sessionId))
 
-  return { start, list }
+  return { start, list, engineForChild }
 }

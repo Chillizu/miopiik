@@ -45,6 +45,7 @@ export function renderContractPrompt(contract) {
     '## Rules',
     '- Start by producing the cheapest early shape (outline / plan / first screen) so it can be checked early.',
     '- Do not ask the user anything. If the contract is ambiguous, pick the reading the sample supports and say so in your final report.',
+    '- If you need a fact the contract does not state, call ink_ask. It answers only by citation; if it escalates, proceed on your best reading and note the assumption.',
     '- Your final message is the deliverable report: what you produced, where it is, how it meets each acceptance criterion, and what remains uncertain.',
   ].join('\n')
 }

@@ -14,6 +14,7 @@ import { DORMANT_AFTER_DAYS, FOLDED_AFTER_DAYS, LOOP_TYPES, ACTIVE_LOOP_CAP, act
 import { makeItem, selectView } from './inbox.js'
 import { makeNote, validateNote } from './notes.js'
 import { activeFacts, makeFact, validateFact } from './facts.js'
+import { makeCase, matchCase, matchFacts } from './cases.js'
 import { appendRecord } from './store.js'
 
 export const INK_TOOL_NAMES = Object.freeze(['ink_status', 'ink_loops', 'ink_facts', 'ink_inbox', 'ink_dispatch', 'ink_commit', 'ink_brief', 'ink_epoch', 'ink_draft'])
@@ -307,9 +308,11 @@ export class Engine {
     const errors = validateNote(note)
     if (errors.length > 0) throw new Error(`note 不成立：${errors.join('；')}`)
     await this.enqueue(() => appendRecord(this.store, 'notes', note))
-    if (note.kind !== 'preview') return note
+    const deliverable = note.kind === 'preview' || (blocking && note.kind === 'hold')
+    if (!deliverable) return note
 
-    const loopId = Array.isArray(note.loops) && note.loops.length > 0 ? note.loops[0] : null
+    const loopId =
+      note.kind === 'preview' && Array.isArray(note.loops) && note.loops.length > 0 ? note.loops[0] : null
     for (const item of [...this.state.inbox.values()]) {
       if (loopId !== null && item.loopId === loopId && (item.status === 'unread' || item.status === 'deferred')) {
         await this.enqueue(() => appendRecord(this.store, 'inbox', { op: 'supersede', itemId: item.id, at: this.now() }))
@@ -504,6 +507,100 @@ export class Engine {
     const record = { kind: 'overnight', day: dayOf(this.now()), at: this.now(), text: value, afterBriefingAt: briefing.at }
     await this.enqueue(() => appendRecord(this.store, 'briefings', record))
     return record
+  }
+
+  // ── Operator 问答与判例（SPEC §2.4 / §3.2 / §3.3） ─────────────────
+
+  async recordCase({ question, answer, citations, at }) {
+    const entry = makeCase({
+      id: `C-${this.state.counters.case + 1}`,
+      question,
+      answer,
+      citations,
+      at: at ?? this.now(),
+    })
+    await this.enqueue(() => appendRecord(this.store, 'cases', entry))
+    return entry
+  }
+
+  listCases() {
+    return [...this.state.cases].reverse()
+  }
+
+  /**
+   * Operator 提问的唯一通道：能引用就自答（判例优先，其次事实卡），
+   * 要发明就上报（blocking 预览进 Mind 收件箱）并让 Operator 按契约继续。
+   */
+  async answerOperatorQuestion({ question, childId = null }) {
+    const query = String(question ?? '').trim()
+    if (query === '') throw new Error('问题不能为空')
+    const job =
+      childId === null
+        ? undefined
+        : [...this.state.jobs.values()].find((entry) => String(entry.childId) === String(childId))
+    const jobRefs = job === undefined ? [] : [job.id]
+
+    const caseHit = matchCase(query, this.state.cases)
+    if (caseHit !== null) {
+      const citations = [...caseHit.case.citations]
+      await this.deliverNote({
+        kind: 'answer',
+        claim: `答复 Operator（引判例 ${caseHit.case.id}）：${caseHit.case.answer.slice(0, 60)}`,
+        why: 'cite:case',
+        refs: [...citations, caseHit.case.id, ...jobRefs],
+        conf: 'mid',
+        detail: `问题：${query}\n回答：${caseHit.case.answer}\n判例：${caseHit.case.id}`,
+      })
+      return {
+        kind: 'answer',
+        answer: caseHit.case.answer,
+        citations,
+        source: 'precedent',
+        caseId: caseHit.case.id,
+        score: Number(caseHit.score.toFixed(2)),
+      }
+    }
+
+    const factHit = matchFacts(query, activeFacts(this.state.facts))
+    if (factHit !== null) {
+      const citations = [factHit.fact.id]
+      const record = await this.recordCase({ question: query, answer: factHit.fact.claim, citations })
+      await this.deliverNote({
+        kind: 'answer',
+        claim: `答复 Operator（引 ${citations.join('、')}）：${factHit.fact.claim.slice(0, 50)}`,
+        why: 'cite:fact',
+        refs: [...citations, record.id, ...jobRefs],
+        conf: factHit.fact.conf,
+        detail: `问题：${query}\n回答：${factHit.fact.claim}\n判例：${record.id}`,
+      })
+      return {
+        kind: 'answer',
+        answer: factHit.fact.claim,
+        citations,
+        source: 'fact',
+        caseId: record.id,
+        score: Number(factHit.score.toFixed(2)),
+      }
+    }
+
+    // 不能自答的挂起，不猜（SPEC §5.4）：blocking 预览进收件箱，Operator 继续。
+    await this.deliverNote(
+      {
+        kind: 'hold',
+        claim: `Operator 问了一个我答不了的问题：${query.slice(0, 50)}`,
+        why: 'no-citation',
+        refs: jobRefs,
+        conf: 'low',
+        question: `要不要回答：${query.slice(0, 60)}`,
+      },
+      { blocking: true },
+    )
+    return {
+      kind: 'escalated',
+      answer: null,
+      reason: 'no-citation',
+      message: 'Ink 无法凭引用回答，已上报 Mind；按契约里最接近的读法继续，并在最终报告里注明这一处假设。',
+    }
   }
 
   status() {

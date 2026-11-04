@@ -366,4 +366,26 @@ export function registerTools(ctx, engines, operator) {
       },
     }),
   )
+  ctx.tools.register(
+    tool({
+      name: 'ink_ask',
+      description:
+        'Operator-side channel: ask Ink about shared state (facts, open threads, precedents). Ink answers only by citation; if it would have to invent, it escalates to Mind and tells you to proceed on your best reading. Mind does not see this tool.',
+      parameters: {
+        type: 'object',
+        properties: { question: { type: 'string', description: 'One concrete question.' } },
+        required: ['question'],
+        additionalProperties: false,
+      },
+      async execute(args, exec) {
+        if (operator === undefined || typeof operator.engineForChild !== 'function') {
+          throw new Error('MiOpIIk: 没有可用的 Ink 运行时映射')
+        }
+        const childId = String(exec.agent?.session?.id ?? '')
+        const engine = operator.engineForChild(childId)
+        if (engine === undefined) throw new Error('MiOpIIk: 这个子会话没有对应的 Ink 运行时')
+        return engine.answerOperatorQuestion({ question: args.question, childId })
+      },
+    }),
+  )
 }

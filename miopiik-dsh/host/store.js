@@ -10,7 +10,7 @@
 import { mkdir, readFile, appendFile } from 'node:fs/promises'
 import { join } from 'node:path'
 
-export const LOG_NAMES = Object.freeze(['observations', 'notes', 'loops', 'facts', 'inbox', 'briefings', 'jobs', 'drafts'])
+export const LOG_NAMES = Object.freeze(['observations', 'notes', 'loops', 'facts', 'inbox', 'briefings', 'jobs', 'drafts', 'cases'])
 
 export function emptyState(sessionId) {
   return {
@@ -23,7 +23,8 @@ export function emptyState(sessionId) {
     briefings: [],
     jobs: new Map(),
     drafts: new Map(),
-    counters: { obs: 0, note: 0, loop: 0, fact: 0, inbox: 0, job: 0, draft: 0 },
+    cases: [],
+    counters: { obs: 0, note: 0, loop: 0, fact: 0, inbox: 0, job: 0, draft: 0, case: 0 },
     epoch: 0,
   }
 }
@@ -128,6 +129,10 @@ export function applyRecord(state, log, record) {
       if (record.op === 'update') Object.assign(draft, record.patch ?? {})
       return
     }
+    case 'cases':
+      state.cases.push(record)
+      state.counters.case = Math.max(state.counters.case, Number(String(record.id).replace(/\D/gu, '')) || 0)
+      return
     case 'briefings':
       state.briefings.push(record)
       return

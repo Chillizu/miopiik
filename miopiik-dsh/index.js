@@ -70,6 +70,12 @@ export function apply(ctx, config) {
         }
         return
       }
+      // ink_ask 是 Operator 的通道，Mind 不该看到它。
+      try {
+        agent.ctx?.tools?.restrict?.({ deny: ['ink_ask'] })
+      } catch {
+        // 老版本没有 per-agent 工具面时忽略。
+      }
       if (engines.has(sessionId) || initializing.has(sessionId)) return
       initializing.add(sessionId)
       try {

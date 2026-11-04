@@ -49,7 +49,10 @@ export function validateNote(note) {
   if (typeof note.claim !== 'string' || note.claim.trim() === '') errors.push('缺少 claim')
   if (typeof note.why !== 'string' || note.why.trim() === '') errors.push('缺少 why')
   if (!Array.isArray(note.refs)) errors.push('refs 必须是数组')
-  else if (note.kind !== 'absorb' && note.refs.length === 0) errors.push(`${note.kind} 必须带 refs`)
+  // 只有「自答类」必须带引用；上报（hold/escalate/ask）与 absorb 可以没有。
+  else if (['answer', 'verify', 'preview', 'fold'].includes(note.kind) && note.refs.length === 0) {
+    errors.push(`${note.kind} 必须带 refs`)
+  }
   if (note.kind === 'preview') {
     if (!Array.isArray(note.loops) || note.loops.length === 0) errors.push('preview 必须带开环指针')
     if (typeof note.question !== 'string' || note.question.trim() === '') errors.push('preview 必须以一个问题结尾')

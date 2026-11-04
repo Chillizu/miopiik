@@ -415,3 +415,43 @@ test('硬断：跨天但没有收工简报时，L3 要求先承认断点', async
     await ctx.cleanup()
   }
 })
+
+test('Operator 问答：能引用就自答（事实卡 → 生成判例），同类问题第二次引判例', async () => {
+  const ctx = await fixture()
+  try {
+    const fact = await ctx.engine.addFact({
+      claim: '中间层叫 Ink，负责编译、校验与记账',
+      provenance: ['SPEC §0'],
+      source: 'user',
+    })
+    const first = await ctx.engine.answerOperatorQuestion({ question: '中间层负责什么', childId: null })
+    assert.equal(first.kind, 'answer')
+    assert.equal(first.source, 'fact')
+    assert.deepEqual(first.citations, [fact.id])
+    assert.equal(ctx.engine.listCases()[0].answer, fact.claim)
+
+    const second = await ctx.engine.answerOperatorQuestion({ question: '中间层是干嘛的', childId: null })
+    assert.equal(second.kind, 'answer')
+    assert.equal(second.source, 'precedent')
+    assert.equal(ctx.engine.listCases().length, 1, '引判例不再新增判例')
+  } finally {
+    await ctx.cleanup()
+  }
+})
+
+test('Operator 问答：要发明就上报——blocking 预览进收件箱，Operator 拿到"按契约继续"', async () => {
+  const ctx = await fixture()
+  try {
+    const result = await ctx.engine.answerOperatorQuestion({ question: '今天食堂有没有开', childId: null })
+    assert.equal(result.kind, 'escalated')
+    assert.match(result.message, /按契约/)
+    const view = ctx.engine.inboxView({ all: true })
+    assert.equal(view.previews.length, 1)
+    assert.equal(view.previews[0].tier, 0, 'blocking 进 T0')
+    const note = ctx.engine.state.notes[0]
+    assert.equal(note.kind, 'hold')
+    assert.equal(note.why, 'no-citation')
+  } finally {
+    await ctx.cleanup()
+  }
+})
