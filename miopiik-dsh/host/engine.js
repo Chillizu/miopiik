@@ -971,11 +971,32 @@ export class Engine {
     }
 
     let appliedSeq = null
-    if (compaction !== null && typeof compaction.compactRegion === 'function' && agent !== null) {
+    let replacement = 'not-attempted'
+    if (compaction === null || typeof compaction.compactRegion !== 'function') {
+      replacement = 'no-compaction-service'
+    } else if (agent === null || agent?.session === undefined) {
+      replacement = 'no-session'
+    } else {
       // 原子替换交给 DSH：它负责把这一段标成 shadowed，并写入一条 compaction 记录。
-      const end = this.state.counters.obs
-      const result = await compaction.compactRegion(0, end, { session: agent.session, options: agent.options ?? {} })
-      appliedSeq = Number(result?.sourceEventSeq ?? result?.seq ?? end) || end
+      // 边界必须取自真实 surface（0 不在 surface 上，会被 compactRegion 拒绝）。
+      const nodes = agent.session.surface?.nodes ?? []
+      if (nodes.length < 2) {
+        replacement = 'surface-too-short'
+      } else {
+        const start = nodes[0]
+        const end = nodes[nodes.length - 1]
+        try {
+          const result = await compaction.compactRegion(start, end, {
+            session: agent.session,
+            options: agent.options ?? {},
+          })
+          appliedSeq = Number(result?.sourceEventSeq ?? result?.seq ?? end) || end
+          replacement = 'applied'
+        } catch (error) {
+          // 替换失败绝不留一个「以为替换了」的状态：记账并如实说明。
+          replacement = `failed:${String(error?.message ?? error).slice(0, 80)}`
+        }
+      }
     }
 
     await this.enqueue(() =>
@@ -988,7 +1009,7 @@ export class Engine {
         appliedSeq,
       }),
     )
-    return { proposal: this.state.folds.get(id), applied: appliedSeq !== null }
+    return { proposal: this.state.folds.get(id), applied: appliedSeq !== null, replacement }
   }
 
   status() {
