@@ -563,7 +563,17 @@ export class Engine {
             })
           }
           for (const job of jobs) {
-            events.push({ id: `job:${job.id}`, kind: 'job', at: job.startedAt ?? branch.createdAt, branchId: branch.id, turn: null, jobId: job.id })
+            events.push({
+              id: `job:${job.id}`,
+              kind: 'job',
+              at: job.startedAt ?? branch.createdAt,
+              branchId: branch.id,
+              turn: null,
+              jobId: job.id,
+              // 执行层（Operator）的状态：画方形节点、按状态染色
+              state: job.state,
+              label: job.label ?? job.id,
+            })
           }
           const mergeNote = branch.mergedInto === null ? null : noteById.get(branch.mergedInto)
           return {

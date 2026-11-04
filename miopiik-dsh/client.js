@@ -54,6 +54,11 @@ window.__ModuleLoader__.load({
       muted: 'var(--dsw-alias-label-secondary)',
       idle: 'var(--dsw-alias-state-idle-primary)',
       success: 'var(--dsw-alias-state-success-primary)',
+      warn: 'var(--dsw-alias-state-warn-primary)',
+      error: 'var(--dsw-alias-state-error-primary)',
+      brand: 'var(--dsw-alias-brand-primary)',
+      // 通信线用中性色：主色只留给两条脊，否则整张图都在喊。
+      link: 'var(--dsw-alias-label-secondary)',
     }
 
     const styles = {
@@ -155,10 +160,77 @@ window.__ModuleLoader__.load({
      * 鱼骨主视图：按事件布局（只画分叉/任务/汇回），不按轮次铺格子。
      * 悬停出详情气泡，点击进入右侧详情面板。
      */
+    /**
+     * 示例数据：只用于「看全所有形态」，不写账本。覆盖
+     * 分叉/汇回/放弃、任务五种状态、有上下文的分支、未汇回的分支。
+     */
+    const DEMO_GRAPH = (() => {
+      const t = (minute) => Date.UTC(2026, 10, 4, 9, minute, 0)
+      const turns = [
+        { turn: 41, at: t(0), label: '我们把这个图做成双脊' },
+        { turn: 42, at: t(6), label: '执行层放哪儿？' },
+        { turn: 43, at: t(14), label: '先跑一版看看' },
+        { turn: 44, at: t(26), label: '颜色只给两条脊' },
+        { turn: 45, at: t(38), label: '深色模式也看一下' },
+      ]
+      const branches = [
+        {
+          id: 'B-11', label: '双脊布局', summary: '对话与后台各一条脊',
+          status: 'merged', forkAt: t(1), mergeAt: t(22), forkTurn: 41, mergeTurn: 43,
+          mergedInto: 'D-21', mergeClaim: '双脊比甘特更贴合架构',
+          premise: '甘特把两条时间线压成一条', quotes: ['两条主线才应该用最鲜艳的颜色'],
+          facts: ['F-11'],
+          jobs: [
+            { id: 'J-21', label: '画布局', state: 'done', startedAt: t(4), endedAt: t(9) },
+            { id: 'J-22', label: '调间距', state: 'done', startedAt: t(12), endedAt: t(18) },
+          ],
+        },
+        {
+          id: 'B-12', label: '执行层表示', summary: '方形节点代表 Operator',
+          status: 'open', forkAt: t(7), mergeAt: null, forkTurn: 42, mergeTurn: null,
+          mergedInto: null, mergeClaim: null, premise: 'O 层在图里没有位置', quotes: [], facts: [],
+          jobs: [
+            { id: 'J-23', label: '选形状', state: 'running', startedAt: t(10), endedAt: null },
+          ],
+        },
+        {
+          id: 'B-13', label: '深色模式', summary: '检查两套主题下的对比度',
+          status: 'open', forkAt: t(28), mergeAt: null, forkTurn: 44, mergeTurn: null,
+          mergedInto: null, mergeClaim: null, premise: '颜色写死会在暗色下糊掉', quotes: [], facts: [],
+          jobs: [
+            { id: 'J-24', label: '取色', state: 'stalled', startedAt: t(30), endedAt: null },
+            { id: 'J-25', label: '截图', state: 'failed', startedAt: t(33), endedAt: t(35) },
+          ],
+        },
+        {
+          id: 'B-14', label: '弃用分支', summary: '试过又放弃的方案',
+          status: 'abandoned', forkAt: t(32), mergeAt: t(40), forkTurn: 44, mergeTurn: 45,
+          mergedInto: null, mergeClaim: null, premise: '另一种画法', quotes: [], facts: [],
+          jobs: [{ id: 'J-26', label: '试画', state: 'timeout', startedAt: t(36), endedAt: null }],
+        },
+      ]
+      const events = []
+      for (const branch of branches) {
+        events.push({ id: `fork:${branch.id}`, kind: 'fork', at: branch.forkAt, branchId: branch.id, turn: branch.forkTurn })
+        for (const job of branch.jobs) {
+          events.push({ id: `job:${job.id}`, kind: 'job', at: job.startedAt, branchId: branch.id, jobId: job.id, state: job.state, label: job.label })
+        }
+        if (branch.mergeAt !== null) {
+          events.push({ id: `merge:${branch.id}`, kind: branch.status === 'abandoned' ? 'abandon' : 'merge', at: branch.mergeAt, branchId: branch.id, turn: branch.mergeTurn })
+        }
+      }
+      events.sort((a, b) => a.at - b.at)
+      return {
+        turns, events, branches,
+        counts: { activeLoops: 3, facts: 5, running: 1, drafts: 2 },
+      }
+    })()
+
     function FishboneView(props) {
       const { sessionId, useProjection } = props ?? {}
       const snapshot = typeof useProjection === 'function' ? useProjection('miopiikBackstage') : undefined
-      const graph = snapshot?.graph
+      const [demo, setDemo] = React.useState(false)
+      const graph = demo ? DEMO_GRAPH : snapshot?.graph
       const [hover, setHover] = React.useState(null)
       const [selected, setSelected] = React.useState(null)
       const branches = graph?.branches ?? []
@@ -192,21 +264,27 @@ window.__ModuleLoader__.load({
       const eventRow = (id) => rowOf.get(`event:${id}`)
 
       const marks = []
-      // 两条脊
-      marks.push(h('line', { key: 'spine-l', x1: leftX, y1: padTop - 8, x2: leftX, y2: H - 22, stroke: C.borderStrong, strokeWidth: 1.5 }))
-      marks.push(h('line', { key: 'spine-r', x1: rightX, y1: padTop - 8, x2: rightX, y2: H - 22, stroke: C.borderStrong, strokeWidth: 1.5 }))
-      marks.push(h('text', { key: 'lbl-l', x: leftX - 34, y: padTop - 12, fontSize: 10, fill: C.muted }, '对话'))
-      marks.push(h('text', { key: 'lbl-r', x: rightX - 6, y: padTop - 12, fontSize: 10, fill: C.muted }, '后台'))
+      // 两条脊：都用主色，粗细表达「这是主干」；其余元素一律降调。
+      marks.push(h('line', { key: 'spine-l', x1: leftX, y1: padTop - 8, x2: leftX, y2: H - 22, stroke: C.brand, strokeWidth: 2.5, strokeLinecap: 'round' }))
+      marks.push(h('line', { key: 'spine-r', x1: rightX, y1: padTop - 8, x2: rightX, y2: H - 22, stroke: C.brand, strokeWidth: 2.5, strokeLinecap: 'round' }))
+      marks.push(h('text', { key: 'lbl-l', x: leftX - 40, y: padTop - 12, fontSize: 10, fill: C.muted }, '对话'))
+      marks.push(h('text', { key: 'lbl-r', x: rightX + 8, y: padTop - 12, fontSize: 10, fill: C.muted }, '后台'))
+
+      const stateColor = (state) => {
+        if (state === 'running') return C.brand
+        if (state === 'done') return C.success
+        if (state === 'failed' || state === 'stalled' || state === 'timeout') return C.error
+        return C.muted
+      }
 
       for (const [index, item] of timeline.entries()) {
         const y = yOf(index)
         if (item.kind === 'turn') {
-          const isHot = false
-          marks.push(h('circle', { key: `t-${item.turn.turn}`, cx: leftX, cy: y, r: isHot ? 4.5 : 3.5, fill: C.brand }))
-          marks.push(h('text', { key: `tt-${item.turn.turn}`, x: leftX - 40, y: y + 4, fontSize: 10, fill: C.muted, textAnchor: 'end' }, `第${item.turn.turn}轮`))
+          marks.push(h('circle', { key: `t-${item.turn.turn}`, cx: leftX, cy: y, r: 4, fill: C.brand }))
+          marks.push(h('text', { key: `tt-${item.turn.turn}`, x: leftX - 12, y: y + 4, fontSize: 10, fill: C.brand, textAnchor: 'end', fontWeight: 500 }, `第${item.turn.turn}轮`))
           const readable = (item.turn.label ?? '').startsWith('Ciallo') ? '' : (item.turn.label ?? '').slice(0, 16)
           if (readable !== '') {
-            marks.push(h('text', { key: `tl-${item.turn.turn}`, x: leftX + 10, y: y + 4, fontSize: 11, fill: C.muted }, readable))
+            marks.push(h('text', { key: `tl-${item.turn.turn}`, x: leftX + 12, y: y + 4, fontSize: 11, fill: C.muted }, readable))
           }
           continue
         }
@@ -214,66 +292,86 @@ window.__ModuleLoader__.load({
         const branch = branches.find((entry) => entry.id === event.branchId)
         if (branch === undefined) continue
         const isHot = selected === branch.id || hover === branch.id
-        const color = branch.status === 'merged' ? C.success : branch.status === 'abandoned' ? C.idle : C.brand
         const forkRow = eventRow(`fork:${branch.id}`)
         const mergeEventId = `merge:${branch.id}`
         const mergeRow = eventRow(mergeEventId)
-        // 汇回发生在第几轮，就连到左脊的那一行；老分支没记录轮次时退回同一行。
         const mergeTurnRow = branch.mergeTurn === null ? undefined : rowOf.get(`turn:${branch.mergeTurn}`)
         const mergeY = mergeTurnRow !== undefined ? yOf(mergeTurnRow) : mergeRow === undefined ? null : yOf(mergeRow)
 
-        // 从「对话脊」连到「后台脊」：这就是「第几轮派出去的」
+        // 通信线：从对话脊出发（实线），回到对话脊（虚线）。用中性色，主色只留给脊。
         if (event.kind === 'fork' && forkRow !== undefined) {
           marks.push(h('path', {
             key: `link-${branch.id}`,
             d: `M ${leftX},${yOf(forkRow)} C ${leftX + 90},${yOf(forkRow)} ${rightX - 90},${y} ${rightX},${y}`,
             fill: 'none',
-            stroke: color,
-            strokeWidth: isHot ? 2 : 1.2,
-            opacity: isHot ? 1 : 0.8,
+            stroke: isHot ? C.text : C.link,
+            strokeWidth: isHot ? 2 : 1,
+            opacity: isHot ? 0.95 : 0.55,
           }))
         }
-        // 汇回：从后台脊拐回对话脊
         if (event.kind === 'merge' || event.kind === 'abandon') {
           marks.push(h('path', {
             key: `back-${branch.id}`,
             d: `M ${rightX},${y} C ${rightX - 90},${y} ${leftX + 90},${mergeY ?? y} ${leftX},${mergeY ?? y}`,
             fill: 'none',
-            stroke: color,
-            strokeWidth: isHot ? 2 : 1.2,
-            strokeDasharray: '4 3',
-            opacity: isHot ? 1 : 0.8,
+            stroke: isHot ? C.text : C.link,
+            strokeWidth: isHot ? 2 : 1,
+            strokeDasharray: '4 4',
+            opacity: isHot ? 0.95 : 0.5,
           }))
         }
 
-        const radius = event.kind === 'merge' ? 4.5 : event.kind === 'job' ? 3.2 : 4
-        marks.push(h('circle', {
-          key: `e-${event.id}`,
-          cx: rightX,
-          cy: y,
-          r: isHot ? radius + 1.5 : radius,
-          fill: event.kind === 'merge' ? color : event.kind === 'job' ? C.base : C.base,
-          stroke: color,
-          strokeWidth: 1.8,
-          style: { cursor: 'pointer' },
-          onMouseEnter: () => setHover(branch.id),
-          onMouseLeave: () => setHover(null),
-          onClick: () => setSelected(selected === branch.id ? null : branch.id),
-        }))
+        const color = event.kind === 'job' ? stateColor(event.state) : branch.status === 'abandoned' ? C.idle : C.brand
+        const hot = isHot ? 1.5 : 0
+
+        // Ink 侧事件 = 圆；执行层（Operator）= 方。形状=层，颜色=状态。
+        if (event.kind === 'job') {
+          const size = 7 + hot
+          marks.push(h('rect', {
+            key: `e-${event.id}`,
+            x: rightX - size / 2,
+            y: y - size / 2,
+            width: size,
+            height: size,
+            rx: 1.5,
+            fill: event.state === 'running' ? color : C.base,
+            stroke: color,
+            strokeWidth: 1.8,
+            style: { cursor: 'pointer' },
+            onMouseEnter: () => setHover(branch.id),
+            onMouseLeave: () => setHover(null),
+            onClick: () => setSelected(selected === branch.id ? null : branch.id),
+          }))
+        } else {
+          marks.push(h('circle', {
+            key: `e-${event.id}`,
+            cx: rightX,
+            cy: y,
+            r: (event.kind === 'merge' ? 4.5 : 4) + hot,
+            fill: event.kind === 'merge' ? color : C.base,
+            stroke: color,
+            strokeWidth: 1.8,
+            style: { cursor: 'pointer' },
+            onMouseEnter: () => setHover(branch.id),
+            onMouseLeave: () => setHover(null),
+            onClick: () => setSelected(selected === branch.id ? null : branch.id),
+          }))
+        }
+
         const suffix =
           event.kind === 'fork'
             ? `${branch.label.slice(0, 12)}${branch.forkTurn === null ? '' : ` · 第${branch.forkTurn}轮`}`
             : event.kind === 'merge'
               ? `汇回${branch.mergedInto === null ? '' : ` ${branch.mergedInto}`}`
               : event.kind === 'job'
-                ? `任务 ${event.jobId}`
+                ? `${event.jobId} ${event.state ?? ''}`
                 : `放弃 ${branch.id}`
         marks.push(h('text', {
           key: `et-${event.id}`,
           x: rightX + 12,
           y: y + 4,
           fontSize: 11,
-          fill: isHot ? C.brand : C.text,
+          fill: isHot ? C.text : event.kind === 'job' ? stateColor(event.state) : C.text,
           style: { cursor: 'pointer' },
           onMouseEnter: () => setHover(branch.id),
           onMouseLeave: () => setHover(null),
@@ -295,7 +393,31 @@ window.__ModuleLoader__.load({
         h(
           'div',
           { style: { flex: '1 1 auto', minWidth: 0, overflow: 'auto', padding: '18px 20px' } },
-          h(CountsStrip, { graph }),
+          h(
+            'div',
+            { style: { display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12 } },
+            h(CountsStrip, { graph }),
+            h(
+              'button',
+              {
+                type: 'button',
+                onClick: () => setDemo(!demo),
+                'aria-pressed': demo ? 'true' : 'false',
+                style: {
+                  marginTop: 2,
+                  padding: '3px 10px',
+                  border: `0.5px solid ${demo ? C.brand : C.border}`,
+                  borderRadius: 12,
+                  background: 'transparent',
+                  color: demo ? C.brand : C.muted,
+                  cursor: 'pointer',
+                  fontSize: 11,
+                  whiteSpace: 'nowrap',
+                },
+              },
+              demo ? t('graph.demoOn') : t('graph.demoOff'),
+            ),
+          ),
           h(
             'div',
             { style: { position: 'relative', width: W } },
@@ -742,6 +864,8 @@ window.__ModuleLoader__.load({
       'graph.jobs': '任务',
       'graph.noJobs': '这个分支上没有任务。',
       'graph.merged': '汇回',
+      'graph.demoOn': '示例数据',
+      'graph.demoOff': '看示例',
       'count.loops': '未结事项',
       'count.facts': '已定结论',
       'count.running': '运行中',
@@ -808,6 +932,8 @@ window.__ModuleLoader__.load({
       'graph.jobs': 'Jobs',
       'graph.noJobs': 'No jobs on this branch.',
       'graph.merged': 'Merged',
+      'graph.demoOn': 'Demo data',
+      'graph.demoOff': 'Show demo',
       'count.loops': 'Open',
       'count.facts': 'Facts',
       'count.running': 'Running',
