@@ -406,4 +406,9 @@ Mind 说过的每句话也是带 provenance 的 claim。Operator 的结果与旧
 - 窄工具面：`ink_status` / `ink_loops` / `ink_facts` / `ink_inbox` / `ink_dispatch` / `ink_commit` / `ink_brief`；子 agent 被 `tools.restrict` 挡掉。
 - 派发：六要素契约校验（缺则拒绝并给出缺失清单）→ `ctx.subagents` 以 `delivery: caller` 启动 → 结果回 Ink → `ctx.llm` 编译为预览 → 进收件箱；守夜超时投递 `[阻塞]`。
 - 客户端：存在感指示（composer dock）、后台抽屉（shell overlay）、两个面板入口与页面（数据待接）。
-- 单测：35 项通过（纯逻辑 + 引擎回放 + 契约 + 编译解析）。
+- 收件箱三区与展开：`ink_inbox open` 取回 note detail；`zone=unread/history/starred` 均有实测。
+- epoch：`ink_epoch advance` 持久化；旧预览按 epoch 降一级（不删）。
+- 事实卡写入：`ink_facts add` 实测（F-1 记录本次审计结论）。
+- 客户端：存在感为诚实的「后台」入口；两个面在抽屉内以 tab 切换；全局面板不再出现 MiOpIIk 入口（不做导航栏）。
+- 派发端到端：J-1 由 Operator 完成 → `ctx.llm` 编译 → I-1 预览（T1，带问题）→ L3 展示 → 审计报告采纳（docs/audit-2026-11-04.md）。
+- 单测：39 项通过（纯逻辑 + 引擎回放 + 契约 + 编译解析 + 收件箱三区/展开 + 无损观测 + L3 顺序）。
