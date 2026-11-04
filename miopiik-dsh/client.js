@@ -550,7 +550,8 @@ window.__ModuleLoader__.load({
         observer.observe(el)
         return () => observer.disconnect()
       }, [])
-      const wide = width >= 1180
+      // 这个布局下会话区在 1280 视口只有约 950px，阈值要按实际可用宽度定。
+      const wide = width >= 900
       const [streamFilter, setStreamFilter] = React.useState(null) // {branch} | null
       const [focusBranch, setFocusBranch] = React.useState(null)
       const openStream = (branchId) => {
@@ -631,7 +632,7 @@ window.__ModuleLoader__.load({
                     'div',
                     {
                       style: {
-                        flex: '0 0 380px',
+                        flex: '0 0 340px',
                         minHeight: 0,
                         overflow: 'auto',
                         borderLeft: `0.5px solid ${C.border}`,
