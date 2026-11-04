@@ -16,13 +16,14 @@ const COMPILE_SYSTEM = `You are Ink, the backstage compiler of MiOpIIk.
 You receive the final report of a background Operator, the contract it was given, and Mind's recent statements to the user.
 Compile the result into ONE note for Mind, the conversational agent. Mind never sees the raw report.
 Output STRICT JSON only, no prose, no markdown fences:
-{"kind":"preview"|"absorb","claim":"<=40 chars, concrete, no jargon","question":"a question Mind can ask the user, or empty","conf":"low"|"mid"|"high","detail":"the evidence that matters, <=120 chars","contradicts":true|false,"contradictStatement":"exact words Mind said that this report contradicts, or empty"}
+{"kind":"preview"|"absorb","claim":"<=40 chars, concrete, no jargon","question":"a question Mind can ask the user, or empty","conf":"low"|"mid"|"high","detail":"the evidence that matters, <=120 chars","contradicts":true|false,"contradictStatement":"exact words Mind said that this report contradicts, or empty","contradictsUtterance":"U-n of the contradicted statement if listed, else empty"}
 Rules:
 - kind="preview" only when the report changes what the user or Mind should do next, or answers something still open. Otherwise "absorb".
 - claim states what changed, not what was done. No "I completed" phrasing.
 - question must be answerable by the user in one sentence.
 - Never invent facts that are not in the report. If unsure, lower conf.
-- Set contradicts=true ONLY when the report directly contradicts something Mind said to the user (quote it). Mind decides later whether and when to correct; your job is to make the conflict visible.`
+- Set contradicts=true ONLY when the report directly contradicts something Mind said to the user (quote it verbatim, and name its U-n when listed). Mind decides later whether and when to correct; your job is to make the conflict visible.
+- The listed statements may be old. An old statement contradicted by new evidence is exactly what this field exists for.`
 
 /** 从模型输出里抽 JSON（容忍代码围栏与前后废话）。 */
 export function parseCompileOutput(text) {
@@ -47,7 +48,18 @@ export function parseCompileOutput(text) {
   const contradicts = data.contradicts === true
   const contradictStatement =
     contradicts && typeof data.contradictStatement === 'string' ? data.contradictStatement.trim() : ''
-  return { kind, claim, question: question === '' ? null : question, conf, detail, contradicts, contradictStatement }
+  const contradictsUtterance =
+    contradicts && typeof data.contradictsUtterance === 'string' ? data.contradictsUtterance.trim() : ''
+  return {
+    kind,
+    claim,
+    question: question === '' ? null : question,
+    conf,
+    detail,
+    contradicts,
+    contradictStatement,
+    contradictsUtterance,
+  }
 }
 
 /** 降级预览：编译失败或超时也要让 Mind 有得看；原文进 detail，绝不编造。 */
@@ -118,7 +130,12 @@ export async function compileResult({ ctx, engine, job, resultText, config, warn
               type: 'text',
               text: [
                 `## Contract goal\n${job.contract?.goal ?? job.label}`,
-                `## Mind 最近对用户说过的话（可能是 claim，也可能说错）\n${(engine?.recentUtterances?.(8) ?? []).map((line, index) => `${index + 1}. ${line}`).join('\n') || '（无）'}`,
+                `## Mind 对用户说过的话（含较早的；可能是 claim，也可能说错）\n${
+                  (engine?.relevantUtterances?.(`${job.contract?.goal ?? job.label}\n${text}`, { recent: 4, similar: 4 }) ?? [])
+                    .map((entry) => (typeof entry === 'string' ? entry : `${entry.id}｜${entry.text}`))
+                    .map((line) => `- ${line}`)
+                    .join('\n') || '（无）'
+                }`,
                 `## Operator report (raw)\n${text.slice(0, 12000)}`,
                 ...(reminder === null ? [] : ['', reminder]),
               ].join('\n\n'),

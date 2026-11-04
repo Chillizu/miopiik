@@ -14,6 +14,7 @@ test('编译输出：容忍代码围栏与前后废话', () => {
     detail: '3 家中 2 家提了 X',
     contradicts: false,
     contradictStatement: '',
+    contradictsUtterance: '',
   })
 })
 
@@ -23,12 +24,13 @@ test('编译输出：absorb 可以没有问题', () => {
   assert.equal(parsed.question, null)
 })
 
-test('编译输出：能标出与 Mind 旧话矛盾的报告，并带上原句', () => {
+test('编译输出：能标出与 Mind 旧话矛盾的报告，并指认是哪一句（U-n）', () => {
   const parsed = parseCompileOutput(
-    '{"kind":"preview","claim":"竞品其实是防御定价","question":"要不要纠正？","conf":"mid","contradicts":true,"contradictStatement":"竞品都在打价格战"}',
+    '{"kind":"preview","claim":"竞品其实是防御定价","question":"要不要纠正？","conf":"mid","contradicts":true,"contradictStatement":"竞品都在打价格战","contradictsUtterance":"U-12"}',
   )
   assert.equal(parsed.contradicts, true)
   assert.equal(parsed.contradictStatement, '竞品都在打价格战')
+  assert.equal(parsed.contradictsUtterance, 'U-12')
 })
 
 test('编译输出不合法时返回 null，绝不猜', () => {

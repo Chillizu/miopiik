@@ -14,7 +14,7 @@ import { DORMANT_AFTER_DAYS, FOLDED_AFTER_DAYS, LOOP_TYPES, ACTIVE_LOOP_CAP, act
 import { makeItem, selectView } from './inbox.js'
 import { makeNote, validateNote } from './notes.js'
 import { activeFacts, makeFact, validateFact } from './facts.js'
-import { makeCase, matchCase, matchFacts } from './cases.js'
+import { makeCase, matchCase, matchFacts, similarity } from './cases.js'
 import { describeBranches, makeBranch, renderBranchSlice } from './branches.js'
 import { appendRecord } from './store.js'
 
@@ -639,18 +639,48 @@ export class Engine {
   }
 
   /** Mind 最近对用户说过的话（首行，供编译时检测矛盾）。 */
-  recentUtterances(limit = 8) {
+  /** 说过的每一句都带 id（U-<seq>），这样「我之前说过什么」可以被指认，而不是只被回忆。 */
+  utteranceIndex() {
     return this.state.observations
-      .filter((entry) => entry.kind === 'assistant')
-      .slice(-limit)
+      .filter((entry) => entry.kind === 'assistant' && String(entry.text ?? '').trim() !== '')
       .map((entry) => {
         const firstLine = String(entry.text ?? '')
           .split('\n')
           .map((line) => line.trim())
           .find((line) => line !== '')
-        return (firstLine ?? '').slice(0, 160)
+        return {
+          id: `U-${entry.seq}`,
+          seq: entry.seq,
+          turn: entry.turn ?? null,
+          day: entry.day ?? null,
+          text: (firstLine ?? '').slice(0, 200),
+        }
       })
-      .filter((line) => line !== '')
+      .filter((entry) => entry.text !== '')
+  }
+
+  recentUtterances(limit = 8) {
+    return this.utteranceIndex()
+      .slice(-limit)
+      .map((entry) => `${entry.id}｜${entry.text}`)
+  }
+
+  /**
+   * 纠错的持久链接（SPEC §4.2）：不光看最近几句，还按词面相关性把**很久以前**
+   * 说过的、可能和这次结果相关的话捞出来。确定性检索，不调模型。
+   */
+  relevantUtterances(query, { recent = 4, similar = 4 } = {}) {
+    const index = this.utteranceIndex()
+    if (index.length === 0) return []
+    const recentPart = index.slice(-recent)
+    const recentIds = new Set(recentPart.map((entry) => entry.id))
+    const scored = index
+      .filter((entry) => !recentIds.has(entry.id))
+      .map((entry) => ({ entry, score: similarity(query, entry.text) }))
+      .filter((item) => item.score >= 0.2)
+      .sort((a, b) => b.score - a.score)
+      .slice(0, similar)
+    return [...recentPart, ...scored.map((item) => item.entry)]
   }
 
   /**

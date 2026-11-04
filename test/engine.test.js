@@ -466,7 +466,7 @@ test('纠错前置：最近说过的话可被编译取用（首行、限条数�
       })
     }
     await ctx.engine.queue
-    assert.deepEqual(ctx.engine.recentUtterances(5), ['第一句', '第二句'])
+    assert.deepEqual(ctx.engine.recentUtterances(5), ['U-1｜第一句', 'U-2｜第二句'])
   } finally {
     await ctx.cleanup()
   }
@@ -535,6 +535,46 @@ test('预览 claim 不泄漏原文：降级时用契约目标，不是 Operator 
     )
     assert.doesNotMatch(note.claim, /Ciallo|\*\*交付报告/)
     assert.match(note.detail, /Operator 原始报告/)
+  } finally {
+    await ctx.cleanup()
+  }
+})
+
+test('纠错的持久链接：很久以前说过、与本次结果相关的话会被捞出来（不只是最近几句）', async () => {
+  const ctx = await fixture()
+  try {
+    const say = (text) =>
+      ctx.engine.observe({
+        type: 'assistant/message',
+        data: { turn: 1, message: { content: [{ type: 'text', text }] } },
+      })
+    say('竞品都在打价格战，所以我们的定位应该是更便宜')
+    for (let index = 0; index < 8; index += 1) say(`无关的第 ${index} 句话，聊点别的`)
+    await ctx.engine.queue
+
+    const picked = ctx.engine.relevantUtterances('竞品其实是防御定价，不是价格战', { recent: 2, similar: 2 })
+    const ids = picked.map((entry) => entry.id)
+    assert.ok(ids.includes('U-1'), `应捞出最早那句，实际：${ids.join(',')}`)
+    assert.ok(ids.length <= 4)
+    // 最近两句仍然在场（用于指代当下的语气）
+    assert.ok(ids.some((id) => id === 'U-9' || id === 'U-8'))
+  } finally {
+    await ctx.cleanup()
+  }
+})
+
+test('utterance id 稳定：同一条消息的回放得到同一个 U-n', async () => {
+  const ctx = await fixture()
+  try {
+    ctx.engine.observe({
+      type: 'assistant/message',
+      data: { turn: 1, message: { content: [{ type: 'text', text: '一句话' }] } },
+    })
+    await ctx.engine.queue
+    const before = ctx.engine.utteranceIndex().map((entry) => entry.id)
+    const reopened = await openStore(ctx.dir, 'session-1')
+    const engine2 = new Engine({ store: reopened, sessionId: 'session-1', now: () => T0 })
+    assert.deepEqual(engine2.utteranceIndex().map((entry) => entry.id), before)
   } finally {
     await ctx.cleanup()
   }
