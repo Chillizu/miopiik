@@ -36,6 +36,19 @@ function bump(counter, id) {
   return Math.max(counter, Number(match[1]))
 }
 
+/** 读时迁移：分支上下文切片字段是在分支上线之后才加的，旧记录按空切片补齐。 */
+function normalizeBranch(branch) {
+  const context = branch?.context ?? {}
+  return {
+    ...branch,
+    context: {
+      premise: typeof context.premise === 'string' ? context.premise : '',
+      quotes: Array.isArray(context.quotes) ? [...context.quotes] : [],
+      facts: Array.isArray(context.facts) ? [...context.facts] : [],
+    },
+  }
+}
+
 /** 系统注入的消息前缀（历史遗留判定，见 §11 数据卫生）。 */
 const SYSTEM_PREFIXES = ['<goal_round>', 'Time sampled while preparing', '<goal_round ', '<runtime_context'] 
 
@@ -147,7 +160,7 @@ export function applyRecord(state, log, record) {
     }
     case 'branches': {
       if (record.op === 'create') {
-        state.branches.set(record.branch.id, { ...record.branch })
+        state.branches.set(record.branch.id, normalizeBranch(record.branch))
         state.counters.branch = bump(state.counters.branch, record.branch.id)
         return
       }

@@ -185,3 +185,22 @@ test('分支切片跨回放存活，且引用与事实只增不删', async () =>
     await ctx.cleanup()
   }
 })
+
+test('读时迁移：旧分支记录没有 context 字段时按空切片补齐', async () => {
+  const { appendFile, mkdtemp, rm: rmDir } = await import('node:fs/promises')
+  const { tmpdir: tmp } = await import('node:os')
+  const { join: joinPath } = await import('node:path')
+  const dir = await mkdtemp(joinPath(tmp(), 'miopiik-bmig-'))
+  try {
+    const legacy = {
+      op: 'create',
+      branch: { id: 'B-1', label: '旧分支', summary: 's', status: 'open', jobs: [], forkedAtTurn: 3 },
+    }
+    await appendFile(joinPath(dir, 'branches.jsonl'), JSON.stringify(legacy) + '\n')
+    const store = await openStore(dir, 's1')
+    const branch = store.state.branches.get('B-1')
+    assert.deepEqual(branch.context, { premise: '', quotes: [], facts: [] })
+  } finally {
+    await rmDir(dir, { recursive: true, force: true })
+  }
+})
