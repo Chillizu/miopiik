@@ -428,6 +428,7 @@ window.__ModuleLoader__.load({
       ['draftExpireDays', '草稿几天没人碰自动丢弃', 7],
       ['briefingMaxChars', '简报字数上限', 1800],
       ['inboxMaxPreviews', '每轮最多几条完整预览', 3],
+      ['detailInlineMaxChars', '多长的详情转成指针', 1200],
       ['operatorTimeoutMs', 'Operator 超时（毫秒）', 1200000],
       ['operatorStallMs', '多久没新观测算卡住（毫秒）', 360000],
       ['inkModel', 'Ink 编译模型（空=跟随会话）', null],

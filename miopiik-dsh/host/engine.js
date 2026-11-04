@@ -342,7 +342,7 @@ export class Engine {
   async deliverNote(input, { blocking = false } = {}) {
     // 长详情不进账本正文：先落详情仓，note 只留指针（SPEC §2.2「账本是数据，上下文只是索引」）。
     let payload = input
-    if (typeof input?.detail === 'string' && input.detail.length > 2000) {
+    if (typeof input?.detail === 'string' && input.detail.length > DEFAULTS.detailInlineMaxChars) {
       const entry = await this.storeDetail({
         text: input.detail,
         kind: 'note-detail',
