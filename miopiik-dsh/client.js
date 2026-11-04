@@ -161,79 +161,15 @@ window.__ModuleLoader__.load({
      * 鱼骨主视图：按事件布局（只画分叉/任务/汇回），不按轮次铺格子。
      * 悬停出详情气泡，点击进入右侧详情面板。
      */
-    /**
-     * 示例数据：只用于「看全所有形态」，不写账本。覆盖
-     * 分叉/汇回/放弃、任务五种状态、有上下文的分支、未汇回的分支。
-     */
-    const DEMO_GRAPH = (() => {
-      const t = (minute) => Date.UTC(2026, 10, 4, 9, minute, 0)
-      const turns = [
-        { turn: 41, at: t(0), label: '我们把这个图做成双脊' },
-        { turn: 42, at: t(6), label: '执行层放哪儿？' },
-        { turn: 43, at: t(14), label: '先跑一版看看' },
-        { turn: 44, at: t(26), label: '颜色只给两条脊' },
-        { turn: 45, at: t(38), label: '深色模式也看一下' },
-      ]
-      const branches = [
-        {
-          id: 'B-11', label: '双脊布局', summary: '对话与后台各一条脊',
-          status: 'merged', forkAt: t(1), mergeAt: t(22), forkTurn: 41, mergeTurn: 43,
-          mergedInto: 'D-21', mergeClaim: '双脊比甘特更贴合架构',
-          premise: '甘特把两条时间线压成一条', quotes: ['两条主线才应该用最鲜艳的颜色'],
-          facts: ['F-11'],
-          jobs: [
-            { id: 'J-21', label: '画布局', state: 'done', startedAt: t(4), endedAt: t(9) },
-            { id: 'J-22', label: '调间距', state: 'done', startedAt: t(12), endedAt: t(18) },
-          ],
-        },
-        {
-          id: 'B-12', label: '执行层表示', summary: '方形节点代表 Operator',
-          status: 'open', forkAt: t(7), mergeAt: null, forkTurn: 42, mergeTurn: null,
-          mergedInto: null, mergeClaim: null, premise: 'O 层在图里没有位置', quotes: [], facts: [],
-          jobs: [
-            { id: 'J-23', label: '选形状', state: 'running', startedAt: t(10), endedAt: null },
-          ],
-        },
-        {
-          id: 'B-13', label: '深色模式', summary: '检查两套主题下的对比度',
-          status: 'open', forkAt: t(28), mergeAt: null, forkTurn: 44, mergeTurn: null,
-          mergedInto: null, mergeClaim: null, premise: '颜色写死会在暗色下糊掉', quotes: [], facts: [],
-          jobs: [
-            { id: 'J-24', label: '取色', state: 'stalled', startedAt: t(30), endedAt: null },
-            { id: 'J-25', label: '截图', state: 'failed', startedAt: t(33), endedAt: t(35) },
-          ],
-        },
-        {
-          id: 'B-14', label: '弃用分支', summary: '试过又放弃的方案',
-          status: 'abandoned', forkAt: t(32), mergeAt: t(40), forkTurn: 44, mergeTurn: 45,
-          mergedInto: null, mergeClaim: null, premise: '另一种画法', quotes: [], facts: [],
-          jobs: [{ id: 'J-26', label: '试画', state: 'timeout', startedAt: t(36), endedAt: null }],
-        },
-      ]
-      const events = []
-      for (const branch of branches) {
-        events.push({ id: `fork:${branch.id}`, kind: 'fork', at: branch.forkAt, branchId: branch.id, turn: branch.forkTurn })
-        for (const job of branch.jobs) {
-          events.push({ id: `job:${job.id}`, kind: 'job', at: job.startedAt, branchId: branch.id, jobId: job.id, state: job.state, label: job.label })
-        }
-        if (branch.mergeAt !== null) {
-          events.push({ id: `merge:${branch.id}`, kind: branch.status === 'abandoned' ? 'abandon' : 'merge', at: branch.mergeAt, branchId: branch.id, turn: branch.mergeTurn })
-        }
-      }
-      events.sort((a, b) => a.at - b.at)
-      return {
-        turns, events, branches,
-        counts: { activeLoops: 3, facts: 5, running: 1, drafts: 2 },
-      }
-    })()
-
     function FishboneView(props) {
-      const { sessionId, useProjection, onOpenStream } = props ?? {}
+      const { sessionId, useProjection, onOpenStream, focusBranch } = props ?? {}
       const snapshot = typeof useProjection === 'function' ? useProjection('miopiikBackstage') : undefined
-      const [demo, setDemo] = React.useState(false)
-      const graph = demo ? DEMO_GRAPH : snapshot?.graph
+      const graph = snapshot?.graph
       const [hover, setHover] = React.useState(null)
       const [selected, setSelected] = React.useState(null)
+      React.useEffect(() => {
+        if (typeof focusBranch === 'string' && focusBranch !== '') setSelected(focusBranch)
+      }, [focusBranch])
       const branches = graph?.branches ?? []
       const events = graph?.events ?? []
 
@@ -412,26 +348,6 @@ window.__ModuleLoader__.load({
             'div',
             { style: { flex: 'none', display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12, padding: '14px 20px 6px' } },
             h(CountsStrip, { graph }),
-            h(
-              'button',
-              {
-                type: 'button',
-                onClick: () => setDemo(!demo),
-                'aria-pressed': demo ? 'true' : 'false',
-                style: {
-                  marginTop: 2,
-                  padding: '3px 10px',
-                  border: `0.5px solid ${demo ? C.brand : C.border}`,
-                  borderRadius: 12,
-                  background: 'transparent',
-                  color: demo ? C.brand : C.muted,
-                  cursor: 'pointer',
-                  fontSize: 11,
-                  whiteSpace: 'nowrap',
-                },
-              },
-              demo ? t('graph.demoOn') : t('graph.demoOff'),
-            ),
           ),
           h(
             'div',
@@ -448,7 +364,7 @@ window.__ModuleLoader__.load({
             h(
               'div',
               { style: { position: 'relative', width: W } },
-              h('svg', { viewBox: `0 0 ${W} ${H}`, width: W, height: H, role: 'img', 'aria-label': t('graph.title') }, ...marks),
+              h('svg', { viewBox: `0 0 ${W} ${H}`, style: { width: '100%', maxWidth: W * 1.8, height: 'auto', display: 'block' }, role: 'img', 'aria-label': t('graph.title') }, ...marks),
               hovered !== null
                 ? h(
                     'div',
@@ -594,9 +510,14 @@ window.__ModuleLoader__.load({
       const snapshot = typeof useProjection === 'function' ? useProjection('miopiikBackstage') : undefined
       const [tab, setTab] = React.useState('graph')
       const [streamFilter, setStreamFilter] = React.useState(null) // {branch} | null
+      const [focusBranch, setFocusBranch] = React.useState(null)
       const openStream = (branchId) => {
         setStreamFilter({ branch: branchId })
         setTab('stream')
+      }
+      const openGraph = (branchId) => {
+        setFocusBranch(branchId)
+        setTab('graph')
       }
       const tabs = [
         ['graph', t('tab.graph')],
@@ -648,10 +569,15 @@ window.__ModuleLoader__.load({
           'div',
           { style: { flex: '1 1 auto', minHeight: 0, overflow: 'auto', padding: tab === 'graph' ? 0 : '18px 22px' } },
           tab === 'graph'
-            ? h(FishboneView, { ...props, onOpenStream: openStream })
+            ? h(FishboneView, { ...props, onOpenStream: openStream, focusBranch })
             : tab === 'list'
               ? h(ListPane, { snapshot, sessionId })
-              : h(StreamPane, { snapshot, filter: streamFilter, onClearFilter: () => setStreamFilter(null) }),
+              : h(StreamPane, {
+                  snapshot,
+                  filter: streamFilter,
+                  onClearFilter: () => setStreamFilter(null),
+                  onOpenGraph: openGraph,
+                }),
         ),
       )
     }
@@ -843,7 +769,21 @@ window.__ModuleLoader__.load({
           : shown.map((note) =>
               h(
                 'div',
-                { key: note.id, style: { display: 'flex', gap: 10, alignItems: 'baseline', padding: '6px 0', borderBottom: `0.5px solid ${C.border}` } },
+                {
+                  key: note.id,
+                  onClick: () => (note.branch && typeof onOpenGraph === 'function' ? onOpenGraph(note.branch) : undefined),
+                  title: note.branch ? `${t('stream.openGraph')} ${note.branch}` : undefined,
+                  style: {
+                    display: 'flex',
+                    gap: 10,
+                    alignItems: 'baseline',
+                    padding: '6px 4px',
+                    margin: '0 -4px',
+                    borderRadius: 6,
+                    borderBottom: `0.5px solid ${C.border}`,
+                    cursor: note.branch ? 'pointer' : 'default',
+                  },
+                },
                 h('span', { style: { flex: 'none', width: 62, fontSize: 11, color: C.muted, fontVariantNumeric: 'tabular-nums' } },
                   new Date(note.at).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })),
                 h('span', { style: { flex: 'none', width: 62, fontSize: 11, color: C.brand } }, note.kind),
@@ -1132,13 +1072,12 @@ window.__ModuleLoader__.load({
       'graph.noJobs': '这个分支上没有任务。',
       'graph.merged': '汇回',
       'graph.openStream': '在流水中查看',
-      'graph.demoOn': '示例数据',
-      'graph.demoOff': '看示例',
       'stream.empty': '后台还没有做过任何决定。',
       'stream.all': '全部',
       'stream.search': '搜结论或分支',
       'stream.observed': '观测（用户/回复/工具）',
       'stream.decisions': '决定',
+      'stream.openGraph': '回到鱼骨查看',
       'stream.offline': '该会话的后台尚未连接。',
       'count.loops': '未结事项',
       'count.facts': '已定结论',
@@ -1211,13 +1150,12 @@ window.__ModuleLoader__.load({
       'graph.noJobs': 'No jobs on this branch.',
       'graph.merged': 'Merged',
       'graph.openStream': 'Open in stream',
-      'graph.demoOn': 'Demo data',
-      'graph.demoOff': 'Show demo',
       'stream.empty': 'The backstage has not made any decision yet.',
       'stream.all': 'All',
       'stream.search': 'Search claim or branch',
       'stream.observed': 'Observed (user/reply/tool)',
       'stream.decisions': 'Decisions',
+      'stream.openGraph': 'Show in graph',
       'stream.offline': 'The backstage for this session is not connected yet.',
       'count.loops': 'Open',
       'count.facts': 'Facts',
