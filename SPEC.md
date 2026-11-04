@@ -420,6 +420,16 @@ L3 之外，Mind 还能从 L3 末尾看到一行鱼骨：「B-1 定位验证：�
 **截至本次，登记表已清空**：SPEC 里每一条写明「未做」的机制都已落地或在 11.2b 里被重新归类为代价。
 若后续发现新的缺口，加回这里，不要只留在对话里。
 
+### 11.2c 外部验证修复（2026-11-04，另一会话全量点测 12 个工具）
+
+| 报告的问题 | 判定 | 处理 |
+|---|---|---|
+| `ink_recall` 怎么查都是空 | 真：只检索详情仓，而详情仓只在长文本时写 | 改成**统一检索**：详情 / note / 观测原文 / 分支 / 事实，一个入口；实测当场查出 13 条 |
+| `ink_loops get` 调不通 | 真：schema 没有、实现也没有 | 补 `get`：返回开环 + 相关 note；实测可用 |
+| `ink_branch get` 偶发 `value is not lossless JSON` | 真：运行中的任务对象可能带不可序列化字段 | 工具层统一 `lossless()` 净化；实测不再复现 |
+| `ink_fold approve` 返回自相矛盾 | 真：`applied` 同时表示「验收」与「替换」 | 拆成 `settled`（提案状态）/ `contextReplaced`（上下文是否真被替换）/ `reason` |
+| `ink_branch open` 的 quotes 没落库 | 真：open 只写 premise，quotes 要另调 context | open 直接接收并落库 premise/quotes/facts；实测 `get` 能读回 |
+
 ### 11.2b 已知边界（不是缺口，是代价；不打算靠加机制消除）
 
 | 边界 | 为什么保留 |
