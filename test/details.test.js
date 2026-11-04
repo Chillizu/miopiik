@@ -8,6 +8,7 @@ import { join } from 'node:path'
 import { openStore } from '../miopiik-dsh/host/store.js'
 import { Engine } from '../miopiik-dsh/host/engine.js'
 import { contentHash, extractEntities, searchIndex } from '../miopiik-dsh/host/details.js'
+import { DEFAULTS } from '../miopiik-dsh/host/config-defaults.js'
 
 const DAY = 24 * 60 * 60 * 1000
 let clock = Date.now()
@@ -111,7 +112,7 @@ test('工作区级事实：另一个会话写的事实，新会话打开就能�
   try {
     const s1 = await openStore(dir, 'session-a')
     const e1 = new Engine({ store: s1, sessionId: 'session-a' })
-    const fact = await e1.addFact({ claim: '本地模型用 llmctl 管理', provenance: ['环境'], source: 'user' })
+    const fact = await e1.addFact({ claim: '本地模型用 llmctl 管理', provenance: ['环境'], source: 'user', scope: 'workspace' })
     assert.equal(fact.id, 'F-1')
 
     // 另一个会话（同一个工作区目录）
@@ -129,7 +130,7 @@ test('工作区级事实：修订与失效同样共享，不产生第二份', as
   const dir = await mkdtemp(join(tmpdir(), 'miopiik-shared-'))
   try {
     const e1 = new Engine({ store: await openStore(dir, 'a'), sessionId: 'a' })
-    const fact = await e1.addFact({ claim: '旧结论', provenance: ['x'], source: 'ink' })
+    const fact = await e1.addFact({ claim: '旧结论', provenance: ['x'], source: 'ink', scope: 'workspace' })
     await e1.reviseFact(fact.id, { claim: '新结论' })
     await e1.invalidateFact(fact.id, '已被推翻')
 
@@ -223,10 +224,15 @@ test('账本按会话隔离，只有事实卡跨会话共享', async () => {
     const b = new Engine({ store: await openStore(dirB, 'b', { workspaceRoot: root }), sessionId: 'b' })
 
     await a.addLoop({ text: 'A 会话的线索', type: 'promise' })
-    await a.addFact({ claim: '两边都该知道的结论', provenance: ['A'], source: 'user' })
+    const privateFact = await a.addFact({ claim: '只属于 A 的临时结论', provenance: ['A'], source: 'ink' })
+    const sharedFact = await a.addFact({ claim: '两边都该知道的结论', provenance: ['A'], source: 'user', scope: 'workspace' })
+    assert.equal(privateFact.scope, 'session', '默认会话级')
+    assert.equal(sharedFact.scope, 'workspace')
 
     assert.equal(b.listLoops().length, 0, 'B 不该看到 A 的开环')
-    assert.equal(b.listFacts().length, 1, '事实卡应该共享')
+    const seen = b.listFacts().map((fact) => fact.claim)
+    assert.ok(seen.includes('两边都该知道的结论'), 'workspace 作用域的事实应共享')
+    assert.ok(!seen.includes('只属于 A 的临时结论'), '默认作用域的事实不该泄漏到别的会话')
 
     const bBranch = await b.openBranch({ label: 'B 的分支', forkedAtTurn: 1 })
     assert.equal(a.listBranches().length, 0, 'A 不该看到 B 的分支')
@@ -248,6 +254,24 @@ test('旧布局迁移：根目录的账本会被搬进第一个打开它的会�
     assert.equal(engine.listLoops()[0].text, '旧线索', '旧开环应被搬进会话目录')
     assert.equal(engine.listFacts()[0].claim, '旧事实', '旧事实应并进共享区')
     assert.ok(!existsSync(join(root, 'observations.jsonl')), '根目录不该再留旧账本')
+  } finally {
+    await rm(root, { recursive: true, force: true })
+  }
+})
+
+test('事实卡不是记事板：超过上限必须做取舍', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'miopiik-factcap-'))
+  try {
+    const engine = new Engine({ store: await openStore(join(root, 'sessions', 'a'), 'a', { workspaceRoot: root }), sessionId: 'a' })
+    for (let index = 0; index < DEFAULTS.factActiveCap; index += 1) {
+      await engine.addFact({ claim: `结论 ${index}`, provenance: ['测试'], source: 'ink' })
+    }
+    await assert.rejects(() => engine.addFact({ claim: '第 41 条', provenance: ['测试'], source: 'ink' }), /事实卡已满/)
+    // 失效一条之后又能写
+    const first = engine.listFacts()[0]
+    await engine.invalidateFact(first.id, '不再成立')
+    const added = await engine.addFact({ claim: '腾出位置之后的一条', provenance: ['测试'], source: 'ink' })
+    assert.equal(added.claim, '腾出位置之后的一条')
   } finally {
     await rm(root, { recursive: true, force: true })
   }

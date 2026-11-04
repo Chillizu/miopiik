@@ -119,7 +119,7 @@ export function registerTools(ctx, engines, operator, services = {}) {
     tool({
       name: 'ink_facts',
       description:
-        'Fact cards: conclusions we settled together, each with provenance and an invalidation condition. Edit one beats explaining again. source=user outranks anything inferred by Operator.',
+        'Fact cards: conclusions we settled together, each with provenance and an invalidation condition. Edit one beats explaining again. source=user outranks anything inferred by Operator. Default scope is this conversation; workspace scope is for things other conversations must also honour. Do not use this as a scratchpad.',
       parameters: {
         type: 'object',
         properties: {
@@ -129,6 +129,12 @@ export function registerTools(ctx, engines, operator, services = {}) {
           provenance: { type: 'array', items: { type: 'string' }, description: 'Where it came from.' },
           conf: { type: 'string', enum: ['low', 'mid', 'high'] },
           source: { type: 'string', enum: ['user', 'ink', 'operator'] },
+          scope: {
+            type: 'string',
+            enum: ['session', 'workspace'],
+            description:
+              'Default session: only this conversation sees it. Use workspace only for something that should change how other conversations act too. Facts are not a notepad — if it is raw material, put it in a draft instead.',
+          },
           validUntil: { type: 'string', description: 'When this stops being true, if it can expire.' },
           reason: { type: 'string' },
         },
@@ -147,6 +153,7 @@ export function registerTools(ctx, engines, operator, services = {}) {
               conf: args.conf,
               source: args.source,
               validUntil: args.validUntil,
+              scope: args.scope,
             })
             return { fact }
           }

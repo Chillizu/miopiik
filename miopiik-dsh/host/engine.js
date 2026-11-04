@@ -267,12 +267,27 @@ export class Engine {
     })
     const errors = validateFact(fact)
     if (errors.length > 0) throw new Error(errors.join('；'))
+    const scope = input.scope === 'workspace' ? 'workspace' : 'session'
+    fact.scope = scope
+
+    // 事实卡不是记事板：超过上限就必须先失效掉不再成立的，或改用草稿。
+    const active = activeFacts(this.state.facts)
+    if (active.length >= DEFAULTS.factActiveCap) {
+      throw new Error(
+        `事实卡已满（${active.length}/${DEFAULTS.factActiveCap}）。它不是记事板：先 invalidate 掉不再成立的结论，` +
+          `或者把这条当线索丢进 ink_draft。`,
+      )
+    }
+
     await this.enqueue(async () => {
-      const record = { op: 'add', fact: { ...fact, scope: 'workspace' } }
-      if (this.shared === null) await appendRecord(this.store, 'facts', record)
-      else await appendSharedFact(this.shared, record)
-      // 本会话视图同步（否则刚写的事实要重启才可见）；用 applyRecord 才能顺带推进计数器。
-      if (this.shared !== null) applyRecord(this.state, 'facts', record)
+      const record = { op: 'add', fact: { ...fact, scope } }
+      if (scope === 'workspace' && this.shared !== null) {
+        await appendSharedFact(this.shared, record)
+        applyRecord(this.state, 'facts', record)
+      } else {
+        // 会话级：写本会话账本，别的会话看不见。
+        await appendRecord(this.store, 'facts', record)
+      }
     })
     return fact
   }
@@ -281,10 +296,12 @@ export class Engine {
     if (!this.state.facts.has(id)) throw new Error(`没有这张事实卡: ${id}`)
     await this.enqueue(async () => {
       const record = { op: 'revise', factId: id, patch, at: this.now() }
-      if (this.shared === null) await appendRecord(this.store, 'facts', record)
-      else {
+      const scope = this.state.facts.get(id)?.scope ?? 'session'
+      if (scope === 'workspace' && this.shared !== null) {
         await appendSharedFact(this.shared, record)
         applyRecord(this.state, 'facts', record) // 本会话视图同步，别让刚改的结论看不见
+      } else {
+        await appendRecord(this.store, 'facts', record)
       }
     })
     return this.state.facts.get(id)
@@ -294,10 +311,12 @@ export class Engine {
     if (!this.state.facts.has(id)) throw new Error(`没有这张事实卡: ${id}`)
     await this.enqueue(async () => {
       const record = { op: 'invalidate', factId: id, at: this.now(), reason }
-      if (this.shared === null) await appendRecord(this.store, 'facts', record)
-      else {
+      const scope = this.state.facts.get(id)?.scope ?? 'session'
+      if (scope === 'workspace' && this.shared !== null) {
         await appendSharedFact(this.shared, record)
         applyRecord(this.state, 'facts', record)
+      } else {
+        await appendRecord(this.store, 'facts', record)
       }
     })
     return this.state.facts.get(id)
