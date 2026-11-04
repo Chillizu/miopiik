@@ -87,3 +87,27 @@ test('describeBranches：最多 4 条，没有任务时如实说"还没有任务
   assert.match(lines[0], /还没有任务/)
   assert.doesNotMatch(lines[1], /从第/)
 })
+
+test('数据卫生：历史上被误记为 user 的系统注入消息，回放时改判为 system（不改磁盘）', async () => {
+  const { appendFile, mkdtemp, rm: rmDir } = await import('node:fs/promises')
+  const { tmpdir: tmp } = await import('node:os')
+  const { join: joinPath } = await import('node:path')
+  const dir = await mkdtemp(joinPath(tmp(), 'miopiik-hygiene-'))
+  try {
+    const legacy = [
+      { seq: 1, at: T0, day: 1, turn: 1, kind: 'user', text: '<goal_round>Round: 1</goal_round>' },
+      { seq: 2, at: T0, day: 1, turn: 1, kind: 'user', text: 'Time sampled while preparing turn 1' },
+      { seq: 3, at: T0, day: 1, turn: 1, kind: 'user', text: '我想做个东西' },
+    ]
+    await appendFile(joinPath(dir, 'observations.jsonl'), legacy.map((entry) => JSON.stringify(entry)).join('\n') + '\n')
+    const store = await openStore(dir, 's1')
+    const kinds = store.state.observations.map((entry) => entry.kind)
+    assert.deepEqual(kinds, ['system', 'system', 'user'])
+
+    const engine = new Engine({ store, sessionId: 's1', now: () => T0 })
+    const rhythm = engine.conversationRhythm()
+    assert.ok(rhythm === null || !/612 字/.test(rhythm), '系统注入不参与对话节奏')
+  } finally {
+    await rmDir(dir, { recursive: true, force: true })
+  }
+})

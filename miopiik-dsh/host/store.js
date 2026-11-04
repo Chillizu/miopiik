@@ -36,14 +36,29 @@ function bump(counter, id) {
   return Math.max(counter, Number(match[1]))
 }
 
+/** 系统注入的消息前缀（历史遗留判定，见 §11 数据卫生）。 */
+const SYSTEM_PREFIXES = ['<goal_round>', 'Time sampled while preparing', '<goal_round ', '<runtime_context'] 
+
+/** 读时迁移：把历史上被误记为 user 的系统注入消息改判为 system。 */
+export function reclassifyLegacyUser(record) {
+  if (record?.kind !== 'user' || typeof record.text !== 'string') return record
+  const head = record.text.trimStart()
+  if (!SYSTEM_PREFIXES.some((prefix) => head.startsWith(prefix))) return record
+  return { ...record, kind: 'system', reclassified: 'legacy-user-injection' }
+}
+
 /** 把一条记录折叠进内存状态。纯函数式（只改传入的 state）。 */
 export function applyRecord(state, log, record) {
   switch (log) {
-    case 'observations':
-      state.observations.push(record)
-      state.counters.obs = Math.max(state.counters.obs, record.seq ?? 0)
-      if (record.kind === 'epoch' && Number.isInteger(record.epoch)) state.epoch = record.epoch
+    case 'observations': {
+      // 读时迁移（不改磁盘、保持 append-only）：过滤规则上线前写入的系统注入消息
+      // （goal 轮次、时间上下文）曾被记为 user，会让「对话节奏」把系统提示当成用户说的话。
+      const migrated = reclassifyLegacyUser(record)
+      state.observations.push(migrated)
+      state.counters.obs = Math.max(state.counters.obs, migrated.seq ?? 0)
+      if (migrated.kind === 'epoch' && Number.isInteger(migrated.epoch)) state.epoch = migrated.epoch
       return
+    }
     case 'notes':
       state.notes.push(record)
       state.counters.note = bump(state.counters.note, record.id)

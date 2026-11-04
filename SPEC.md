@@ -360,6 +360,12 @@ L3 之外，Mind 还能从 L3 末尾看到一行鱼骨：「B-1 定位验证：�
 
 > 本节记录「规格要求」与「当前实现」的差距，按批次推进收敛。每条都指明差距与后续批次。
 
+### 11.0 数据卫生
+
+- 过滤规则（只收 `source.kind=user`）上线前，goal 轮次与时间上下文曾被记为 `user`（3 条，第 18–19 轮）。
+- 处理：**不改磁盘**（append-only 不动），在回放时按明确前缀规则改判为 `system`，标 `reclassified: legacy-user-injection`；这样「对话节奏」不会把系统提示当成用户说的话。
+- 规则见 `store.js` 的 `SYSTEM_PREFIXES`；新增系统注入类型时要同步这里。
+
 ### 11.1 已确定的实现路径差异（不改变语义）
 
 - **存储介质**：未用 `ctx.storageDomain`（`defineDomain` 需要 zod 运行时依赖，workspace link 的 bundle 解析不到 `@deepseek-ai/*`）。改为 `<cwd>/.dsh/miopiik/<sessionId>/*.jsonl`：append-only、可回放、无损、可肉眼审计。
