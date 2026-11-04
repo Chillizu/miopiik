@@ -21,6 +21,15 @@ import { gcDetails, putDetail, readDetail, searchIndex, extractEntities } from '
 import { describeBranches, makeBranch, renderBranchSlice } from './branches.js'
 import { appendRecord, appendSharedFact } from './store.js'
 
+/** 工具返回值必须是无损 JSON：去掉 undefined 之类的不可序列化字段。 */
+export function lossless(value) {
+  try {
+    return JSON.parse(JSON.stringify(value))
+  } catch {
+    return null
+  }
+}
+
 export const INK_TOOL_NAMES = Object.freeze(['ink_status', 'ink_loops', 'ink_facts', 'ink_inbox', 'ink_dispatch', 'ink_commit', 'ink_brief', 'ink_epoch', 'ink_draft', 'ink_branch', 'ink_fold', 'ink_recall'])
 
 const MAX_L3_LINES = 14
@@ -912,7 +921,7 @@ export class Engine {
    * 从对话的当前节点开一条分支。forkedAtTurn 是「对话的哪一轮」，
    * 这就是鱼骨的分叉点：分支不是凭空出现的，它总连着一句话。
    */
-  async openBranch({ label, summary = '', forkedAtTurn = null, premise = '' }) {
+  async openBranch({ label, summary = '', forkedAtTurn = null, premise = '', quotes = [], facts = [] }) {
     const text = String(label ?? '').trim()
     if (text === '') throw new Error('分支要有个名字')
     const branch = makeBranch({
@@ -925,7 +934,13 @@ export class Engine {
       at: this.now(),
     })
     await this.enqueue(() => appendRecord(this.store, 'branches', { op: 'create', branch }))
-    return branch
+    // 开分支时随句话带的前提与引用，当场落库（此前只有 context 动作才写，容易漏）。
+    const cleanQuotes = (Array.isArray(quotes) ? quotes : []).map((quote) => String(quote).trim()).filter((quote) => quote !== '')
+    const cleanFacts = Array.isArray(facts) ? facts.filter((id) => this.state.facts.has(String(id))) : []
+    if (premise !== '' || cleanQuotes.length > 0 || cleanFacts.length > 0) {
+      await this.updateBranchContext(branch.id, { premise, quotes: cleanQuotes, facts: cleanFacts })
+    }
+    return this.state.branches.get(branch.id)
   }
 
   listBranches({ includeSettled = false } = {}) {
@@ -970,12 +985,12 @@ export class Engine {
     const notes = this.state.notes.filter(
       (note) => note.branch === id || (Array.isArray(note.loops) && false),
     )
-    return {
+    return lossless({
       branch,
       text: renderBranchSlice(branch, this.state.facts),
       notes: notes.slice(-5),
       jobs: [...this.state.jobs.values()].filter((job) => job.branchId === id),
-    }
+    })
   }
 
   async attachJobToBranch(branchId, jobId) {
@@ -1071,7 +1086,7 @@ export class Engine {
       await this.enqueue(() =>
         appendRecord(this.store, 'folds', { op: 'reject', foldId: id, at, by: 'mind', reason }),
       )
-      return { proposal: this.state.folds.get(id), applied: false }
+      return { proposal: this.state.folds.get(id), settled: 'rejected', contextReplaced: false, reason: 'rejected-by-mind' }
     }
 
     // 验收对象是「实际要用的那份档案」：Mind 改写过就验改写后的。
@@ -1113,7 +1128,13 @@ export class Engine {
         appliedSeq,
       }),
     )
-    return { proposal: this.state.folds.get(id), applied: appliedSeq !== null, replacement }
+    return {
+      proposal: this.state.folds.get(id),
+      settled: 'applied',
+      // 提案已验收 = 已记账；contextReplaced 表示上下文是否真的被替换（受 DSH 隔离限制时会是 false）。
+      contextReplaced: appliedSeq !== null,
+      reason: replacement,
+    }
   }
 
   // ── 念旧内容：详情仓（SPEC §2.2） ──────────────────────────────────
@@ -1134,8 +1155,48 @@ export class Engine {
   }
 
   /** 按时间/开环/分支/实体/关键词检索。hash 只取回，检索靠索引。 */
-  recall(options = {}) {
-    return searchIndex(this.state.details, options)
+  /**
+   * 念旧：一个入口查所有历史（详情仓、决定账、观测原文、分支、事实）。
+   * 之前只查详情仓——而详情仓只有长文本才会写，于是「查什么都不出来」。
+   */
+  recall({ query = null, entity = null, loop = null, branch = null, sinceDay = null, limit = 20 } = {}) {
+    const needle = query === null ? null : String(query).toLowerCase()
+    const match = (text) => (needle === null ? true : String(text ?? '').toLowerCase().includes(needle))
+    const dayOk = (at) => (sinceDay === null ? true : dayOf(at) >= sinceDay)
+    const hits = []
+
+    for (const entry of searchIndex(this.state.details, { query, entity, loop, branch, sinceDay, limit: 50 })) {
+      hits.push({ kind: 'detail', id: entry.hash, hash: entry.hash, at: entry.createdAt, day: entry.day, text: entry.preview })
+    }
+    for (const note of this.state.notes) {
+      if (!dayOk(note.at)) continue
+      if (loop !== null && !(note.loops ?? []).includes(loop)) continue
+      if (branch !== null && note.branch !== branch) continue
+      if (!match(`${note.claim} ${note.why} ${note.detail ?? ''}`)) continue
+      hits.push({ kind: 'note', id: note.id, at: note.at, day: dayOf(note.at), text: note.claim })
+    }
+    for (const entry of this.state.observations) {
+      if (entry.kind !== 'user' && entry.kind !== 'assistant') continue
+      if (!dayOk(entry.at ?? 0)) continue
+      if (!match(entry.text)) continue
+      hits.push({ kind: 'utterance', id: `U-${entry.seq}`, at: entry.at ?? 0, day: entry.day ?? 0, text: String(entry.text ?? '').slice(0, 160) })
+    }
+    for (const entry of this.state.branches.values()) {
+      if (branch !== null && entry.id !== branch) continue
+      if (!dayOk(entry.createdAt)) continue
+      const blob = `${entry.label} ${entry.summary} ${entry.context?.premise ?? ''} ${(entry.context?.quotes ?? []).join(' ')}`
+      if (!match(blob)) continue
+      hits.push({ kind: 'branch', id: entry.id, at: entry.createdAt, day: dayOf(entry.createdAt), text: `${entry.label}｜${entry.summary}` })
+    }
+    for (const fact of this.state.facts.values()) {
+      if (!match(fact.claim)) continue
+      const at = fact.revisedAt ?? fact.createdAt ?? 0
+      if (!dayOk(at)) continue
+      if (entity !== null && !String(fact.claim).includes(entity)) continue
+      hits.push({ kind: 'fact', id: fact.id, at, day: dayOf(at), text: fact.claim })
+    }
+
+    return hits.sort((a, b) => b.at - a.at).slice(0, limit)
   }
 
   /** 回收：只删没被任何 note 引用、且超过保留期的详情。 */

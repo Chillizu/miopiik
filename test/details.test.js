@@ -141,3 +141,59 @@ test('工作区级事实：修订与失效同样共享，不产生第二份', as
     await rm(dir, { recursive: true, force: true })
   }
 })
+
+test('念旧：一个入口能查到 note、观测原文、分支与事实，而不只是详情仓', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'miopiik-recall-'))
+  try {
+    const engine = new Engine({ store: await openStore(dir, 'a'), sessionId: 'a' })
+    engine.observe({
+      type: 'user/message',
+      data: { source: { kind: 'user' }, content: [{ type: 'text', text: '我们讨论过鱼骨图的实现方式' }] },
+    })
+    await engine.queue
+    const branch = await engine.openBranch({ label: '鱼骨渲染', summary: '把分支画成图', premise: '需要一个主视图' })
+    await engine.addFact({ claim: '鱼骨图放在会话视图里', provenance: ['用户'], source: 'user' })
+    await engine.deliverNote({
+      kind: 'preview',
+      claim: '鱼骨改成横泳道',
+      why: 'design',
+      refs: [branch.id],
+      branch: branch.id,
+      loops: [],
+      question: '要不要再调？',
+      detail: null,
+    })
+
+    const byQuery = engine.recall({ query: '鱼骨' })
+    const kinds = new Set(byQuery.map((hit) => hit.kind))
+    assert.ok(kinds.has('utterance'), '应能查到观测原文')
+    assert.ok(kinds.has('branch'), '应能查到分支')
+    assert.ok(kinds.has('fact'), '应能查到事实')
+
+    const byBranch = engine.recall({ branch: branch.id })
+    assert.ok(byBranch.some((hit) => hit.kind === 'branch'))
+    assert.ok(byBranch.some((hit) => hit.kind === 'note'))
+  } finally {
+    await rm(dir, { recursive: true, force: true })
+  }
+})
+
+test('开分支时就带上前提与引用，当场落库', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'miopiik-branchctx-'))
+  try {
+    const engine = new Engine({ store: await openStore(dir, 'a'), sessionId: 'a' })
+    const branch = await engine.openBranch({
+      label: '竞品',
+      summary: '看竞品',
+      premise: '用户怀疑竞品在防御定价',
+      quotes: ['“他们其实是在防御”'],
+    })
+    assert.equal(branch.context.premise, '用户怀疑竞品在防御定价')
+    assert.deepEqual(branch.context.quotes, ['“他们其实是在防御”'])
+    const slice = engine.branchSlice(branch.id).text
+    assert.match(slice, /前提.*用户怀疑竞品在防御定价/)
+    assert.match(slice, /他们其实是在防御/)
+  } finally {
+    await rm(dir, { recursive: true, force: true })
+  }
+})

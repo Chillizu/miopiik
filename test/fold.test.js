@@ -92,7 +92,8 @@ test('退回：记下理由，提案不能重复处理', async () => {
     const proposal = await ctx.engine.proposeFold()
     const rejected = await ctx.engine.settleFold(proposal.id, { approve: false, reason: '接不上' })
     assert.equal(rejected.proposal.status, 'rejected')
-    assert.equal(rejected.applied, false)
+    assert.equal(rejected.settled, 'rejected')
+    assert.equal(rejected.contextReplaced, false)
     await assert.rejects(() => ctx.engine.settleFold(proposal.id, { approve: false }), /已经处理过/)
   } finally {
     await ctx.cleanup()
@@ -146,8 +147,9 @@ test('替换通过注入的 replacer 执行；拒绝或失败都如实记账，�
       approve: true,
       replace: async () => ({ applied: true, seq: 42 }),
     })
-    assert.equal(ok.applied, true)
-    assert.equal(ok.replacement, 'applied')
+    assert.equal(ok.settled, 'applied')
+    assert.equal(ok.contextReplaced, true)
+    assert.equal(ok.reason, 'applied')
     assert.equal(ok.proposal.appliedSeq, 42)
 
     const second = await ctx.engine.proposeFold()
@@ -155,8 +157,8 @@ test('替换通过注入的 replacer 执行；拒绝或失败都如实记账，�
       approve: true,
       replace: async () => ({ applied: false, reason: 'command:busy' }),
     })
-    assert.equal(refused.applied, false)
-    assert.equal(refused.replacement, 'command:busy')
+    assert.equal(refused.contextReplaced, false)
+    assert.equal(refused.reason, 'command:busy')
 
     const third = await ctx.engine.proposeFold()
     const threw = await ctx.engine.settleFold(third.id, {
@@ -165,8 +167,8 @@ test('替换通过注入的 replacer 执行；拒绝或失败都如实记账，�
         throw new Error('boom')
       },
     })
-    assert.equal(threw.applied, false)
-    assert.match(threw.replacement, /threw:boom/)
+    assert.equal(threw.contextReplaced, false)
+    assert.match(threw.reason, /threw:boom/)
   } finally {
     await ctx.cleanup()
   }

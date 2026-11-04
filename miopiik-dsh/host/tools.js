@@ -16,8 +16,22 @@ function render(_args, value) {
   return [{ type: 'text', text: JSON.stringify(value, null, 2) }]
 }
 
+function lossless(value) {
+  try {
+    return JSON.parse(JSON.stringify(value))
+  } catch {
+    return null
+  }
+}
+
 function tool(definition) {
-  return { ...definition, output: { schema: RESULT_SCHEMA, render } }
+  return {
+    ...definition,
+    output: { schema: RESULT_SCHEMA, render },
+    async execute(args, exec) {
+      return lossless(await definition.execute(args, exec))
+    },
+  }
 }
 
 export function registerTools(ctx, engines, operator, services = {}) {
@@ -48,7 +62,7 @@ export function registerTools(ctx, engines, operator, services = {}) {
       parameters: {
         type: 'object',
         properties: {
-          action: { type: 'string', enum: ['list', 'add', 'touch', 'close', 'drop'] },
+          action: { type: 'string', enum: ['list', 'get', 'add', 'touch', 'close', 'drop'] },
           id: { type: 'string', description: 'Loop id such as L-3.' },
           text: { type: 'string', description: 'One sentence, readable without context.' },
           type: {
@@ -69,6 +83,13 @@ export function registerTools(ctx, engines, operator, services = {}) {
         switch (args.action) {
           case 'list':
             return { loops: engine.listLoops() }
+          case 'get': {
+            if (typeof args.id !== 'string') throw new Error('get 需要 id')
+            const loop = engine.listLoops().find((entry) => entry.id === args.id)
+            if (loop === undefined) throw new Error(`没有这条开环: ${args.id}`)
+            const notes = engine.state.notes.filter((note) => (note.loops ?? []).includes(loop.id))
+            return { loop, notes: notes.slice(-5) }
+          }
           case 'add': {
             const loop = await engine.addLoop({
               text: args.text,
@@ -590,16 +611,15 @@ export function registerTools(ctx, engines, operator, services = {}) {
           if (text === null) throw new Error(`没有这份详情: ${args.read}`)
           return { hash: args.read, text }
         }
-        return {
-          entries: engine.recall({
-            query: args.query ?? null,
-            entity: args.entity ?? null,
-            loop: args.loop ?? null,
-            branch: args.branch ?? null,
-            sinceDay: args.sinceDay ?? null,
-            limit: args.limit ?? 10,
-          }),
-        }
+        const hits = engine.recall({
+          query: args.query ?? null,
+          entity: args.entity ?? null,
+          loop: args.loop ?? null,
+          branch: args.branch ?? null,
+          sinceDay: args.sinceDay ?? null,
+          limit: args.limit ?? 20,
+        })
+        return { count: hits.length, hits }
       },
     }),
   )
