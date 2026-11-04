@@ -22,7 +22,7 @@
 | §2.2 判决缓存 | `notes.findVerdict` | 🟡 无调用方 |
 | §2.3 三份记忆 | 叙事=DSH 会话；开环=`loops`；事实=`facts` | ✅ |
 | §2.4 判例 | `findVerdict` | ⬜ 无 Operator↔Ink 问答通道 |
-| §2.5 草稿区 | `briefingMaterials.drafts` 恒空 | ⬜ |
+| §2.5 草稿区 | `engine.addDraft/settleDraft/expireDrafts`；`tools.ink_draft`；抽屉展示 | ✅ |
 | §3.1 编译 | `host/compile.js`（`ctx.llm` 单次调用 + JSON 解析 + 降级） | ✅ |
 | §3.1 两级翻译 | 第一级在 `compile.js`；第二级由 Mind（章程） | ✅ |
 | §3.2 自答/上报 | 章程 + `compile` 只产出预览不叙事 | 🟡 |
@@ -41,7 +41,7 @@
 | §4.6 上下文布局 / 缓存 | L3 只在 prompt context；无显式 L0–L5 组装 | 🟡 DSH 负责前缀缓存 |
 | §5.1 三种折叠 | 开环老化 + 简报；叙事折叠=DSH compaction | 🟡 |
 | §5.2 收工/硬断 | `ink_brief save`（Mind 显式） | 🟡 无自动检测 |
-| §5.3 交接简报 | `engine.saveBriefing` / `latestBriefing`；L3 隔夜置顶 | ✅ |
+| §5.3 交接简报 | `saveBriefing`（单屏上限）/ `appendBriefingUpdate` / L3 隔夜置顶与更新 | ✅ |
 | §5.4 隔夜三不变式 | 无自动 commit；Ink 不写对话；挂起不猜（章程） | 🟡 |
 | §5.5 开工 | L3：简报 → 开环 → 收件箱 | ✅ |
 | §5.6 天轴老化 | `loops.ageLoops`（2/7 天） | ✅ |

@@ -375,23 +375,25 @@ Mind 说过的每句话也是带 provenance 的 claim。Operator 的结果与旧
 | §5.5 L3 顺序（简报→收件箱→开环） | 已按规格排序 |
 | §6 违反"不做导航栏" | 移除 `sidebar.panellist` / `main` 常驻入口，两个面改为抽屉内切换 |
 | §6 两个面缺数据与干预 | session projection `miopiikBackstage`（Host 计算）wire 到客户端；按钮走 session command `/miopiik loop close` / `fact invalidate`。实测：L-3 由用户从界面关闭（`by:"user"`），`command/run`+`command/done` 留痕，F-1 在「我们一起定的」里显示 |
+| §1.7 闸门缺收尾 | `ink_commit` 支持 `draftId`：批准 → 草稿 settle 为 committed；拒绝 → settle 为 rejected（不要求用户修理） |
+| §2.5 无草稿区 | 草稿账本 `drafts.jsonl`、`ink_draft` 工具、7 天老化、简报素材真实草稿、抽屉「后台在跑」展示 |
+| §5.3 简报无单屏校验 / 隔夜更新不可见 | 超过 1800 字拒绝重写；`ink_brief update` 追加隔夜更新，L3 逐条显示且不覆盖原句 |
+| §5.2 硬断不承认 | 跨天且无收工简报时，L3 置顶要求「先承认断点」（事后折叠仍待） |
+| §6 审计视图缺失 | 抽屉底部「取证」入口，展开最近 8 条决定账（藏深，不当产品面） |
 
 仍登记为未实现（不静默）：
 
 | 规格条款 | 现状 |
 |---|---|
 | §1.3 双鱼骨分支视图 | 无分支/fork 数据模型 |
-| §1.7 低置信以外的 commit 收尾 | 拒绝后无自动丢弃/重做（无草稿区） |
 | §2.2 detail hash / 索引 / GC | 未做，仅全文 + 指针 |
 | §2.4 判例 | `findVerdict` 无调用方；无 Operator↔Ink 问答通道 |
-| §2.5 草稿区与老化 | 无草稿账本 |
 | §3.2 自答生成路径 | 只有 preview 编译，无 answer 路径 |
 | §3.4 连续无进展检测 | 只有超时守夜 |
 | §4.2 纠错（utterance→claim 链接） | 未做 |
 | §4.4 草稿态免门槛派发 | 未做（同一硬门槛） |
 | §5.1 三类折叠两阶段 | 只有开环老化 + 简报；叙事折叠委托 DSH compaction |
-| §5.2 收工/硬断自动检测 | 只能 Mind 手动调 `ink_brief save` |
-| §5.3 简报单屏校验 / 隔夜更新逐条 | 未做 |
+| §5.2 收工/硬断的自动触发与事后折叠 | 只能 Mind 手动 `ink_brief save`；硬断仅提示，未做自动事后折叠 |
 | §5.6 草稿老化、用户成果入账工具 | 未做 |
 
 | §9 草稿 / 今天的信 产品面 | 未做（词表只兑现 3/5） |
@@ -414,4 +416,7 @@ Mind 说过的每句话也是带 provenance 的 claim。Operator 的结果与旧
 - 派发端到端：J-1 由 Operator 完成 → `ctx.llm` 编译 → I-1 预览（T1，带问题）→ L3 展示 → 审计报告采纳（docs/audit-2026-11-04.md）。
 - 客户端数据面：session projection `miopiikBackstage` 实测（抽屉列出 L-1/L-3、F-1、在跑任务；存在感在有任务时带数字）。
 - 干预通道：按钮 → session command `/miopiik` → host 同一操作；实测 L-3 从界面划掉（`by:"user"`），会话日志留 `command/run`/`command/done`。
-- 单测：41 项通过（纯逻辑 + 引擎回放 + 契约 + 编译解析 + 收件箱三区/展开 + 无损观测 + L3 顺序 + 干预命令解析）。
+- 草稿区实测：`ink_draft add` → P-1 出现在抽屉「后台在跑」；7 天老化、闸门批准/拒绝 settle 均有单测。
+- 交接简报：单屏上限（>1800 字拒绝）、隔夜更新追加并在 L3 逐条显示、硬断提示，均有单测。
+- 审计视图实测：抽屉底部「取证」展开决定账（D-1 preview）。
+- 单测：45 项通过（纯逻辑 + 引擎回放 + 契约 + 编译解析 + 收件箱三区/展开 + 无损观测 + L3 顺序 + 干预命令解析 + 草稿/简报/老化）。
