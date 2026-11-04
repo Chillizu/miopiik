@@ -265,6 +265,13 @@ window.__ModuleLoader__.load({
 
         // 通信线：从对话脊出发（实线），回到对话脊（虚线）。用中性色，主色只留给脊。
         if (event.kind === 'fork' && forkRow !== undefined) {
+          // 派出：箭头落在右脊上
+          marks.push(h('path', {
+            key: `arr-out-${branch.id}`,
+            d: `M ${rightX - 10},${y - 4.5} L ${rightX - 1},${y} L ${rightX - 10},${y + 4.5} Z`,
+            fill: isHot ? C.text : C.link,
+            opacity: isHot ? 0.95 : 0.7,
+          }))
           marks.push(h('path', {
             key: `link-${branch.id}`,
             d: `M ${leftX},${yOf(forkRow)} C ${leftX + 90},${yOf(forkRow)} ${rightX - 90},${y} ${rightX},${y}`,
@@ -275,6 +282,13 @@ window.__ModuleLoader__.load({
           }))
         }
         if (event.kind === 'merge' || event.kind === 'abandon') {
+          // 收回：箭头落在左脊上
+          marks.push(h('path', {
+            key: `arr-in-${branch.id}`,
+            d: `M ${leftX + 10},${(mergeY ?? y) - 4.5} L ${leftX + 1},${mergeY ?? y} L ${leftX + 10},${(mergeY ?? y) + 4.5} Z`,
+            fill: isHot ? C.text : C.link,
+            opacity: isHot ? 0.95 : 0.7,
+          }))
           marks.push(h('path', {
             key: `back-${branch.id}`,
             d: `M ${rightX},${y} C ${rightX - 90},${y} ${leftX + 90},${mergeY ?? y} ${leftX},${mergeY ?? y}`,
@@ -524,6 +538,19 @@ window.__ModuleLoader__.load({
       const { sessionId, useProjection } = props ?? {}
       const snapshot = typeof useProjection === 'function' ? useProjection('miopiikBackstage') : undefined
       const [tab, setTab] = React.useState('graph')
+      const shellRef = React.useRef(null)
+      const [width, setWidth] = React.useState(0)
+      React.useEffect(() => {
+        const el = shellRef.current
+        if (el === null || typeof ResizeObserver !== 'function') return undefined
+        const observer = new ResizeObserver((entries) => {
+          const next = entries[0]?.contentRect?.width ?? 0
+          if (next > 0) setWidth(next)
+        })
+        observer.observe(el)
+        return () => observer.disconnect()
+      }, [])
+      const wide = width >= 1180
       const [streamFilter, setStreamFilter] = React.useState(null) // {branch} | null
       const [focusBranch, setFocusBranch] = React.useState(null)
       const openStream = (branchId) => {
@@ -536,12 +563,23 @@ window.__ModuleLoader__.load({
       }
       const tabs = [
         ['graph', t('tab.graph')],
-        ['list', t('tab.list')],
+        ...(wide ? [] : [['list', t('tab.list')]]),
         ['stream', t('tab.stream')],
       ]
       return h(
         'div',
-        { style: { display: 'flex', flexDirection: 'column', height: '100%', maxHeight: 'calc(100vh - 120px)', minHeight: 0, background: C.base, color: C.text } },
+        {
+          ref: shellRef,
+          style: {
+            display: 'flex',
+            flexDirection: 'column',
+            height: '100%',
+            maxHeight: 'calc(100vh - 120px)',
+            minHeight: 0,
+            background: C.base,
+            color: C.text,
+          },
+        },
         h(
           'div',
           {
@@ -584,7 +622,27 @@ window.__ModuleLoader__.load({
           'div',
           { style: { flex: '1 1 auto', minHeight: 0, overflow: 'auto', padding: tab === 'graph' ? 0 : '18px 22px' } },
           tab === 'graph'
-            ? h(FishboneView, { ...props, onOpenStream: openStream, focusBranch })
+            ? wide
+              ? h(
+                  'div',
+                  { style: { display: 'flex', minHeight: 0, height: '100%' } },
+                  h('div', { style: { flex: '1 1 auto', minWidth: 0, minHeight: 0 } }, h(FishboneView, { ...props, onOpenStream: openStream, focusBranch })),
+                  h(
+                    'div',
+                    {
+                      style: {
+                        flex: '0 0 380px',
+                        minHeight: 0,
+                        overflow: 'auto',
+                        borderLeft: `0.5px solid ${C.border}`,
+                        padding: '14px 16px 24px',
+                        background: C.base,
+                      },
+                    },
+                    h(ListPane, { snapshot, sessionId }),
+                  ),
+                )
+              : h(FishboneView, { ...props, onOpenStream: openStream, focusBranch })
             : tab === 'list'
               ? h(ListPane, { snapshot, sessionId })
               : h(StreamPane, {
