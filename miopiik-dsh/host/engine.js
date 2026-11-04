@@ -19,7 +19,7 @@ import { buildArchive, makeProposal, settlementDraft, verifyProposal } from './f
 import { DEFAULTS } from './config-defaults.js'
 import { gcDetails, putDetail, readDetail, searchIndex, extractEntities } from './details.js'
 import { describeBranches, makeBranch, renderBranchSlice } from './branches.js'
-import { appendRecord, appendSharedFact } from './store.js'
+import { appendRecord, appendSharedFact, applyRecord } from './store.js'
 
 /** 工具返回值必须是无损 JSON：去掉 undefined 之类的不可序列化字段。 */
 export function lossless(value) {
@@ -271,8 +271,8 @@ export class Engine {
       const record = { op: 'add', fact: { ...fact, scope: 'workspace' } }
       if (this.shared === null) await appendRecord(this.store, 'facts', record)
       else await appendSharedFact(this.shared, record)
-      // 本会话视图同步（否则刚写的事实要重启才可见）
-      if (this.shared !== null) this.state.facts.set(fact.id, record.fact)
+      // 本会话视图同步（否则刚写的事实要重启才可见）；用 applyRecord 才能顺带推进计数器。
+      if (this.shared !== null) applyRecord(this.state, 'facts', record)
     })
     return fact
   }
@@ -282,7 +282,10 @@ export class Engine {
     await this.enqueue(async () => {
       const record = { op: 'revise', factId: id, patch, at: this.now() }
       if (this.shared === null) await appendRecord(this.store, 'facts', record)
-      else await appendSharedFact(this.shared, record)
+      else {
+        await appendSharedFact(this.shared, record)
+        applyRecord(this.state, 'facts', record) // 本会话视图同步，别让刚改的结论看不见
+      }
     })
     return this.state.facts.get(id)
   }
@@ -292,7 +295,10 @@ export class Engine {
     await this.enqueue(async () => {
       const record = { op: 'invalidate', factId: id, at: this.now(), reason }
       if (this.shared === null) await appendRecord(this.store, 'facts', record)
-      else await appendSharedFact(this.shared, record)
+      else {
+        await appendSharedFact(this.shared, record)
+        applyRecord(this.state, 'facts', record)
+      }
     })
     return this.state.facts.get(id)
   }

@@ -197,3 +197,18 @@ test('开分支时就带上前提与引用，当场落库', async () => {
     await rm(dir, { recursive: true, force: true })
   }
 })
+
+test('工作区级事实：修订与失效当场在本会话可见（不等到重启）', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'miopiik-shared-sync-'))
+  try {
+    const engine = new Engine({ store: await openStore(dir, 'a'), sessionId: 'a' })
+    const fact = await engine.addFact({ claim: '旧说法', provenance: ['x'], source: 'user' })
+    const revised = await engine.reviseFact(fact.id, { claim: '新说法' })
+    assert.equal(revised.claim, '新说法')
+    assert.equal(engine.listFacts()[0].claim, '新说法')
+    await engine.invalidateFact(fact.id, '不再成立')
+    assert.equal(engine.listFacts().length, 0)
+  } finally {
+    await rm(dir, { recursive: true, force: true })
+  }
+})
