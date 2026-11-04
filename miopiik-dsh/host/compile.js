@@ -40,8 +40,9 @@ export function parseCompileOutput(text) {
   return { kind, claim, question: question === '' ? null : question, conf, detail }
 }
 
-/** 降级预览：编译失败或超时也要让 Mind 有得看，但不能编造内容。 */
-export function fallbackPreview(job, claim, question, blocking = false) {
+/** 降级预览：编译失败或超时也要让 Mind 有得看；原文进 detail，绝不编造。 */
+export function fallbackPreview(job, claim, question, rawText = null) {
+  const text = rawText === null ? '' : String(rawText).trim()
   return {
     kind: 'preview',
     claim,
@@ -50,8 +51,7 @@ export function fallbackPreview(job, claim, question, blocking = false) {
     conf: 'low',
     refs: [job.id],
     loops: [job.loopId],
-    detail: null,
-    blocking,
+    detail: text === '' ? null : ['## Operator 原始报告', text.slice(0, 20_000)].join('\n'),
   }
 }
 
@@ -79,7 +79,7 @@ function resolveModel(ctx, engine, config) {
  */
 export async function compileResult({ ctx, engine, job, resultText, config, warn }) {
   const text = String(resultText ?? '').trim()
-  if (text === '') return fallbackPreview(job, `O-${job.id} 结束了但没有产出`, '要不要重试？', true)
+  if (text === '') return fallbackPreview(job, `O-${job.id} 结束了但没有产出`, '要不要重试？')
 
   const llm = (() => {
     try {
@@ -90,7 +90,7 @@ export async function compileResult({ ctx, engine, job, resultText, config, warn
   })()
   const model = resolveModel(ctx, engine, config)
   if (llm === undefined || model === undefined) {
-    return fallbackPreview(job, `O-${job.id} 有结果了：${text.slice(0, 30)}…`, '要不要看原始结果？')
+    return fallbackPreview(job, `O-${job.id} 有结果了：${text.slice(0, 30)}…`, '要不要看原始结果？', text)
   }
 
   let output = ''
@@ -118,12 +118,12 @@ export async function compileResult({ ctx, engine, job, resultText, config, warn
     }
   } catch (error) {
     warn?.(`Ink 编译调用失败：${error?.message ?? error}`)
-    return fallbackPreview(job, `O-${job.id} 有结果了：${text.slice(0, 30)}…`, '要不要看原始结果？')
+    return fallbackPreview(job, `O-${job.id} 有结果了：${text.slice(0, 30)}…`, '要不要看原始结果？', text)
   }
 
   const parsed = parseCompileOutput(output)
   if (parsed === null) {
-    return fallbackPreview(job, `O-${job.id} 有结果了：${text.slice(0, 30)}…`, '要不要看原始结果？')
+    return fallbackPreview(job, `O-${job.id} 有结果了：${text.slice(0, 30)}…`, '要不要看原始结果？', text)
   }
 
   if (parsed.kind === 'absorb') {
