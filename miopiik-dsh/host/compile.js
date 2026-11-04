@@ -6,6 +6,12 @@
  * 编译失败不编造：降级为一条带原文指针的 preview，让 Mind 自己判断要不要看。
  */
 
+/** 预览的 claim 是给对话用的：只留契约目标的一小段，绝不搬原文。 */
+function clip(text, max = 26) {
+  const value = String(text ?? '').replace(/\s+/gu, ' ').trim()
+  return value.length > max ? `${value.slice(0, max)}…` : value
+}
+
 const COMPILE_SYSTEM = `You are Ink, the backstage compiler of MiOpIIk.
 You receive the final report of a background Operator, the contract it was given, and Mind's recent statements to the user.
 Compile the result into ONE note for Mind, the conversational agent. Mind never sees the raw report.
@@ -83,7 +89,7 @@ function resolveModel(ctx, engine, config) {
  */
 export async function compileResult({ ctx, engine, job, resultText, config, warn }) {
   const text = String(resultText ?? '').trim()
-  if (text === '') return fallbackPreview(job, `O-${job.id} 结束了但没有产出`, '要不要重试？')
+  if (text === '') return fallbackPreview(job, `「${clip(job.contract?.goal ?? job.label)}」没有产出`, '要不要重试？')
 
   const llm = (() => {
     try {
@@ -94,7 +100,7 @@ export async function compileResult({ ctx, engine, job, resultText, config, warn
   })()
   const model = resolveModel(ctx, engine, config)
   if (llm === undefined || model === undefined) {
-    return fallbackPreview(job, `O-${job.id} 有结果了：${text.slice(0, 30)}…`, '要不要看原始结果？', text)
+    return fallbackPreview(job, `「${clip(job.contract?.goal ?? job.label)}」有结果了`, '要不要看原始结果？', text)
   }
 
   let output = ''
@@ -126,12 +132,12 @@ export async function compileResult({ ctx, engine, job, resultText, config, warn
     }
   } catch (error) {
     warn?.(`Ink 编译调用失败：${error?.message ?? error}`)
-    return fallbackPreview(job, `O-${job.id} 有结果了：${text.slice(0, 30)}…`, '要不要看原始结果？', text)
+    return fallbackPreview(job, `「${clip(job.contract?.goal ?? job.label)}」有结果了`, '要不要看原始结果？', text)
   }
 
   const parsed = parseCompileOutput(output)
   if (parsed === null) {
-    return fallbackPreview(job, `O-${job.id} 有结果了：${text.slice(0, 30)}…`, '要不要看原始结果？', text)
+    return fallbackPreview(job, `「${clip(job.contract?.goal ?? job.label)}」有结果了`, '要不要看原始结果？', text)
   }
 
   if (parsed.kind === 'absorb') {

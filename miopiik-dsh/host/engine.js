@@ -599,11 +599,12 @@ export class Engine {
     await this.deliverNote(
       {
         kind: 'hold',
-        claim: `Operator 问了一个我答不了的问题：${query.slice(0, 50)}`,
+        claim: `后台问了一件事，我手上没有可引用的答案`,
         why: 'no-citation',
         refs: jobRefs,
         conf: 'low',
-        question: `要不要回答：${query.slice(0, 60)}`,
+        question: `要不要现在定一下：${query.slice(0, 60)}`,
+        detail: `Operator 原问题（不直接进对话）：${query}`,
       },
       { blocking: true },
     )
@@ -693,6 +694,32 @@ export class Engine {
     const record = { kind: 'hard-break', day: last.day, detectedDay: today, at: this.now() }
     await this.enqueue(() => appendRecord(this.store, 'briefings', record))
     return record
+  }
+
+  /**
+   * 对话节奏（SPEC §4.5）：只给可见信号，不给阈值、不给建议。
+   * Mind 自己判断现在是不是话题间隙；Ink 不替它决定要不要说。
+   */
+  conversationRhythm() {
+    const humans = this.state.observations.filter(
+      (entry) => entry.kind === 'user' || entry.kind === 'assistant',
+    )
+    if (humans.length < 2) return null
+    const recentUsers = this.state.observations.filter((entry) => entry.kind === 'user').slice(-3)
+    if (recentUsers.length === 0) return null
+
+    const lengths = recentUsers.map((entry) => String(entry.text ?? '').trim().length)
+    const confirming = /^(嗯+|对|是的|可以|好|行|确实|没错|ok|okay)[。！!\s]*$/iu
+    const confirmCount = recentUsers.filter((entry) => confirming.test(String(entry.text ?? '').trim())).length
+    const last = humans[humans.length - 1]
+    const minutes = last === undefined ? null : Math.max(0, Math.round((this.now() - last.at) / 60000))
+
+    const parts = [`最近三条你说的话：${lengths.map((n) => `${n} 字`).join(' / ')}`]
+    if (confirmCount > 0) parts.push(`其中 ${confirmCount} 条是确认型回复`)
+    if (minutes !== null && minutes >= 3) parts.push(`距上一句 ${minutes} 分钟`)
+    const active = this.listLoops().filter((loop) => loop.status === 'active')
+    if (active.length === 0) parts.push('没有活跃开环在推进')
+    return parts.join('；')
   }
 
   status() {
@@ -786,6 +813,9 @@ export class Engine {
         lines.push(`- [${['T0', 'T1', 'T2', 'T3'][entry.tier]}] ${entry.item.claim}${loop}${question}`)
       }
       if (view.hiddenCount > 0) lines.push(`- …还有 ${view.hiddenCount} 条未显示`)
+      // 有东西可展示时才给节奏：Ink 不规定时机，只让 Mind 看得见（SPEC §4.5）。
+      const rhythm = this.conversationRhythm()
+      if (rhythm !== null) lines.push(`节奏：${rhythm}`)
     }
     if (loops.length > 0) {
       lines.push(`悬着的事：活跃 ${loops.length} / 休眠 ${dormant}（上限 ${ACTIVE_LOOP_CAP}）`)
@@ -795,7 +825,6 @@ export class Engine {
       }
       if (loops.length > 5) lines.push(`- …还有 ${loops.length - 5} 条活跃开环`)
     }
-    lines.push('注：开环只由你闭合；Ink 只提示。这张表用户看不到。')
     return lines.slice(0, MAX_L3_LINES).join('\n')
   }
 }

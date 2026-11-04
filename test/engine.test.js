@@ -501,3 +501,41 @@ test('硬断事后折叠：跨天无简报时自动整理盘外素材，并在 L
     await ctx.cleanup()
   }
 })
+
+test('对话节奏：只给可见信号（长度/确认型/停顿/有无活跃开环），不给阈值', async () => {
+  const ctx = await fixture()
+  try {
+    const say = (text) =>
+      ctx.engine.observe({
+        type: 'user/message',
+        data: { source: { kind: 'user' }, content: [{ type: 'text', text }] },
+      })
+    say('我想聊聊 MiOpIIk 的定位问题，顺便看看竞品那边到底怎么写的')
+    say('嗯')
+    say('对')
+    await ctx.engine.queue
+    const rhythm = ctx.engine.conversationRhythm()
+    assert.match(rhythm, /最近三条你说的话/)
+    assert.match(rhythm, /2 条是确认型回复/)
+    assert.match(rhythm, /没有活跃开环在推进/)
+  } finally {
+    await ctx.cleanup()
+  }
+})
+
+test('预览 claim 不泄漏原文：降级时用契约目标，不是 Operator 报告开头', async () => {
+  const ctx = await fixture()
+  try {
+    const { fallbackPreview } = await import('../miopiik-dsh/host/compile.js')
+    const note = fallbackPreview(
+      { id: 'J-9', loopId: 'L-9', contract: { goal: '确认中间层在这个项目里的名字与职责' } },
+      '「确认中间层在这个项目里的名字与职责」有结果了',
+      '要不要看原始结果？',
+      'Ciallo~~\n\n**交付报告（只读，未修改任何文件）**\n\n## 结论……',
+    )
+    assert.doesNotMatch(note.claim, /Ciallo|\*\*交付报告/)
+    assert.match(note.detail, /Operator 原始报告/)
+  } finally {
+    await ctx.cleanup()
+  }
+})
