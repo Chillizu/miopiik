@@ -374,6 +374,7 @@ Mind 说过的每句话也是带 provenance 的 claim。Operator 的结果与旧
 | §4.1 低置信仍可 commit | `ink_commit` 增加 `confidence`，low 直接拒绝 |
 | §5.5 L3 顺序（简报→收件箱→开环） | 已按规格排序 |
 | §6 违反"不做导航栏" | 移除 `sidebar.panellist` / `main` 常驻入口，两个面改为抽屉内切换 |
+| §6 两个面缺数据与干预 | session projection `miopiikBackstage`（Host 计算）wire 到客户端；按钮走 session command `/miopiik loop close` / `fact invalidate`。实测：L-3 由用户从界面关闭（`by:"user"`），`command/run`+`command/done` 留痕，F-1 在「我们一起定的」里显示 |
 
 仍登记为未实现（不静默）：
 
@@ -392,9 +393,9 @@ Mind 说过的每句话也是带 provenance 的 claim。Operator 的结果与旧
 | §5.2 收工/硬断自动检测 | 只能 Mind 手动调 `ink_brief save` |
 | §5.3 简报单屏校验 / 隔夜更新逐条 | 未做 |
 | §5.6 草稿老化、用户成果入账工具 | 未做 |
-| §6 两个面的数据与干预 | 占位空态；root 页面无数据通道 |
+
 | §9 草稿 / 今天的信 产品面 | 未做（词表只兑现 3/5） |
-| §10 验收 1/2/3/5 的运行时验证 | 待端到端实测 |
+| §10 验收 1/2/3/5 的运行时验证 | 部分实测：每轮预览（§10.5）由派发链路验证；隔夜/恢复（1/2/3）待跨天实测 |
 
 ### 11.3 已验证生效（对照实现）
 
@@ -411,4 +412,6 @@ Mind 说过的每句话也是带 provenance 的 claim。Operator 的结果与旧
 - 事实卡写入：`ink_facts add` 实测（F-1 记录本次审计结论）。
 - 客户端：存在感为诚实的「后台」入口；两个面在抽屉内以 tab 切换；全局面板不再出现 MiOpIIk 入口（不做导航栏）。
 - 派发端到端：J-1 由 Operator 完成 → `ctx.llm` 编译 → I-1 预览（T1，带问题）→ L3 展示 → 审计报告采纳（docs/audit-2026-11-04.md）。
-- 单测：39 项通过（纯逻辑 + 引擎回放 + 契约 + 编译解析 + 收件箱三区/展开 + 无损观测 + L3 顺序）。
+- 客户端数据面：session projection `miopiikBackstage` 实测（抽屉列出 L-1/L-3、F-1、在跑任务；存在感在有任务时带数字）。
+- 干预通道：按钮 → session command `/miopiik` → host 同一操作；实测 L-3 从界面划掉（`by:"user"`），会话日志留 `command/run`/`command/done`。
+- 单测：41 项通过（纯逻辑 + 引擎回放 + 契约 + 编译解析 + 收件箱三区/展开 + 无损观测 + L3 顺序 + 干预命令解析）。

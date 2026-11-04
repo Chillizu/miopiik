@@ -87,9 +87,11 @@ window.__ModuleLoader__.load({
 
     function runBackstageCommand(sessionId, line) {
       try {
-        clientCtx.remote.commands.execute(sessionId, line, [])
-      } catch {
-        // 命令失败不该炸掉界面；下一次 projection 刷新会显示真实状态。
+        Promise.resolve(clientCtx.remote.commands.execute(sessionId, line, [])).catch((error) => {
+          console.warn('[miopiik] 干预命令失败', error)
+        })
+      } catch (error) {
+        console.warn('[miopiik] 干预通道不可用', error)
       }
     }
 
@@ -389,7 +391,7 @@ window.__ModuleLoader__.load({
     }
 
     return {
-      inject: ['slots', 'locale'],
+      inject: ['slots', 'locale', 'remote', 'remote.commands'],
       apply(ctx) {
         clientCtx = ctx
         ctx.effect(() => ctx.locale.register(NS, { zh, en }), 'miopiik: dictionaries')
