@@ -39,6 +39,7 @@ export function applyRecord(state, log, record) {
     case 'observations':
       state.observations.push(record)
       state.counters.obs = Math.max(state.counters.obs, record.seq ?? 0)
+      if (record.kind === 'epoch' && Number.isInteger(record.epoch)) state.epoch = record.epoch
       return
     case 'notes':
       state.notes.push(record)

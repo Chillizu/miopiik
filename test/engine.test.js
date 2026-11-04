@@ -248,3 +248,102 @@ test('简报素材：活跃开环、在跑任务、草稿与收件箱', async ()
     await ctx.cleanup()
   }
 })
+
+test('话题 epoch 由 Mind 推进：持久化，且让旧预览变 stale（降一级不删）', async () => {
+  const ctx = await fixture()
+  try {
+    const loop = await ctx.engine.addLoop({ text: '一个悬着的事', type: 'promise' })
+    await ctx.engine.deliverNote({
+      kind: 'preview',
+      claim: '旧话题的结论',
+      why: 'compile:operator-result',
+      refs: [loop.id],
+      loops: [loop.id],
+      question: '要不要看？',
+      conf: 'mid',
+    })
+    assert.equal(ctx.engine.inboxView().previews[0].tier, 1)
+
+    const result = await ctx.engine.advanceEpoch({ note: '换话题了' })
+    assert.equal(result.epoch, 1)
+    assert.equal(ctx.engine.inboxView().previews[0].tier, 2, 'epoch 不匹配降一级')
+
+    const reopened = await openStore(ctx.dir, 'session-1')
+    assert.equal(reopened.state.epoch, 1, 'epoch 跨回放存活')
+    assert.equal(reopened.state.inbox.size, 1, '过期不等于作废')
+  } finally {
+    await ctx.cleanup()
+  }
+})
+
+test('收件箱三区与展开：unread / starred / history，展开能取回 note 的 detail', async () => {
+  const ctx = await fixture()
+  try {
+    const loop = await ctx.engine.addLoop({ text: '一个悬着的事', type: 'promise' })
+    await ctx.engine.deliverNote({
+      kind: 'preview',
+      claim: '审计结论',
+      why: 'compile:operator-result',
+      refs: [loop.id],
+      loops: [loop.id],
+      question: '先修哪个？',
+      conf: 'high',
+      detail: '完整报告正文……'.repeat(100),
+    })
+    const unread = ctx.engine.inboxZone('unread')
+    assert.equal(unread.length, 1)
+    const opened = ctx.engine.openInboxItem(unread[0].id)
+    assert.equal(opened.note.kind, 'preview')
+    assert.ok(opened.note.detail.length > 400, 'detail 不截断到 120 字')
+
+    await ctx.engine.markInbox(unread[0].id, 'star')
+    assert.equal(ctx.engine.inboxZone('starred').length, 1)
+    assert.equal(ctx.engine.inboxZone('unread').length, 0)
+
+    await ctx.engine.markInbox(unread[0].id, 'read')
+    assert.equal(ctx.engine.inboxZone('history').length, 1)
+  } finally {
+    await ctx.cleanup()
+  }
+})
+
+test('无损存储：观测文本不按 4000 字截断', async () => {
+  const ctx = await fixture()
+  try {
+    const long = '很长的用户消息。'.repeat(500) // 3500+ 字
+    ctx.engine.observe({
+      type: 'user/message',
+      data: { source: { kind: 'user' }, content: [{ type: 'text', text: long }] },
+    })
+    await ctx.engine.queue
+    assert.equal(ctx.engine.state.observations[0].text.length, long.length)
+  } finally {
+    await ctx.cleanup()
+  }
+})
+
+test('L3：收件箱预览带结尾问题，顺序为简报→收件箱→开环', async () => {
+  const ctx = await fixture()
+  try {
+    await ctx.engine.saveBriefing({ progress: '推进了一点', next: '想先聊展示' })
+    ctx.advance(DAY)
+    const loop = await ctx.engine.addLoop({ text: '一个悬着的事', type: 'promise' })
+    await ctx.engine.deliverNote({
+      kind: 'preview',
+      claim: '一条结论',
+      why: 'compile:operator-result',
+      refs: [loop.id],
+      loops: [loop.id],
+      question: '要不要看？',
+      conf: 'mid',
+    })
+    const l3 = ctx.engine.l3Text()
+    assert.match(l3, /→ 要不要看？/)
+    const iBrief = l3.indexOf('交接简报')
+    const iInbox = l3.indexOf('收件箱待读')
+    const iLoops = l3.indexOf('悬着的事：活跃')
+    assert.ok(iBrief < iInbox && iInbox < iLoops, `顺序不对：${iBrief}/${iInbox}/${iLoops}`)
+  } finally {
+    await ctx.cleanup()
+  }
+})

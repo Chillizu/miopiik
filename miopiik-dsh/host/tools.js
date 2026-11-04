@@ -1,8 +1,8 @@
 /**
  * Mind 的窄工具面 —— SPEC §1.8 / §3.3 / §4.3。
  *
- * 只有四个工具，全部是「对话级 + 查询/召回」：
- *  ink_status / ink_loops / ink_facts / ink_inbox
+ * 全部是「对话级 + 查询/召回」，长程执行能力不在这里：
+ *  ink_status / ink_loops / ink_facts / ink_inbox / ink_epoch / ink_brief / ink_dispatch / ink_commit
  * 长程执行能力不在这里；Operator 的派发是后续批次的事。
  * 工具只读写本会话的 Ink 账本，不写对话、不直接回复用户。
  * 子 agent（Operator）在 index.js 里被 restrict 掉这组工具。
@@ -155,16 +155,23 @@ export function registerTools(ctx, engines, operator) {
       parameters: {
         type: 'object',
         properties: {
-          action: { type: 'string', enum: ['list', 'read', 'star', 'unstar', 'defer'] },
+          action: { type: 'string', enum: ['list', 'open', 'read', 'star', 'unstar', 'defer'] },
           id: { type: 'string', description: 'Inbox item id such as I-1.' },
           all: { type: 'boolean', description: 'List the whole pending view, not just the top tiers.' },
+          zone: { type: 'string', enum: ['unread', 'history', 'starred'], description: 'Which inbox area to list.' },
         },
         required: ['action'],
         additionalProperties: false,
       },
       async execute(args, exec) {
         const engine = engineFor(exec)
+        if (args.action === 'open') {
+          if (typeof args.id !== 'string') throw new Error('open 需要 id')
+          return engine.openInboxItem(args.id)
+        }
         if (args.action === 'list') {
+          const zone = args.zone ?? 'unread'
+          if (zone !== 'unread') return { zone, items: engine.inboxZone(zone) }
           const view = engine.inboxView({ all: args.all === true })
           return {
             previews: view.previews.map((entry) => ({
@@ -221,11 +228,19 @@ export function registerTools(ctx, engines, operator) {
         properties: {
           title: { type: 'string', description: 'One line naming the change.' },
           summary: { type: 'string', description: 'What the user is accepting, in their terms.' },
+          confidence: {
+            type: 'string',
+            enum: ['low', 'mid', 'high'],
+            description: 'How sure you are it will be accepted. low refuses the gate: keep it in the draft area instead.',
+          },
         },
         required: ['title', 'summary'],
         additionalProperties: false,
       },
       async execute(args, exec) {
+        if (args.confidence === 'low') {
+          throw new Error('低置信不提交：留在草稿区，继续做或丢掉（SPEC §4.1）')
+        }
         const questions = (() => {
           try {
             return ctx.get('userQuestions')
@@ -284,6 +299,26 @@ export function registerTools(ctx, engines, operator) {
           next: args.next,
         })
         return { briefing }
+      },
+    }),
+  )
+  ctx.tools.register(
+    tool({
+      name: 'ink_epoch',
+      description:
+        'Mark that the conversation moved to a new topic epoch. Only Mind judges a topic switch; Ink uses it to mark older inbox previews as stale (they drop one tier, never get deleted).',
+      parameters: {
+        type: 'object',
+        properties: {
+          action: { type: 'string', enum: ['advance'] },
+          note: { type: 'string', description: 'What changed the topic, one line.' },
+        },
+        required: ['action'],
+        additionalProperties: false,
+      },
+      async execute(args, exec) {
+        if (args.action !== 'advance') throw new Error(`未知 action: ${args.action}`)
+        return engineFor(exec).advanceEpoch({ note: args.note ?? null })
       },
     }),
   )

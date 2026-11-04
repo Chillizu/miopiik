@@ -16,7 +16,7 @@ import { makeNote, validateNote } from './notes.js'
 import { activeFacts, makeFact, validateFact } from './facts.js'
 import { appendRecord } from './store.js'
 
-export const INK_TOOL_NAMES = Object.freeze(['ink_status', 'ink_loops', 'ink_facts', 'ink_inbox', 'ink_dispatch', 'ink_commit', 'ink_brief'])
+export const INK_TOOL_NAMES = Object.freeze(['ink_status', 'ink_loops', 'ink_facts', 'ink_inbox', 'ink_dispatch', 'ink_commit', 'ink_brief', 'ink_epoch'])
 
 const MAX_L3_LINES = 14
 
@@ -72,6 +72,11 @@ export class Engine {
         const turn = event.data?.turn ?? this.turn
         this.turn = turn
         this.enqueue(() => this.finishTurn(turn))
+      } else if (type === 'tool/result') {
+        const name = String(event.data?.message?.source?.toolName ?? event.data?.meta?.name ?? 'tool')
+        const text = textOf(event.data?.message?.content).slice(0, 240)
+        const isError = event.data?.message?.isError === true
+        this.enqueue(() => this.recordObservation('tool', `${name}${isError ? ' [error]' : ''}: ${text}`, this.turn))
       } else if (type === 'compaction/summary') {
         this.enqueue(() => this.recordObservation('fold', '叙事被折叠（compaction）', this.turn))
       }
@@ -88,7 +93,8 @@ export class Engine {
       day: dayOf(this.now()),
       turn,
       kind,
-      text: text.length > 4000 ? `${text.slice(0, 4000)}…` : text,
+      epoch: this.state.epoch,
+      text: text.length > 200_000 ? `${text.slice(0, 200_000)}…[truncated]` : text,
     })
     this.state.counters.obs = seq
   }
@@ -241,6 +247,28 @@ export class Engine {
     })
   }
 
+  /** 三区视图：unread（默认待读）/ history（已读、压后台、被合并）/ starred（星标）。 */
+  inboxZone(zone) {
+    const items = [...this.state.inbox.values()]
+    if (zone === 'starred') {
+      return items.filter((item) => item.status === 'starred').sort((a, b) => b.createdAt - a.createdAt)
+    }
+    if (zone === 'history') {
+      return items
+        .filter((item) => item.status === 'read' || item.status === 'deferred' || item.status === 'superseded')
+        .sort((a, b) => b.createdAt - a.createdAt)
+    }
+    return this.inboxView({ all: true }).previews.map((entry) => entry.item)
+  }
+
+  /** 展开一条收件箱条目：从账本取回它的 note（brief + detail）。 */
+  openInboxItem(id) {
+    const item = this.state.inbox.get(id)
+    if (item === undefined) throw new Error(`没有这条收件箱条目: ${id}`)
+    const note = item.noteId === null ? undefined : this.state.notes.find((entry) => entry.id === item.noteId)
+    return { item, note: note ?? null }
+  }
+
   markInbox(id, action) {
     if (!this.state.inbox.has(id)) throw new Error(`没有这条收件箱条目: ${id}`)
     return this.enqueue(() => appendRecord(this.store, 'inbox', { op: action, itemId: id, at: this.now() }))
@@ -337,6 +365,25 @@ export class Engine {
     return record
   }
 
+  /** 话题 epoch 由 Mind 判定（SPEC §4.6）；Ink 只负责记账与过期标记。 */
+  async advanceEpoch({ note = null } = {}) {
+    const next = this.state.epoch + 1
+    const seq = this.state.counters.obs + 1
+    await this.enqueue(() =>
+      appendRecord(this.store, 'observations', {
+        seq,
+        at: this.now(),
+        day: dayOf(this.now()),
+        turn: this.turn,
+        kind: 'epoch',
+        epoch: next,
+        text: note === null ? `话题 epoch → ${next}` : `话题 epoch → ${next}：${String(note).slice(0, 200)}`,
+      }),
+    )
+    this.state.counters.obs = seq
+    return { epoch: next }
+  }
+
   status() {
     const loops = this.listLoops()
     const view = this.inboxView({ all: true })
@@ -383,6 +430,15 @@ export class Engine {
     }
     if (loops.length === 0 && view.previews.length === 0 && lines.length === 0) return ''
     lines.push('## 后台（Ink）')
+    if (view.previews.length > 0) {
+      lines.push(`收件箱待读 ${view.previews.length + view.hiddenCount} 条：`)
+      for (const entry of view.previews) {
+        const loop = entry.item.loopId === null ? '' : `（${entry.item.loopId}）`
+        const question = entry.item.question === null ? '' : ` → ${entry.item.question}`
+        lines.push(`- [${['T0', 'T1', 'T2', 'T3'][entry.tier]}] ${entry.item.claim}${loop}${question}`)
+      }
+      if (view.hiddenCount > 0) lines.push(`- …还有 ${view.hiddenCount} 条未显示`)
+    }
     if (loops.length > 0) {
       lines.push(`悬着的事：活跃 ${loops.length} / 休眠 ${dormant}（上限 ${ACTIVE_LOOP_CAP}）`)
       for (const loop of loops.slice(0, 5)) {
@@ -390,14 +446,6 @@ export class Engine {
         lines.push(`- [${loop.id}] ${loop.text}${condition}`)
       }
       if (loops.length > 5) lines.push(`- …还有 ${loops.length - 5} 条活跃开环`)
-    }
-    if (view.previews.length > 0) {
-      lines.push(`收件箱待读 ${view.previews.length + view.hiddenCount} 条：`)
-      for (const entry of view.previews) {
-        const loop = entry.item.loopId === null ? '' : `（${entry.item.loopId}）`
-        lines.push(`- [${['T0', 'T1', 'T2', 'T3'][entry.tier]}] ${entry.item.claim}${loop}`)
-      }
-      if (view.hiddenCount > 0) lines.push(`- …还有 ${view.hiddenCount} 条未显示`)
     }
     lines.push('注：开环只由你闭合；Ink 只提示。这张表用户看不到。')
     return lines.slice(0, MAX_L3_LINES).join('\n')

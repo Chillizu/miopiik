@@ -146,6 +146,6 @@ export async function compileResult({ ctx, engine, job, resultText, config, warn
     refs: [job.id],
     loops: [job.loopId],
     question: parsed.question ?? '要不要看看结果？',
-    detail: parsed.detail ?? text.slice(0, 4000),
+    detail: [parsed.detail, '', '## Operator 原始报告', text.slice(0, 20_000)].filter(Boolean).join('\n').trim(),
   }
 }

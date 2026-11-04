@@ -1,10 +1,9 @@
 /**
  * miopiik-dsh — Client 半边（Web）。
  *
- * Batch 1：只做「存在感」与「可拉出的窗口」，不做导航栏（SPEC §6）。
- *  - conversation.composer.dock —— 极轻的后台存在感指示
- *  - shell.overlay              —— 「后台在跑」抽屉
- *  - sidebar.panellist + main   —— 「悬着的事」「我们一起定的」两个页面（占位）
+ * 遵守 SPEC §6：不做导航栏；次级视图都从对话里长出来（覆盖层）。
+ *  - conversation.composer.dock —— 极轻的后台存在感（一个点 +「后台」，不谎称状态）
+ *  - shell.overlay              —— 后台抽屉：悬着的事 / 我们一起定的（数据通道待接入，先给空态）
  *
  * 所有可见文案走 Client locale；样式只用 host 主题 token（--dsw-alias-*）。
  */
@@ -15,7 +14,6 @@ window.__ModuleLoader__.load({
     const h = React.createElement
     const NS = 'miopiik'
 
-    // ── 极小的共享状态：指示器与抽屉是同一次渲染里的两个座位 ──────────────
     function createStore(initial) {
       let state = initial
       const listeners = new Set()
@@ -32,7 +30,7 @@ window.__ModuleLoader__.load({
       }
     }
 
-    const overlay = createStore({ open: false })
+    const overlay = createStore({ open: false, tab: 'loops' })
 
     const useStore = React.useSyncExternalStore
       ? (store) => React.useSyncExternalStore(store.subscribe, store.get)
@@ -42,25 +40,21 @@ window.__ModuleLoader__.load({
           return store.get()
         }
 
-    // apply() 里绑定，组件渲染时已可用
     let t = (key) => key
 
     const C = {
       overlay: 'var(--dsw-alias-bg-overlay)',
-      layer1: 'var(--dsw-alias-bg-layer-1)',
-      layer2: 'var(--dsw-alias-bg-layer-2)',
       border: 'var(--dsw-alias-border-l1)',
       borderStrong: 'var(--dsw-alias-border-l2)',
       text: 'var(--dsw-alias-label-primary)',
       muted: 'var(--dsw-alias-label-secondary)',
+      brand: 'var(--dsw-alias-brand-primary)',
       idle: 'var(--dsw-alias-state-idle-primary)',
-      success: 'var(--dsw-alias-state-success-primary)',
     }
 
-    // ── 存在感：极轻的一行，点开抽屉 ─────────────────────────────────────
+    // ── 存在感：不谎称状态，只给一个可点开的入口 ────────────────────────
     function Presence() {
       const state = useStore(overlay)
-      const running = state.count > 0
       return h(
         'button',
         {
@@ -84,19 +78,35 @@ window.__ModuleLoader__.load({
           },
         },
         h('span', {
-          style: {
-            width: 6,
-            height: 6,
-            borderRadius: '50%',
-            background: running ? C.success : C.idle,
-            flex: 'none',
-          },
+          style: { width: 6, height: 6, borderRadius: '50%', background: C.idle, flex: 'none' },
         }),
-        h('span', null, running ? `${t('presence.running')} ${state.count}` : t('presence.idle')),
+        h('span', null, t('presence.label')),
       )
     }
 
-    // ── 抽屉：后台在跑什么 ──────────────────────────────────────────────
+    // ── 后台抽屉：两个面，从对话里长出来 ─────────────────────────────────
+    function DrawerTab({ id, label, active, onSelect }) {
+      return h(
+        'button',
+        {
+          type: 'button',
+          role: 'tab',
+          'aria-selected': active ? 'true' : 'false',
+          onClick: onSelect,
+          style: {
+            padding: '5px 10px',
+            borderRadius: 8,
+            border: `1px solid ${active ? C.borderStrong : C.border}`,
+            background: 'transparent',
+            color: active ? C.text : C.muted,
+            cursor: 'pointer',
+            fontSize: 12,
+          },
+        },
+        label,
+      )
+    }
+
     function Drawer() {
       const state = useStore(overlay)
       React.useEffect(() => {
@@ -109,6 +119,7 @@ window.__ModuleLoader__.load({
       }, [state.open])
       if (!state.open) return null
       const close = () => overlay.set({ ...overlay.get(), open: false })
+      const tab = state.tab === 'facts' ? 'facts' : 'loops'
       return h(
         'div',
         {
@@ -116,12 +127,7 @@ window.__ModuleLoader__.load({
           'aria-modal': 'true',
           'aria-label': t('drawer.title'),
           onClick: close,
-          style: {
-            position: 'fixed',
-            inset: 0,
-            zIndex: 60,
-            background: 'rgba(0, 0, 0, 0.32)',
-          },
+          style: { position: 'fixed', inset: 0, zIndex: 60, background: 'rgba(0, 0, 0, 0.32)' },
         },
         h(
           'div',
@@ -172,6 +178,28 @@ window.__ModuleLoader__.load({
           ),
           h(
             'div',
+            { role: 'tablist', style: { display: 'flex', gap: 8 } },
+            h(DrawerTab, {
+              id: 'loops',
+              label: t('panel.loops'),
+              active: tab === 'loops',
+              onSelect: () => overlay.set({ ...overlay.get(), tab: 'loops' }),
+            }),
+            h(DrawerTab, {
+              id: 'facts',
+              label: t('panel.facts'),
+              active: tab === 'facts',
+              onSelect: () => overlay.set({ ...overlay.get(), tab: 'facts' }),
+            }),
+          ),
+          h(
+            'div',
+            { style: { display: 'flex', flexDirection: 'column', gap: 6 } },
+            h('strong', { style: { fontSize: 13 } }, t(`${tab}.title`)),
+            h('div', { style: { fontSize: 12, color: C.muted, lineHeight: '18px' } }, t(`${tab}.subtitle`)),
+          ),
+          h(
+            'div',
             {
               style: {
                 border: `1px dashed ${C.border}`,
@@ -181,92 +209,19 @@ window.__ModuleLoader__.load({
                 lineHeight: '20px',
               },
             },
-            h('div', null, t('drawer.empty')),
-            h('div', { style: { marginTop: 6, fontSize: 12 } }, t('drawer.hint')),
+            t(`${tab}.empty`),
           ),
+          h('div', { style: { fontSize: 11, color: C.muted, lineHeight: '17px' } }, t('drawer.hint')),
         ),
       )
     }
 
-    // ── 两个页面（占位；Batch 5 接真实数据与干预） ──────────────────────
-    function page(titleKey, subtitleKey, emptyKey) {
-      return function Page() {
-        return h(
-          'div',
-          {
-            style: {
-              maxWidth: 720,
-              margin: '0 auto',
-              padding: '32px 28px 48px',
-              color: C.text,
-            },
-          },
-          h('h1', { style: { margin: 0, fontSize: 18, fontWeight: 600 } }, t(titleKey)),
-          h('p', { style: { margin: '6px 0 0', fontSize: 13, color: C.muted } }, t(subtitleKey)),
-          h(
-            'div',
-            {
-              style: {
-                marginTop: 24,
-                border: `1px dashed ${C.border}`,
-                borderRadius: 10,
-                padding: '22px 18px',
-                color: C.muted,
-                fontSize: 13,
-              },
-            },
-            t(emptyKey),
-          ),
-        )
-      }
-    }
-
-    const LoopsPage = page('loops.title', 'loops.subtitle', 'loops.empty')
-    const FactsPage = page('facts.title', 'facts.subtitle', 'facts.empty')
-
-    // ── 面板图标：鱼骨上的环 / 一颗墨点 ────────────────────────────────
-    function LoopIcon() {
-      return h(
-        'svg',
-        { viewBox: '0 0 20 20', width: 18, height: 18, fill: 'none', 'aria-hidden': 'true' },
-        h('path', {
-          d: 'M10 3.2a6.8 6.8 0 1 1-6.6 8.4',
-          stroke: 'currentColor',
-          strokeWidth: 1.8,
-          strokeLinecap: 'round',
-        }),
-        h('circle', { cx: 3.8, cy: 11.6, r: 1.6, fill: 'currentColor' }),
-      )
-    }
-
-    function FactIcon() {
-      return h(
-        'svg',
-        { viewBox: '0 0 20 20', width: 18, height: 18, fill: 'none', 'aria-hidden': 'true' },
-        h('path', {
-          d: 'M5 2.8h6.4L15 6.4v10.8H5z',
-          stroke: 'currentColor',
-          strokeWidth: 1.6,
-          strokeLinejoin: 'round',
-        }),
-        h('path', {
-          d: 'M7.2 11.2l1.9 1.9 3.7-3.9',
-          stroke: 'currentColor',
-          strokeWidth: 1.6,
-          strokeLinecap: 'round',
-          strokeLinejoin: 'round',
-        }),
-      )
-    }
-
     const zh = {
-      'presence.idle': '后台安静',
-      'presence.running': '后台在跑',
-      'presence.title': '看一眼后台',
-      'drawer.title': '后台在跑',
-      'drawer.empty': '现在没有在跑的东西。',
-      'drawer.hint': '有任务时，这里显示状态和叫停入口。',
+      'presence.label': '后台',
+      'presence.title': '打开后台',
+      'drawer.title': '后台',
       'drawer.close': '关闭',
+      'drawer.hint': '这里只放你让 Mind 去看的东西；任务细节不会打断对话。',
       'panel.loops': '悬着的事',
       'panel.facts': '我们一起定的',
       'loops.title': '悬着的事',
@@ -278,13 +233,11 @@ window.__ModuleLoader__.load({
     }
 
     const en = {
-      'presence.idle': 'Backstage quiet',
-      'presence.running': 'Backstage',
-      'presence.title': 'Look at the backstage',
+      'presence.label': 'Backstage',
+      'presence.title': 'Open the backstage',
       'drawer.title': 'Backstage',
-      'drawer.empty': 'Nothing is running right now.',
-      'drawer.hint': 'When something runs, its state and a stop control appear here.',
       'drawer.close': 'Close',
+      'drawer.hint': 'Only what you asked Mind to look at lives here; task details never interrupt the conversation.',
       'panel.loops': 'Open threads',
       'panel.facts': 'What we settled',
       'loops.title': 'Open threads',
@@ -307,41 +260,8 @@ window.__ModuleLoader__.load({
             Presence,
           ),
         )
-
         ctx.slots.inject('shell.overlay', () =>
           ctx.slots.register({ name: 'shell.overlay', id: 'miopiik-drawer', locale: NS }, Drawer),
-        )
-
-        ctx.slots.inject('main', () =>
-          ctx.slots.register({ name: 'main', key: 'miopiik-loops', locale: NS }, LoopsPage),
-        )
-        ctx.slots.inject('main', () =>
-          ctx.slots.register({ name: 'main', key: 'miopiik-facts', locale: NS }, FactsPage),
-        )
-
-        ctx.slots.inject('sidebar.panellist', () =>
-          ctx.slots.register(
-            {
-              name: 'sidebar.panellist',
-              id: 'miopiik-loops',
-              order: 20,
-              locale: NS,
-              label: () => t('panel.loops'),
-            },
-            LoopIcon,
-          ),
-        )
-        ctx.slots.inject('sidebar.panellist', () =>
-          ctx.slots.register(
-            {
-              name: 'sidebar.panellist',
-              id: 'miopiik-facts',
-              order: 21,
-              locale: NS,
-              label: () => t('panel.facts'),
-            },
-            FactIcon,
-          ),
         )
       },
     }
