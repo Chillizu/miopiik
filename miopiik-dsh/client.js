@@ -270,6 +270,20 @@ window.__ModuleLoader__.load({
       marks.push(h('line', { key: 'spine-r', x1: rightX, y1: padTop - 8, x2: rightX, y2: H - 22, stroke: C.brand, strokeWidth: 2.5, strokeLinecap: 'round' }))
       marks.push(h('text', { key: 'lbl-l', x: leftX - 40, y: padTop - 12, fontSize: 10, fill: C.muted }, '对话'))
       marks.push(h('text', { key: 'lbl-r', x: rightX + 8, y: padTop - 12, fontSize: 10, fill: C.muted }, '后台'))
+      // 方向：时间向下。两条脊各带一个向下箭头，比文字解释直观。
+      const arrow = (x, key) =>
+        h('path', {
+          key,
+          d: `M ${x - 4},${H - 26} L ${x},${H - 18} L ${x + 4},${H - 26}`,
+          fill: 'none',
+          stroke: C.brand,
+          strokeWidth: 2,
+          strokeLinecap: 'round',
+          strokeLinejoin: 'round',
+        })
+      marks.push(arrow(leftX, 'arr-l'))
+      marks.push(arrow(rightX, 'arr-r'))
+      marks.push(h('text', { key: 'time', x: (leftX + rightX) / 2, y: padTop - 12, fontSize: 10, fill: C.muted, textAnchor: 'middle' }, '时间 ↓'))
 
       const stateColor = (state) => {
         if (state === 'running') return C.brand
@@ -522,12 +536,8 @@ window.__ModuleLoader__.load({
       const [tab, setTab] = React.useState('graph')
       const tabs = [
         ['graph', t('tab.graph')],
-        ['loops', t('tab.loops')],
-        ['facts', t('tab.facts')],
-        ['running', t('tab.running')],
-        ['drafts', t('tab.drafts')],
-        ['letter', t('tab.letter')],
-        ['audit', t('tab.audit')],
+        ['list', t('tab.list')],
+        ['stream', t('tab.stream')],
       ]
       return h(
         'div',
@@ -575,18 +585,62 @@ window.__ModuleLoader__.load({
           { style: { flex: '1 1 auto', minHeight: 0, overflow: 'auto', padding: tab === 'graph' ? 0 : '18px 22px' } },
           tab === 'graph'
             ? h(FishboneView, props)
-            : tab === 'loops'
-              ? h(LoopsPane, { snapshot, sessionId })
-              : tab === 'facts'
-                ? h(FactsPane, { snapshot, sessionId })
-                : tab === 'running'
-                  ? h(RunningPane, { snapshot })
-                  : tab === 'drafts'
-                    ? h(DraftsPane, { snapshot })
-                    : tab === 'letter'
-                      ? h(LetterPane, { snapshot })
-                      : h(AuditPane, { snapshot }),
+            : tab === 'list'
+              ? h(ListPane, { snapshot, sessionId })
+              : h(StreamPane, { snapshot }),
         ),
+      )
+    }
+
+    function Section({ title, children }) {
+      return h(
+        'section',
+        { style: { display: 'flex', flexDirection: 'column', gap: 8, paddingBottom: 18 } },
+        h('div', { style: { fontSize: 12, fontWeight: 600, color: C.muted, letterSpacing: 0.2 } }, title),
+        children,
+      )
+    }
+
+    function ListPane({ snapshot, sessionId }) {
+      return h(
+        'div',
+        { style: { display: 'flex', flexDirection: 'column' } },
+        h(Section, { title: t('tab.loops') }, h(LoopsPane, { snapshot, sessionId })),
+        h(Section, { title: t('tab.facts') }, h(FactsPane, { snapshot, sessionId })),
+        h(Section, { title: t('tab.running') }, h(RunningPane, { snapshot })),
+        h(Section, { title: t('tab.drafts') }, h(DraftsPane, { snapshot })),
+        h(Section, { title: t('tab.letter') }, h(LetterPane, { snapshot })),
+      )
+    }
+
+    /** 流水页：后台实际做过什么（按时间倒序）。这就是「手动看后台全貌」的入口。 */
+    function StreamPane({ snapshot }) {
+      const audit = snapshot?.audit
+      if (audit === undefined) return h('div', { style: styles.empty }, t('stream.offline'))
+      const notes = audit.notes ?? []
+      const obs = audit.observations ?? {}
+      return h(
+        'div',
+        { style: { display: 'flex', flexDirection: 'column', gap: 10 } },
+        h(
+          'div',
+          { style: { display: 'flex', gap: 18, fontSize: 11, color: C.muted } },
+          h('span', null, `观测 ${obs.user ?? 0} 条用户 / ${obs.assistant ?? 0} 条回复 / ${obs.tool ?? 0} 条工具`),
+          h('span', null, `决定 ${notes.length} 条`),
+        ),
+        notes.length === 0
+          ? h('div', { style: styles.empty }, t('stream.empty'))
+          : notes.map((note) =>
+              h(
+                'div',
+                { key: note.id, style: { display: 'flex', gap: 10, alignItems: 'baseline', padding: '6px 0', borderBottom: `0.5px solid ${C.border}` } },
+                h('span', { style: { flex: 'none', width: 88, fontSize: 11, color: C.muted, fontVariantNumeric: 'tabular-nums' } },
+                  new Date(note.at).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })),
+                h('span', { style: { flex: 'none', width: 64, fontSize: 11, color: C.brand } }, note.kind),
+                h('span', { style: { flex: '1 1 auto', minWidth: 0, fontSize: 12, color: C.text } }, note.claim),
+                note.branch ? h('span', { style: { flex: 'none', fontSize: 11, color: C.muted } }, note.branch) : null,
+              ),
+            ),
       )
     }
 
@@ -855,6 +909,8 @@ window.__ModuleLoader__.load({
       'tab.letter': '交接记录',
       'view.miopiik': 'MiOpIIk',
       'tab.graph': '鱼骨',
+      'tab.list': '清单',
+      'tab.stream': '流水',
       'tab.audit': '审计',
       'graph.title': '鱼骨图',
       'graph.empty': '还没有分支。',
@@ -867,6 +923,8 @@ window.__ModuleLoader__.load({
       'graph.merged': '汇回',
       'graph.demoOn': '示例数据',
       'graph.demoOff': '看示例',
+      'stream.empty': '后台还没有做过任何决定。',
+      'stream.offline': '该会话的后台尚未连接。',
       'count.loops': '未结事项',
       'count.facts': '已定结论',
       'count.running': '运行中',
@@ -911,6 +969,8 @@ window.__ModuleLoader__.load({
 
     const en = {
       'tab.graph': 'Fishbone',
+      'tab.list': 'List',
+      'tab.stream': 'Stream',
       'presence.label': 'Backstage',
       'presence.title': 'Open the backstage panel',
       'drawer.title': 'Backstage',
@@ -923,6 +983,8 @@ window.__ModuleLoader__.load({
       'tab.letter': 'Handoff record',
       'view.miopiik': 'MiOpIIk',
       'tab.graph': '鱼骨',
+      'tab.list': '清单',
+      'tab.stream': '流水',
       'tab.audit': 'Audit',
       'graph.title': 'Fishbone graph',
       'graph.empty': 'No branches yet.',
@@ -935,6 +997,8 @@ window.__ModuleLoader__.load({
       'graph.merged': 'Merged',
       'graph.demoOn': 'Demo data',
       'graph.demoOff': 'Show demo',
+      'stream.empty': 'The backstage has not made any decision yet.',
+      'stream.offline': 'The backstage for this session is not connected yet.',
       'count.loops': 'Open',
       'count.facts': 'Facts',
       'count.running': 'Running',

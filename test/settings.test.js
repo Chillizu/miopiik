@@ -74,7 +74,11 @@ test('鱼骨主视图：注册在会话视图、按事件画、带悬停与详�
     'graph?.events',
     'setHover',
     'setSelected',
-    'tab.audit',
+    'tab.list',
+    'tab.stream',
+    'function StreamPane(',
+    'function ListPane(',
+    'function Section(',
   ]) {
     assert.ok(clientSource.includes(needle), `client.js 缺少：${needle}`)
   }

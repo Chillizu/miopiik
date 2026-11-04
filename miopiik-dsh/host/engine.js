@@ -648,10 +648,17 @@ export class Engine {
           })),
       },
       audit: {
+        // 后台流水：让用户能手动看到「后台到底做了什么」，而不只是结论。
         notes: this.state.notes
-          .slice(-8)
+          .slice(-40)
           .reverse()
-          .map((note) => ({ id: note.id, kind: note.kind, claim: note.claim })),
+          .map((note) => ({ id: note.id, kind: note.kind, claim: note.claim, at: note.at, why: note.why, branch: note.branch ?? null, loops: note.loops ?? [] })),
+        briefings: this.state.briefings.slice(-6).reverse().map((record) => ({ kind: record.kind ?? 'briefing', day: record.day, at: record.at })),
+        observations: {
+          user: this.state.observations.filter((entry) => entry.kind === 'user').length,
+          assistant: this.state.observations.filter((entry) => entry.kind === 'assistant').length,
+          tool: this.state.observations.filter((entry) => entry.kind === 'tool').length,
+        },
       },
     }
   }
