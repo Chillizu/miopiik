@@ -7,7 +7,7 @@
  * 可肉眼审计的 JSONL 文件。语义不变：同样 append-only、同样可回放。
  */
 
-import { mkdir, readFile, appendFile, rename, stat } from 'node:fs/promises'
+import { mkdir, readFile, appendFile, rename, stat, unlink } from 'node:fs/promises'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 
@@ -238,7 +238,7 @@ export function sharedFactsPath(workspaceRoot) {
 }
 
 /** 旧布局迁移：以前所有会话写在根目录（少了 sessionId）。把属于本会话的那批搬进来。 */
-const LEGACY_LOGS = ['observations', 'loops', 'notes', 'inbox', 'drafts', 'cases', 'branches', 'jobs', 'briefings', 'folds']
+const LEGACY_LOGS = ['observations', 'loops', 'notes', 'inbox', 'drafts', 'cases', 'branches', 'jobs', 'briefings', 'folds', 'details']
 
 async function exists(path) {
   try {
@@ -272,6 +272,7 @@ async function migrateLegacyLayout(sessionDir, workspaceRoot) {
     if (await exists(sharedPath)) {
       const extra = await readFile(legacyFacts, 'utf8')
       await appendFile(sharedPath, extra, 'utf8')
+      await unlink(legacyFacts).catch(() => undefined)
     } else {
       await rename(legacyFacts, sharedPath)
     }
