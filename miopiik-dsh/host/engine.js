@@ -384,6 +384,41 @@ export class Engine {
     return { epoch: next }
   }
 
+  /** 给客户端的后台快照（session projection 的 wire view 用）。只放指针与短文本。 */
+  backstageSnapshot() {
+    const loops = this.listLoops()
+    const facts = this.listFacts()
+    const view = this.inboxView({ all: false })
+    const running = [...this.state.jobs.values()].filter((job) => job.state === 'running')
+    return {
+      epoch: this.state.epoch,
+      day: dayOf(this.now()),
+      loops: {
+        active: loops
+          .filter((loop) => loop.status === 'active')
+          .slice(0, 8)
+          .map((loop) => ({ id: loop.id, text: loop.text, type: loop.type })),
+        activeCount: loops.filter((loop) => loop.status === 'active').length,
+        dormant: loops.filter((loop) => loop.status === 'dormant').length,
+        closed: loops.filter((loop) => loop.status === 'closed' || loop.status === 'dropped').length,
+      },
+      facts: {
+        active: facts.length,
+        items: facts.slice(0, 8).map((fact) => ({ id: fact.id, claim: fact.claim, conf: fact.conf, source: fact.source })),
+      },
+      inbox: {
+        pending: view.previews.length + view.hiddenCount,
+        previews: view.previews.map((entry) => ({
+          id: entry.item.id,
+          tier: ['T0', 'T1', 'T2', 'T3'][entry.tier],
+          claim: entry.item.claim,
+          question: entry.item.question,
+        })),
+      },
+      jobs: { running: running.length, items: running.slice(0, 5).map((job) => ({ id: job.id, label: job.label })) },
+    }
+  }
+
   status() {
     const loops = this.listLoops()
     const view = this.inboxView({ all: true })

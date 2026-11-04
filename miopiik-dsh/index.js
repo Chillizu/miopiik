@@ -18,6 +18,7 @@ import { Engine, INK_TOOL_NAMES } from './host/engine.js'
 import { openStore } from './host/store.js'
 import { registerPrompt } from './host/prompt.js'
 import { createOperator } from './host/operator.js'
+import { registerBackstageCommand } from './host/commands.js'
 import { registerTools } from './host/tools.js'
 
 /** Host 依赖：工具注册是必须的；其余通过 ctx.get 取，缺了也不让插件装不上。 */
@@ -111,6 +112,48 @@ export function apply(ctx, config) {
     const engine = engines.get(String(session.id))
     if (engine !== undefined) engine.observe(event)
   })
+
+  // 客户端数据面：session projection（Host 计算，wire 到浏览器；不经过模型）
+  const registerProjection = () => {
+    const projections = (() => {
+      try {
+        return ctx.get('sessionProjections')
+      } catch {
+        return undefined
+      }
+    })()
+    if (projections === undefined) return
+    ctx.effect(() =>
+      projections.register({
+        key: 'miopiikBackstage',
+        stateVersion: 1,
+        stateSchema: { parse: (value) => value },
+        init: (header) => ({ sessionId: String(header?.id ?? header?.sessionId ?? ''), rev: 0 }),
+        apply: (state, event) => {
+          const type = event?.type
+          if (
+            type === 'turn/end' ||
+            type === 'tool/result' ||
+            type === 'command/done' ||
+            type === 'agent/inbox/spliced'
+          ) {
+            return { ...state, rev: state.rev + 1 }
+          }
+          return state
+        },
+        wire: {
+          viewSchema: { parse: (value) => value },
+          view: (state) => {
+            const engine = engines.get(String(state.sessionId))
+            const snapshot = engine?.backstageSnapshot?.()
+            return snapshot === undefined ? { empty: true } : snapshot
+          },
+        },
+      }),
+    )
+  }
+  registerProjection()
+  registerBackstageCommand(ctx, engines)
 
   const operator = createOperator({ ctx, engines, config, warn })
   registerTools(ctx, engines, operator)
