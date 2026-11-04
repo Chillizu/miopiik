@@ -435,7 +435,16 @@ window.__ModuleLoader__.load({
           ),
           h(
             'div',
-            { style: { flex: '1 1 auto', minHeight: 0, overflow: 'auto', padding: '0 20px 28px' } },
+            {
+              style: {
+                flex: '1 1 auto',
+                minHeight: 0,
+                // 视图容器的高度取决于外层，给一个视口上限才能真的滚起来
+                maxHeight: 'calc(100vh - 250px)',
+                overflow: 'auto',
+                padding: '0 20px 28px',
+              },
+            },
             h(
               'div',
               { style: { position: 'relative', width: W } },
@@ -596,7 +605,7 @@ window.__ModuleLoader__.load({
       ]
       return h(
         'div',
-        { style: { display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0, background: C.base, color: C.text } },
+        { style: { display: 'flex', flexDirection: 'column', height: '100%', maxHeight: 'calc(100vh - 120px)', minHeight: 0, background: C.base, color: C.text } },
         h(
           'div',
           {
