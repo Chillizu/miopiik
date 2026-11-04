@@ -544,35 +544,33 @@ export function registerTools(ctx, engines, operator, services = {}) {
           case 'approve': {
             const id = args.id ?? engine.pendingFold()?.id
             if (typeof id !== 'string') throw new Error('没有待验收的提案')
-            // 原子替换交给 DSH 自己的 /compact（命令注册表是跨 scope 可见的入口）：
-            // 插件根上下文看不到被 isolate 的 compaction 服务，但可以执行这条命令。
+            // 先前试过 ctx.get / agent.ctx.get / commands.execute，都拿不到被 isolate 的
+            // compaction。现在试 preset 注册表的 serviceFor：它专门用来「为某个 agent 解析服务」。
+            const presetService = (() => {
+              try {
+                const registry = ctx.get('agentPresets')
+                return registry?.serviceFor?.(exec.agent, 'compaction') ?? null
+              } catch {
+                return null
+              }
+            })()
             return engine.settleFold(id, {
               approve: true,
               archive: args.archive ?? null,
-              // settleFold 通过这个回调做替换，具体机制留在引擎外，便于测试。
               replace: async (agent) => {
-                const commands = (() => {
-                  try {
-                    return ctx.get('commands')
-                  } catch {
-                    return undefined
-                  }
-                })()
-                if (commands === undefined || agent === undefined) return { applied: false, reason: 'no-command-registry' }
+                if (presetService === null || typeof presetService.compactRegion !== 'function') {
+                  return { applied: false, reason: 'no-compaction-service' }
+                }
+                const nodes = agent?.session?.surface?.nodes ?? []
+                if (nodes.length < 2) return { applied: false, reason: 'surface-too-short' }
                 try {
-                  const result = await commands.execute(agent, '/compact', [], AbortSignal.timeout(180_000))
-                  const outcome = result?.result ?? result
-                  if (outcome?.kind === 'success') {
-                    return { applied: true, seq: outcome.sourceEventSeq ?? null }
-                  }
-                  const shape = JSON.stringify({
-                    resultKind: outcome?.kind ?? null,
-                    text: outcome?.text ?? null,
-                    keys: outcome === null || outcome === undefined ? null : Object.keys(outcome).slice(0, 6),
+                  const result = await presetService.compactRegion(nodes[0], nodes[nodes.length - 1], {
+                    session: agent.session,
+                    options: agent.options ?? {},
                   })
-                  return { applied: false, reason: `command:${shape}` }
+                  return { applied: true, seq: Number(result?.sourceEventSeq ?? result?.seq ?? 0) || null }
                 } catch (error) {
-                  return { applied: false, reason: `command-threw:${String(error?.message ?? error).slice(0, 80)}` }
+                  return { applied: false, reason: `compaction:${String(error?.message ?? error).slice(0, 90)}` }
                 }
               },
             })

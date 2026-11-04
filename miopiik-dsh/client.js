@@ -195,8 +195,9 @@ window.__ModuleLoader__.load({
       const padTop = 26
       const rowGap = 30
       const leftX = 96
-      const W = Math.max(560, Math.round((avail || 620) - 48))
-      const rightX = Math.max(360, W - 190)
+      // 宽屏别把两条脊拉太远：上限 780，居中。
+      const W = Math.min(780, Math.max(560, Math.round((avail || 620) - 48)))
+      const rightX = Math.max(360, W - 210)
 
       const timeline = [
         ...turns.map((turn) => ({ kind: 'turn', at: turn.at ?? 0, turn })),
@@ -377,7 +378,7 @@ window.__ModuleLoader__.load({
             },
             h(
               'div',
-              { style: { position: 'relative', width: '100%' } },
+              { style: { position: 'relative', width: '100%', maxWidth: W, margin: '0 auto' } },
               h('svg', { viewBox: `0 0 ${W} ${H}`, width: W, height: H, role: 'img', 'aria-label': t('graph.title'), style: { display: 'block' } }, ...marks),
               hovered !== null
                 ? h(
