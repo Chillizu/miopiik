@@ -560,9 +560,13 @@ export function registerTools(ctx, engines, operator, services = {}) {
             }
             // 回合中间不能切：compactRegion 要求边界是完整回合。排到下一个 turn/end 再替换。
             const agent = exec.agent
+            const targetSession = agent?.session
             let done = false
-            const off = ctx.on('turn/end', async () => {
+            // turn/end 是**会话事件**，不是 Cordis 事件；必须从 session/event 里筛。
+            const off = ctx.on('session/event', async (session, event) => {
               if (done) return
+              if (event?.type !== 'turn/end') return
+              if (targetSession !== undefined && session?.id !== targetSession.id) return
               done = true
               try {
                 off?.()
@@ -571,7 +575,10 @@ export function registerTools(ctx, engines, operator, services = {}) {
               }
               try {
                 const nodes = agent?.session?.surface?.nodes ?? []
-                if (nodes.length < 2) return
+                if (nodes.length < 2) {
+                  await engine.markFoldReplaced(id, null)
+                  return
+                }
                 const result = await compaction.compactRegion(nodes[0], nodes[nodes.length - 1], {
                   session: agent.session,
                   options: agent.options ?? {},
@@ -579,6 +586,11 @@ export function registerTools(ctx, engines, operator, services = {}) {
                 const seq = Number(result?.sourceEventSeq ?? result?.seq ?? 0) || null
                 await engine.markFoldReplaced(id, seq)
               } catch (error) {
+                try {
+                  ctx.logger?.('miopiik-dsh')?.warn?.(`折叠替换失败：${String(error?.message ?? error).slice(0, 120)}`)
+                } catch {
+                  /* 日志不可用 */
+                }
                 await engine.markFoldReplaced(id, null)
               }
             })
