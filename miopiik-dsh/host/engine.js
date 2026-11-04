@@ -687,17 +687,51 @@ export class Engine {
           })),
       },
       audit: {
-        // 后台流水：让用户能手动看到「后台到底做了什么」，而不只是结论。
+        // 后台流水：完整模式要看得到中间层真正写了什么，不只是结论。
         notes: this.state.notes
           .slice(-40)
           .reverse()
-          .map((note) => ({ id: note.id, kind: note.kind, claim: note.claim, at: note.at, why: note.why, branch: note.branch ?? null, loops: note.loops ?? [] })),
+          .map((note) => ({
+            id: note.id,
+            kind: note.kind,
+            claim: note.claim,
+            at: note.at,
+            why: note.why ?? null,
+            branch: note.branch ?? null,
+            loops: note.loops ?? [],
+            refs: note.refs ?? [],
+            question: note.question ?? null,
+            conf: note.conf ?? null,
+            visibleToUser: note.visibleToUser === true,
+            detail: this.fullDetail(note),
+          })),
         briefings: this.state.briefings.slice(-6).reverse().map((record) => ({ kind: record.kind ?? 'briefing', day: record.day, at: record.at })),
         observations: {
           user: this.state.observations.filter((entry) => entry.kind === 'user').length,
           assistant: this.state.observations.filter((entry) => entry.kind === 'assistant').length,
           tool: this.state.observations.filter((entry) => entry.kind === 'tool').length,
+          // 完整模式：中间层看到的对话原文（截断到 600 字，够读，不至于把投影撑爆）。
+          recent: this.state.observations
+            .filter((entry) => entry.kind === 'user' || entry.kind === 'assistant')
+            .slice(-24)
+            .reverse()
+            .map((entry) => ({ kind: entry.kind, at: entry.at ?? 0, turn: entry.turn ?? null, text: String(entry.text ?? '').slice(0, 600) })),
         },
+        // 执行层（Operator）：契约、派出去的完整提示、以及回来的结果。
+        jobs: [...this.state.jobs.values()]
+          .slice(-10)
+          .reverse()
+          .map((job) => ({
+            id: job.id,
+            label: job.label ?? job.id,
+            state: job.state,
+            branchId: job.branchId ?? null,
+            startedAt: job.startedAt ?? null,
+            endedAt: job.endedAt ?? null,
+            stopReason: job.stopReason ?? null,
+            childId: job.childId ?? null,
+            contract: job.contract ?? null,
+          })),
       },
     }
   }
@@ -1225,7 +1259,17 @@ export class Engine {
 
   // ── 念旧内容：详情仓（SPEC §2.2） ──────────────────────────────────
 
-  /** 把一份长内容存进详情仓，返回 hash 与索引记录。 */
+    /** 完整模式用：详情仓有指针就读回全文，否则用内联。 */
+  fullDetail(note) {
+    if (note === undefined || note === null) return null
+    if (typeof note.detailRef === 'string' && note.detailRef !== '') {
+      const entry = this.state.details.get(note.detailRef)
+      if (entry !== undefined && typeof entry.text === 'string') return entry.text.slice(0, 4000)
+    }
+    return typeof note.detail === 'string' ? note.detail.slice(0, 4000) : null
+  }
+
+/** 把一份长内容存进详情仓，返回 hash 与索引记录。 */
   async storeDetail(input) {
     const entry = await putDetail(this.stateDir, {
       ...input,

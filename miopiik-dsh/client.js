@@ -755,11 +755,64 @@ window.__ModuleLoader__.load({
       )
     }
 
+    function ObservedSection({ audit }) {
+      const recent = audit?.observations?.recent ?? []
+      if (recent.length === 0) return null
+      return h(
+        'div',
+        { style: { display: 'flex', flexDirection: 'column', gap: 6, marginTop: 4 } },
+        h('div', { style: { fontSize: 12, fontWeight: 600, color: C.muted } }, t('stream.observedTitle')),
+        ...recent.map((entry, index) =>
+          h(
+            'div',
+            { key: `${entry.turn}-${index}`, style: { display: 'flex', gap: 8, alignItems: 'baseline' } },
+            h('span', { style: { flex: 'none', width: 52, fontSize: 11, color: C.brand } }, entry.kind === 'user' ? '用户' : '助手'),
+            h('span', { style: { flex: 'none', width: 46, fontSize: 11, color: C.muted } }, entry.turn === null ? '' : `#${entry.turn}`),
+            h('span', { style: { flex: '1 1 auto', minWidth: 0, fontSize: 11, color: C.text, whiteSpace: 'pre-wrap', wordBreak: 'break-word' } }, entry.text),
+          ),
+        ),
+      )
+    }
+
+    function ExecSection({ audit }) {
+      const jobs = audit?.jobs ?? []
+      return h(
+        'div',
+        { style: { display: 'flex', flexDirection: 'column', gap: 8, marginTop: 4 } },
+        h('div', { style: { fontSize: 12, fontWeight: 600, color: C.muted } }, t('stream.execTitle')),
+        jobs.length === 0
+          ? h('div', { style: styles.empty }, t('stream.noJobs'))
+          : jobs.map((job) =>
+              h(
+                'div',
+                { key: job.id, style: { display: 'flex', flexDirection: 'column', gap: 4, padding: '8px 10px', background: C.layer1, border: `0.5px solid ${C.border}`, borderRadius: 8 } },
+                h(
+                  'div',
+                  { style: { display: 'flex', gap: 8, alignItems: 'baseline' } },
+                  h('span', { style: { fontSize: 12, fontWeight: 600, color: C.text } }, job.id),
+                  h('span', { style: { fontSize: 11, color: C.muted } }, `${job.state}${job.branchId ? ` · ${job.branchId}` : ''}`),
+                ),
+                job.contract?.goal ? h('div', { style: { fontSize: 11, color: C.text, whiteSpace: 'pre-wrap', wordBreak: 'break-word' } }, job.contract.goal) : null,
+                job.contract
+                  ? h('div', { style: { display: 'flex', flexDirection: 'column', gap: 2, fontSize: 11, color: C.muted } },
+                      job.contract.deliverables ? h('span', null, `交付：${job.contract.deliverables}`) : null,
+                      job.contract.acceptance ? h('span', null, `验收：${job.contract.acceptance}`) : null,
+                      job.contract.boundary ? h('span', null, `边界：${job.contract.boundary}`) : null,
+                      job.contract.budget ? h('span', null, `预算：${job.contract.budget}`) : null,
+                    )
+                  : null,
+                job.stopReason ? h('div', { style: { fontSize: 11, color: C.muted } }, `停止：${job.stopReason}`) : null,
+              ),
+            ),
+      )
+    }
+
     /** 流水：后台做过的每一条决定。顶部是索引（按类型筛选，带计数），下面是时间倒序的记录。 */
     function StreamPane({ snapshot, filter = null, onClearFilter, onOpenGraph }) {
       const audit = snapshot?.audit
       const [kind, setKind] = React.useState('all')
       const [query, setQuery] = React.useState('')
+      const [verbose, setVerbose] = React.useState(false)
       if (audit === undefined) return h('div', { style: styles.empty }, t('stream.offline'))
       const notes = audit.notes ?? []
       const obs = audit.observations ?? {}
@@ -822,6 +875,24 @@ window.__ModuleLoader__.load({
               `${entry === 'all' ? t('stream.all') : entry}${entry === 'all' ? ` ${notes.length}` : ` ${counts[entry]}`}`,
             ),
           ),
+          h(
+            'button',
+            {
+              type: 'button',
+              onClick: () => setVerbose(!verbose),
+              'aria-pressed': verbose ? 'true' : 'false',
+              style: {
+                padding: '3px 9px',
+                border: `0.5px solid ${verbose ? C.brand : C.border}`,
+                borderRadius: 12,
+                background: 'transparent',
+                color: verbose ? C.brand : C.muted,
+                cursor: 'pointer',
+                fontSize: 11,
+              },
+            },
+            verbose ? t('stream.modeFull') : t('stream.modeBrief'),
+          ),
           h('input', {
             value: query,
             onChange: (event) => setQuery(event.target.value),
@@ -845,6 +916,8 @@ window.__ModuleLoader__.load({
           h('span', null, `${t('stream.observed')} ${obs.user ?? 0} / ${obs.assistant ?? 0} / ${obs.tool ?? 0}`),
           h('span', null, `${t('stream.decisions')} ${notes.length}`),
         ),
+        verbose ? h(ObservedSection, { audit }) : null,
+        verbose ? h(ExecSection, { audit }) : null,
         shown.length === 0
           ? h('div', { style: styles.empty }, t('stream.empty'))
           : shown.map((note) =>
@@ -852,24 +925,67 @@ window.__ModuleLoader__.load({
                 'div',
                 {
                   key: note.id,
-                  onClick: () => (note.branch && typeof onOpenGraph === 'function' ? onOpenGraph(note.branch) : undefined),
-                  title: note.branch ? `${t('stream.openGraph')} ${note.branch}` : undefined,
+                  onClick: () => (note.branch && typeof onOpenGraph === 'function' && !verbose ? onOpenGraph(note.branch) : undefined),
+                  title: note.branch && !verbose ? `${t('stream.openGraph')} ${note.branch}` : undefined,
                   style: {
                     display: 'flex',
-                    gap: 10,
-                    alignItems: 'baseline',
+                    flexDirection: verbose ? 'column' : 'row',
+                    gap: verbose ? 4 : 10,
+                    alignItems: verbose ? 'stretch' : 'baseline',
                     padding: '6px 4px',
                     margin: '0 -4px',
                     borderRadius: 6,
                     borderBottom: `0.5px solid ${C.border}`,
-                    cursor: note.branch ? 'pointer' : 'default',
+                    cursor: note.branch && !verbose ? 'pointer' : 'default',
                   },
                 },
-                h('span', { style: { flex: 'none', width: 62, fontSize: 11, color: C.muted, fontVariantNumeric: 'tabular-nums' } },
-                  new Date(note.at).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })),
-                h('span', { style: { flex: 'none', width: 62, fontSize: 11, color: C.brand } }, note.kind),
-                h('span', { style: { flex: '1 1 auto', minWidth: 0, fontSize: 12, color: C.text } }, note.claim),
-                note.branch ? h('span', { style: { flex: 'none', fontSize: 11, color: C.muted } }, note.branch) : null,
+                verbose
+                  ? h(
+                      'div',
+                      { style: { display: 'flex', gap: 10, alignItems: 'baseline' } },
+                      h('span', { style: { flex: 'none', width: 62, fontSize: 11, color: C.muted, fontVariantNumeric: 'tabular-nums' } },
+                        new Date(note.at).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })),
+                      h('span', { style: { flex: 'none', width: 62, fontSize: 11, color: C.brand } }, note.kind),
+                      h('span', { style: { flex: '1 1 auto', minWidth: 0, fontSize: 12, fontWeight: 500, color: C.text } }, note.claim),
+                      note.branch ? h('span', { style: { flex: 'none', fontSize: 11, color: C.muted } }, note.branch) : null,
+                    )
+                  : [
+                      h('span', { key: 'time', style: { flex: 'none', width: 62, fontSize: 11, color: C.muted, fontVariantNumeric: 'tabular-nums' } },
+                        new Date(note.at).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })),
+                      h('span', { key: 'kind', style: { flex: 'none', width: 62, fontSize: 11, color: C.brand } }, note.kind),
+                      h('span', { key: 'claim', style: { flex: '1 1 auto', minWidth: 0, fontSize: 12, color: C.text } }, note.claim),
+                      note.branch ? h('span', { key: 'branch', style: { flex: 'none', fontSize: 11, color: C.muted } }, note.branch) : null,
+                    ],
+                verbose
+                  ? h('div', { style: { paddingLeft: 134, display: 'flex', flexDirection: 'column', gap: 4 } },
+                      note.why ? h('div', { style: { fontSize: 11, color: C.muted } }, `why: ${note.why}`) : null,
+                      note.question ? h('div', { style: { fontSize: 12, color: C.text } }, `问：${note.question}`) : null,
+                      note.detail
+                        ? h('pre', {
+                            style: {
+                              margin: 0,
+                              padding: '8px 10px',
+                              background: C.layer1,
+                              border: `0.5px solid ${C.border}`,
+                              borderRadius: 6,
+                              fontSize: 11,
+                              lineHeight: '17px',
+                              whiteSpace: 'pre-wrap',
+                              wordBreak: 'break-word',
+                              color: C.text,
+                              fontFamily: 'inherit',
+                            },
+                          }, note.detail)
+                        : null,
+                      h('div', { style: { display: 'flex', gap: 10, fontSize: 11, color: C.muted, flexWrap: 'wrap' } },
+                        (note.refs ?? []).length > 0 ? h('span', null, `refs: ${note.refs.join(' ')}`) : null,
+                        (note.loops ?? []).length > 0 ? h('span', null, `loops: ${note.loops.join(' ')}`) : null,
+                        note.conf ? h('span', null, `conf: ${note.conf}`) : null,
+                        h('span', null, note.visibleToUser ? '已对用户可见' : '未展示'),
+                        note.branch ? h('span', null, `branch: ${note.branch}`) : null,
+                      ),
+                    )
+                  : null,
               ),
             ),
       )
@@ -1179,6 +1295,12 @@ window.__ModuleLoader__.load({
       'stream.observed': '观测（用户/回复/工具）',
       'stream.decisions': '决定',
       'stream.openGraph': '回到鱼骨查看',
+      'stream.modeBrief': '精简',
+      'stream.modeFull': '完整',
+      'stream.observedTitle': '中间层看到的对话原文',
+      'stream.execTitle': '执行层（Operator）',
+      'stream.contract': '派出去的契约',
+      'stream.noJobs': '还没有派过任务。',
       'stream.offline': '该会话的后台尚未连接。',
       'count.loops': '未结事项',
       'count.facts': '已定结论',
@@ -1260,6 +1382,12 @@ window.__ModuleLoader__.load({
       'stream.observed': 'Observed (user/reply/tool)',
       'stream.decisions': 'Decisions',
       'stream.openGraph': 'Show in graph',
+      'stream.modeBrief': 'Brief',
+      'stream.modeFull': 'Full',
+      'stream.observedTitle': 'What the middle layer saw',
+      'stream.execTitle': 'Execution layer (Operator)',
+      'stream.contract': 'Dispatched contract',
+      'stream.noJobs': 'No task has been dispatched yet.',
       'stream.offline': 'The backstage for this session is not connected yet.',
       'count.loops': 'Open',
       'count.facts': 'Facts',
