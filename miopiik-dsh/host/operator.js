@@ -6,7 +6,7 @@
  * 守夜只在超时/无产出时投递一条 [阻塞] 预览，不替用户做回滚决定。
  */
 
-import { renderContractPrompt, validateContract } from './contract.js'
+import { renderContractPrompt, renderDraftPrompt, validateContract, validateDraft } from './contract.js'
 import { compileResult, fallbackPreview } from './compile.js'
 
 export function createOperator({ ctx, engines, config, warn }) {
@@ -34,9 +34,14 @@ export function createOperator({ ctx, engines, config, warn }) {
   }
 
   const start = async ({ agent, engine, input, branchId = null }) => {
-    const { ok, missing } = validateContract(input)
-    if (!ok) {
-      throw new Error(`契约缺要素，只能算草稿：${missing.join('、')}。补齐后再派发。`)
+    const draft = input?.draft === true
+    const check = draft ? validateDraft(input) : validateContract(input)
+    if (!check.ok) {
+      throw new Error(
+        draft
+          ? `草稿态至少要有${check.missing.join('、')}`
+          : `契约缺要素，只能算草稿：${check.missing.join('、')}。补齐后再派发，或用 draft: true 先跑一版。`,
+      )
     }
     const service = subagents()
     if (service === undefined) throw new Error('这个 profile 没有 subagents 服务，无法派发 Operator')
@@ -88,7 +93,7 @@ export function createOperator({ ctx, engines, config, warn }) {
         label: `O-${jobId} ${input.goal.slice(0, 24)}`,
         request: {
           parent: agent,
-          prompt: [{ type: 'text', text: renderContractPrompt(input, branchSlice) }],
+          prompt: [{ type: 'text', text: draft ? renderDraftPrompt(input) : renderContractPrompt(input, branchSlice) }],
         },
         signal: controller.signal,
         delivery: 'caller',
@@ -132,6 +137,18 @@ export function createOperator({ ctx, engines, config, warn }) {
           endedAt: Date.now(),
           stopReason: result?.stopReason ?? null,
         })
+        if (draft) {
+          // 草稿态：结果留在草稿区，不打扰用户、不进收件箱（SPEC §4.4）。
+          await engine.addDraft({
+            title: input.goal.slice(0, 60),
+            summary: text.slice(0, 400),
+            artifact: `job:${jobId}`,
+            conf: 'low',
+            source: 'operator',
+          })
+          await engine.closeLoop(loop.id, { reason: 'draft:settled', by: 'ink' })
+          return
+        }
         const job = { id: jobId, loopId: loop.id, branchId, label: input.goal.slice(0, 40) }
         const note = await compileResult({ ctx, engine, job, resultText: text, config, warn })
         await engine.deliverNote(note)

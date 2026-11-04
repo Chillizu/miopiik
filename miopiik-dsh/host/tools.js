@@ -206,12 +206,16 @@ export function registerTools(ctx, engines, operator) {
           acceptanceSample: { type: 'string', description: 'What "good" roughly looks like — a sample beats a standard.' },
           boundary: { type: 'string', description: 'What must not change.' },
           budget: { type: 'string', description: 'Time/cost budget, stated in the contract.' },
+          draft: {
+            type: 'boolean',
+            description: 'Exploratory pass: only goal is required, the result stays in the draft area and never reaches the user. Use it when you want to look before committing to a full contract.',
+          },
           branch: {
             type: 'string',
             description: 'Fishbone branch label: which conversation thread this work grew out of. Reuses an open branch with the same label, otherwise forks a new one at the current turn.',
           },
         },
-        required: ['goal', 'deliverables', 'acceptance', 'acceptanceSample', 'boundary', 'budget'],
+        required: ['goal'],
         additionalProperties: false,
       },
       async execute(args, exec) {

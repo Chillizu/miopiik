@@ -25,6 +25,31 @@ export function validateContract(input) {
 }
 
 /**
+ * 草稿态派发（SPEC §4.4）：不需要六要素齐全——因为产出可丢弃。
+ * 只要有一个目标就能跑；缺的部分由 Operator 按最保守读法补，并在报告里说明。
+ */
+export function validateDraft(input) {
+  const goal = typeof input?.goal === 'string' ? input.goal.trim() : ''
+  return goal === '' ? { ok: false, missing: ['一句话目标'] } : { ok: true, missing: [] }
+}
+
+/** 草稿态提示：明确告诉 Operator「这是探索，不是交付」。 */
+export function renderDraftPrompt(input) {
+  return [
+    'You are an Operator doing an exploratory pass in the background. You never talk to the user.',
+    'This is a DRAFT: it will not be shown to the user unless someone later promotes it.',
+    '',
+    `## What to explore\n${String(input?.goal ?? '').trim()}`,
+    '',
+    '## Rules',
+    '- Produce the cheapest useful artifact: a sketch, a list, a few candidate answers — not a finished deliverable.',
+    '- State every assumption you had to make, in one line each.',
+    '- Do not ask the user anything and do not dispatch further work.',
+    '- Your final message is a short draft report: what you found, what you assumed, what is still open.',
+  ].join('\n')
+}
+
+/**
  * 把契约渲染成给 Operator 的派发提示。
  * Operator 看不到对话；它能看到的是契约 + 它所属分支的上下文切片（如果有）。
  */
