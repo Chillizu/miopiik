@@ -31,6 +31,8 @@ export function makeNote(input) {
     question: input.question ?? null,
     detail: input.detail ?? null,
     visibleToUser: input.visibleToUser === true,
+    newConclusion: input.newConclusion === true,
+    contradiction: input.contradiction ?? null,
     staleAfter: input.staleAfter ?? null,
     supersedes: input.supersedes ?? null,
     epoch: input.epoch ?? 0,

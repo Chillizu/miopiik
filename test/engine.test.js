@@ -455,3 +455,49 @@ test('Operator 问答：要发明就上报——blocking 预览进收件箱，Op
     await ctx.cleanup()
   }
 })
+
+test('纠错前置：最近说过的话可被编译取用（首行、限条数）', async () => {
+  const ctx = await fixture()
+  try {
+    for (const text of ['第一句\n细节', '第二句']) {
+      ctx.engine.observe({
+        type: 'assistant/message',
+        data: { turn: 1, message: { content: [{ type: 'text', text }] } },
+      })
+    }
+    await ctx.engine.queue
+    assert.deepEqual(ctx.engine.recentUtterances(5), ['第一句', '第二句'])
+  } finally {
+    await ctx.cleanup()
+  }
+})
+
+test('硬断事后折叠：跨天无简报时自动整理盘外素材，并在 L3 展示（不代写简报）', async () => {
+  const ctx = await fixture()
+  try {
+    ctx.engine.observe({
+      type: 'user/message',
+      data: { source: { kind: 'user' }, content: [{ type: 'text', text: '先这样' }] },
+    })
+    ctx.engine.observe({
+      type: 'assistant/message',
+      data: { turn: 1, message: { content: [{ type: 'text', text: '好，明天见' }] } },
+    })
+    await ctx.engine.queue
+    const loop = await ctx.engine.addLoop({ text: '明天继续的事', type: 'promise' })
+
+    ctx.advance(DAY)
+    await ctx.engine.detectGap()
+
+    const materials = ctx.engine.state.briefings.find((record) => record.kind === 'auto-materials')
+    assert.ok(materials !== undefined, '应生成盘外素材')
+    assert.match(materials.loops, new RegExp(loop.id))
+
+    const l3 = ctx.engine.l3Text()
+    assert.match(l3, /没有收工简报——先承认断点/)
+    assert.match(l3, /盘外素材·推进：好，明天见/)
+    assert.match(l3, /盘外素材·悬着/)
+  } finally {
+    await ctx.cleanup()
+  }
+})

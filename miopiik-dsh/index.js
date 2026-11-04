@@ -80,7 +80,10 @@ export function apply(ctx, config) {
       initializing.add(sessionId)
       try {
         const store = await openStore(join(cwdOf(agent.session), stateRoot), sessionId)
-        engines.set(sessionId, new Engine({ store, sessionId }))
+        const engine = new Engine({ store, sessionId })
+        engines.set(sessionId, engine)
+        // 跨天断点检测（SPEC §5.2）：启动时补一次，L3 当天会提醒承认断点。
+        void engine.detectGap().catch(() => undefined)
       } finally {
         initializing.delete(sessionId)
       }

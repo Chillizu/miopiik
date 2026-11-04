@@ -11,6 +11,8 @@ test('编译输出：容忍代码围栏与前后废话', () => {
     question: '要不要改定位？',
     conf: 'high',
     detail: '3 家中 2 家提了 X',
+    contradicts: false,
+    contradictStatement: '',
   })
 })
 
@@ -18,6 +20,14 @@ test('编译输出：absorb 可以没有问题', () => {
   const parsed = parseCompileOutput('{"kind":"absorb","claim":"结果与当前方向无关","conf":"low"}')
   assert.equal(parsed.kind, 'absorb')
   assert.equal(parsed.question, null)
+})
+
+test('编译输出：能标出与 Mind 旧话矛盾的报告，并带上原句', () => {
+  const parsed = parseCompileOutput(
+    '{"kind":"preview","claim":"竞品其实是防御定价","question":"要不要纠正？","conf":"mid","contradicts":true,"contradictStatement":"竞品都在打价格战"}',
+  )
+  assert.equal(parsed.contradicts, true)
+  assert.equal(parsed.contradictStatement, '竞品都在打价格战')
 })
 
 test('编译输出不合法时返回 null，绝不猜', () => {

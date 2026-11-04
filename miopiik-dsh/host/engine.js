@@ -38,6 +38,8 @@ export class Engine {
     this.now = now
     this.queue = Promise.resolve()
     this.turn = 0
+    const last = store.state.observations[store.state.observations.length - 1]
+    this.lastTurnDay = last !== undefined && Number.isFinite(last.day) ? last.day : null
   }
 
   get state() {
@@ -88,10 +90,12 @@ export class Engine {
 
   async recordObservation(kind, text, turn) {
     const seq = this.state.counters.obs + 1
+    const day = dayOf(this.now())
+    this.lastTurnDay = this.lastTurnDay === null ? day : Math.max(this.lastTurnDay, day)
     await appendRecord(this.store, 'observations', {
       seq,
       at: this.now(),
-      day: dayOf(this.now()),
+      day,
       turn,
       kind,
       epoch: this.state.epoch,
@@ -114,6 +118,14 @@ export class Engine {
     }
 
     await this.expireDrafts({ today })
+
+    if (this.lastTurnDay !== null && today > this.lastTurnDay) {
+      const covered = this.state.briefings.some(
+        (record) => record.day === this.lastTurnDay && (record.kind === undefined || record.kind === 'auto-materials'),
+      )
+      if (!covered) await this.foldDay(this.lastTurnDay)
+    }
+    this.lastTurnDay = this.lastTurnDay === null ? today : Math.max(this.lastTurnDay, today)
 
     for (const id of overflowToDormant([...this.state.loops.values()], ACTIVE_LOOP_CAP)) {
       await appendRecord(this.store, 'loops', { op: 'status', loopId: id, status: 'dormant', at: now })
@@ -338,11 +350,11 @@ export class Engine {
 
   // ── 交接简报与跨天恢复（SPEC §5.3 / §5.5） ──────────────────────────
 
-  /** 最近一份「主体」简报；隔夜更新（kind=overnight）不算主体。 */
+  /** 最近一份「主体」简报；隔夜更新与盘外素材都不算主体（SPEC §5.3）。 */
   latestBriefing() {
     for (let index = this.state.briefings.length - 1; index >= 0; index -= 1) {
       const record = this.state.briefings[index]
-      if (record.kind !== 'overnight') return record
+      if (record.kind === undefined || record.kind === null) return record
     }
     return null
   }
@@ -603,6 +615,86 @@ export class Engine {
     }
   }
 
+  /** Mind 最近对用户说过的话（首行，供编译时检测矛盾）。 */
+  recentUtterances(limit = 8) {
+    return this.state.observations
+      .filter((entry) => entry.kind === 'assistant')
+      .slice(-limit)
+      .map((entry) => {
+        const firstLine = String(entry.text ?? '')
+          .split('\n')
+          .map((line) => line.trim())
+          .find((line) => line !== '')
+        return (firstLine ?? '').slice(0, 160)
+      })
+      .filter((line) => line !== '')
+  }
+
+  /**
+   * 硬断事后折叠（SPEC §5.2）：把「停在哪天」整理成盘外素材，
+   * 不代写简报、不写对话——Mind 下次开工先承认断点，再用这些素材重建。
+   */
+  async foldDay(day) {
+    const assistants = this.state.observations.filter((entry) => entry.kind === 'assistant' && entry.day === day)
+    const progress = assistants
+      .slice(-3)
+      .map((entry) => String(entry.text ?? '').split('\n')[0].slice(0, 80))
+      .filter((line) => line !== '')
+      .join(' / ')
+    const loopLines = this.listLoops()
+      .filter((loop) => loop.status === 'active')
+      .slice(0, 5)
+      .map((loop) => `${loop.id} ${loop.text}`)
+      .join('；')
+    const running = [...this.state.jobs.values()]
+      .filter((job) => job.state === 'running')
+      .map((job) => `${job.id} ${job.label}`)
+      .join('；')
+    const drafts = this.listDrafts()
+      .map((draft) => `${draft.id} ${draft.title}`)
+      .join('；')
+    const record = {
+      kind: 'auto-materials',
+      day,
+      at: this.now(),
+      progress,
+      loops: loopLines,
+      running,
+      drafts,
+      next: null,
+    }
+    await this.enqueue(() => appendRecord(this.store, 'briefings', record))
+    return record
+  }
+
+  /**
+   * 跨天断点检测（SPEC §5.2）：上次真人对话停在旧的一天、且那天没有收工简报时，
+   * 整理盘外素材并记一条 hard-break；L3 在当天持续提醒，直到 Mind 写了新简报。
+   */
+  async detectGap() {
+    const today = dayOf(this.now())
+    const human = this.state.observations.filter(
+      (entry) => entry.kind === 'user' || entry.kind === 'assistant',
+    )
+    const last = human[human.length - 1]
+    if (last === undefined || !Number.isFinite(last.day) || today <= last.day) return null
+    const covered = this.state.briefings.some(
+      (record) => record.day === last.day && (record.kind === undefined || record.kind === null),
+    )
+    if (covered) return null
+    const already = this.state.briefings.some(
+      (record) => record.kind === 'hard-break' && record.day === last.day,
+    )
+    if (already) return null
+    const materials = this.state.briefings.some(
+      (record) => record.kind === 'auto-materials' && record.day === last.day,
+    )
+    if (!materials) await this.foldDay(last.day)
+    const record = { kind: 'hard-break', day: last.day, detectedDay: today, at: this.now() }
+    await this.enqueue(() => appendRecord(this.store, 'briefings', record))
+    return record
+  }
+
   status() {
     const loops = this.listLoops()
     const view = this.inboxView({ all: true })
@@ -638,7 +730,23 @@ export class Engine {
     const lines = []
     const briefing = this.latestBriefing()
     const today = dayOf(this.now())
-    if (briefing !== null && briefing.day < today) {
+    const hardBreak = [...this.state.briefings]
+      .reverse()
+      .find((record) => record.kind === 'hard-break' && record.detectedDay === today)
+    if (hardBreak !== undefined) {
+      lines.push(`## 上次对话停在第 ${hardBreak.day} 天，没有收工简报——先承认断点，再继续（SPEC §5.2）`)
+      const materials = [...this.state.briefings]
+        .reverse()
+        .find((record) => record.kind === 'auto-materials' && record.day === hardBreak.day)
+      if (materials !== undefined) {
+        if (materials.progress) lines.push(`盘外素材·推进：${materials.progress}`)
+        if (materials.loops) lines.push(`盘外素材·悬着：${materials.loops}`)
+        if (materials.running) lines.push(`盘外素材·在跑：${materials.running}`)
+        if (materials.drafts) lines.push(`盘外素材·草稿：${materials.drafts}`)
+        lines.push('注：这是 Ink 整理的素材，不是你写的简报；开工时按自己的话重建。')
+      }
+      lines.push('')
+    } else if (briefing !== null && briefing.day < today) {
       lines.push(`## 交接简报（${briefing.day} 写的，今天是 ${today}——开工先看这个）`)
       if (briefing.progress) lines.push(`推进：${briefing.progress}`)
       if (briefing.loops) lines.push(`开环：${briefing.loops}`)
@@ -650,10 +758,21 @@ export class Engine {
       )
       for (const update of updates) lines.push(`隔夜更新：${update.text}`)
       lines.push('')
-    } else if (briefing === null) {
-      const lastDay = this.state.observations.length === 0 ? today : this.state.observations[this.state.observations.length - 1].day
-      if (Number.isFinite(lastDay) && today - lastDay >= 1 && this.state.observations.length > 0) {
+    } else {
+      const lastObserved = this.state.observations[this.state.observations.length - 1]
+      const lastDay = lastObserved !== undefined && Number.isFinite(lastObserved.day) ? lastObserved.day : today
+      if (today - lastDay >= 1) {
         lines.push(`## 上次对话停在第 ${lastDay} 天，没有收工简报——先承认断点，再继续（SPEC §5.2）`)
+        const materials = [...this.state.briefings]
+          .reverse()
+          .find((record) => record.kind === 'auto-materials' && record.day === lastDay)
+        if (materials !== undefined) {
+          if (materials.progress) lines.push(`盘外素材·推进：${materials.progress}`)
+          if (materials.loops) lines.push(`盘外素材·悬着：${materials.loops}`)
+          if (materials.running) lines.push(`盘外素材·在跑：${materials.running}`)
+          if (materials.drafts) lines.push(`盘外素材·草稿：${materials.drafts}`)
+          lines.push('注：这是 Ink 整理的素材，不是你写的简报；开工时按自己的话重建。')
+        }
         lines.push('')
       }
     }
