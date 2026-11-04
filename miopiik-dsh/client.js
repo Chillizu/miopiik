@@ -151,51 +151,57 @@ window.__ModuleLoader__.load({
      */
     function FishbonePane({ snapshot }) {
       const graph = snapshot?.graph
-      if (graph === undefined || (graph.trunk?.length === 0 && graph.branches?.length === 0)) {
+      const trunk = graph?.trunk ?? []
+      const branches = graph?.branches ?? []
+      if (graph === undefined || (trunk.length === 0 && branches.length === 0)) {
         return h('div', { style: styles.empty }, t('graph.empty'))
       }
-      const W = 396
-      const trunkX = 18
-      const laneX = 96
-      const rowGap = 34
-      const trunk = graph.trunk ?? []
+
+      const W = 470
+      const padTop = 16
+      const trunkX = 16
+      const laneX = 86
+      const rowGap = 30
       const index = new Map(trunk.map((node, i) => [node.turn, i]))
       const yOfTurn = (turn) => {
         const i = index.get(turn)
-        return i === undefined ? null : 18 + i * rowGap
+        return i === undefined ? null : padTop + i * rowGap
       }
+      const lastTrunkY = padTop + Math.max(0, trunk.length - 1) * rowGap
 
       const elements = []
-      const lastTurnY = 18 + Math.max(0, trunk.length - 1) * rowGap
-
-      // 主干
-      elements.push(h('line', { key: 'trunk', x1: trunkX, y1: 18, x2: trunkX, y2: lastTurnY, stroke: C.borderStrong, strokeWidth: 1.5 }))
+      // 主干：一根竖线，每轮一个点；标签只放轮次，避免跟分支抢位置。
+      elements.push(h('line', { key: 'trunk', x1: trunkX, y1: padTop, x2: trunkX, y2: lastTrunkY, stroke: C.borderStrong, strokeWidth: 1.5 }))
       for (const node of trunk) {
         const y = yOfTurn(node.turn)
         elements.push(h('circle', { key: `t${node.turn}`, cx: trunkX, cy: y, r: 3.5, fill: C.brand }))
-        elements.push(
-          h(
-            'text',
-            { key: `tl${node.turn}`, x: trunkX + 10, y: y + 4, fontSize: 11, fill: C.muted },
-            `第 ${node.turn} 轮`,
-          ),
-        )
+        elements.push(h('text', { key: `tl${node.turn}`, x: trunkX + 9, y: y + 4, fontSize: 11, fill: C.muted }, `第${node.turn}轮`))
       }
 
-      let branchY = lastTurnY + 26
-      for (const [i, branch] of (graph.branches ?? []).entries()) {
+      // 分支：贴着它的分叉点铺开（同一轮分叉的按顺序错开一行），曲线短、读起来跟主干同步。
+      const slots = new Map()
+      let maxY = lastTrunkY
+      let prevLaneY = -Infinity
+      for (const branch of branches) {
         const forkY = yOfTurn(branch.forkTurn)
-        const y = branchY + i * 30
-        const mergeY = branch.mergeTurn === null ? null : yOfTurn(branch.mergeTurn)
+        const forkBase = forkY === null ? lastTrunkY + 30 : forkY
+        const slot = slots.get(forkBase) ?? 0
+        slots.set(forkBase, slot + 1)
+        const y = Math.max(forkBase + 24 + slot * 30, prevLaneY + 30)
+        prevLaneY = y
+        maxY = Math.max(maxY, y)
+
         const done = branch.status === 'merged'
         const color = done ? C.success : branch.status === 'abandoned' ? C.idle : C.brand
-        const endX = W - 12
+        const endX = W - 10
+        // 老分支没有记录汇回轮次：退而画到主干末端，至少方向可读。
+        const mergeY = branch.mergeTurn === null ? (done ? lastTrunkY : null) : yOfTurn(branch.mergeTurn)
 
         if (forkY !== null) {
           elements.push(
             h('path', {
               key: `f${branch.id}`,
-              d: `M ${trunkX},${forkY} C ${trunkX + 30},${forkY} ${laneX - 24},${y} ${laneX},${y}`,
+              d: `M ${trunkX},${forkY} C ${trunkX + 24},${forkY} ${laneX - 22},${y} ${laneX},${y}`,
               fill: 'none',
               stroke: color,
               strokeWidth: 1.5,
@@ -203,57 +209,59 @@ window.__ModuleLoader__.load({
           )
         }
         elements.push(h('line', { key: `l${branch.id}`, x1: laneX, y1: y, x2: endX, y2: y, stroke: color, strokeWidth: 1.5 }))
+
         if (mergeY !== null) {
           elements.push(
             h('path', {
               key: `m${branch.id}`,
-              d: `M ${endX},${y} C ${endX + 6},${y} ${trunkX + 40},${mergeY} ${trunkX},${mergeY}`,
+              d: `M ${endX},${y} C ${endX},${y + 12} ${trunkX + 30},${mergeY} ${trunkX},${mergeY}`,
               fill: 'none',
               stroke: color,
               strokeWidth: 1.5,
               strokeDasharray: '3 3',
             }),
           )
-          elements.push(h('circle', { key: `md${branch.id}`, cx: trunkX, cy: mergeY, r: 4, fill: 'none', stroke: color, strokeWidth: 1.5 }))
+          elements.push(h('circle', { key: `md${branch.id}`, cx: trunkX, cy: mergeY, r: 4.5, fill: C.overlay, stroke: color, strokeWidth: 1.5 }))
         }
 
-        // 分支上的任务点
+        // 任务点直接落在分支线上；状态用实心/空心区分，标签在 title 里，不挤版面。
         const jobs = branch.jobs ?? []
-        jobs.forEach((job, ji) => {
-          const jx = laneX + 34 + ji * 26
+        jobs.forEach((job, jobIndex) => {
+          const jx = laneX + 96 + jobIndex * 22
           const running = job.state === 'running'
-          elements.push(
-            h('circle', {
-              key: `${branch.id}-${job.id}`,
-              cx: jx,
-              cy: y,
-              r: 4.5,
-              fill: running ? C.brand : C.overlay,
-              stroke: running ? C.brand : C.borderStrong,
-              strokeWidth: 1.5,
-            }),
-          )
-          elements.push(
-            h('title', { key: `${branch.id}-${job.id}-t` }, `${job.id} ${job.label}（${job.state}）`),
-          )
+          elements.push(h('circle', {
+            key: `${branch.id}-${job.id}`,
+            cx: jx,
+            cy: y,
+            r: 4.5,
+            fill: running ? C.brand : C.overlay,
+            stroke: running ? C.brand : C.borderStrong,
+            strokeWidth: 1.5,
+          }))
+          elements.push(h('title', { key: `${branch.id}-${job.id}-t` }, `${job.id} ${job.label}（${job.state}）`))
         })
 
-        // 图内标签：分支名 + 任务数 + 汇回号
-        const meta = [
-          branch.id,
-          `${jobs.length} 个任务`,
-          branch.status === 'merged' ? `已汇回${branch.mergedInto === null ? '' : ` ${branch.mergedInto}`}` : branch.status === 'abandoned' ? '已放弃' : '进行中',
-        ].join(' · ')
-        elements.push(h('text', { key: `bl${branch.id}`, x: laneX, y: y - 7, fontSize: 11, fill: C.text }, branch.label.slice(0, 16)))
-        elements.push(h('text', { key: `bm${branch.id}`, x: laneX, y: y + 16, fontSize: 10, fill: C.muted }, meta))
+        const statusText = done
+          ? `已汇回${branch.mergedInto === null ? '' : ` ${branch.mergedInto}`}`
+          : branch.status === 'abandoned'
+            ? '已放弃'
+            : '进行中'
+        elements.push(h('text', { key: `bl${branch.id}`, x: laneX + 2, y: y - 7, fontSize: 11, fill: C.text }, branch.label.slice(0, 14)))
+        elements.push(
+          h('text', { key: `bm${branch.id}`, x: laneX + 2, y: y + 15, fontSize: 10, fill: C.muted }, `${branch.id} · ${jobs.length} 任务 · ${statusText}`),
+        )
       }
 
-      const H = branchY + Math.max(0, (graph.branches?.length ?? 0) - 1) * 30 + 34
+      const H = maxY + 32
       return h(
         'div',
         { style: { display: 'flex', flexDirection: 'column', gap: 10 } },
         h(CountsStrip, { graph }),
-        h('svg', { viewBox: `0 0 ${W} ${H}`, width: '100%', height: H, role: 'img', 'aria-label': t('graph.title') }, ...elements),
+        h(
+          'div',
+          { style: { overflowX: 'auto' } },
+          h('svg', { viewBox: `0 0 ${W} ${H}`, width: W, height: H, role: 'img', 'aria-label': t('graph.title') }, ...elements),
+        ),
         h('div', { style: { fontSize: 11, color: C.muted, lineHeight: '17px' } }, t('graph.legend')),
       )
     }
