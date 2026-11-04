@@ -92,7 +92,7 @@ window.__ModuleLoader__.load({
             flex: 'none',
           },
         }),
-        h('span', null, running ? t('presence.running', { n: state.count }) : t('presence.idle')),
+        h('span', null, running ? `${t('presence.running')} ${state.count}` : t('presence.idle')),
       )
     }
 
@@ -260,59 +260,39 @@ window.__ModuleLoader__.load({
     }
 
     const zh = {
-      presence: {
-        idle: '后台安静',
-        running: '后台在跑 {n} 件',
-        title: '看一眼后台',
-      },
-      drawer: {
-        title: '后台在跑',
-        empty: '现在没有在跑的东西。',
-        hint: '有任务时，这里显示状态和叫停入口。',
-        close: '关闭',
-      },
-      panel: {
-        loops: '悬着的事',
-        facts: '我们一起定的',
-      },
-      loops: {
-        title: '悬着的事',
-        subtitle: '对话里还没合上的线索。',
-        empty: '现在没有悬着的事。',
-      },
-      facts: {
-        title: '我们一起定的',
-        subtitle: '我们一起确认过的结论。改一条，比重新解释一遍便宜。',
-        empty: '还没有记下来的结论。',
-      },
+      'presence.idle': '后台安静',
+      'presence.running': '后台在跑',
+      'presence.title': '看一眼后台',
+      'drawer.title': '后台在跑',
+      'drawer.empty': '现在没有在跑的东西。',
+      'drawer.hint': '有任务时，这里显示状态和叫停入口。',
+      'drawer.close': '关闭',
+      'panel.loops': '悬着的事',
+      'panel.facts': '我们一起定的',
+      'loops.title': '悬着的事',
+      'loops.subtitle': '对话里还没合上的线索。',
+      'loops.empty': '现在没有悬着的事。',
+      'facts.title': '我们一起定的',
+      'facts.subtitle': '我们一起确认过的结论。改一条，比重新解释一遍便宜。',
+      'facts.empty': '还没有记下来的结论。',
     }
 
     const en = {
-      presence: {
-        idle: 'Backstage quiet',
-        running: 'Backstage: {n} running',
-        title: 'Look at the backstage',
-      },
-      drawer: {
-        title: 'Backstage',
-        empty: 'Nothing is running right now.',
-        hint: 'When something runs, its state and a stop control appear here.',
-        close: 'Close',
-      },
-      panel: {
-        loops: 'Open threads',
-        facts: 'What we settled',
-      },
-      loops: {
-        title: 'Open threads',
-        subtitle: 'Threads in the conversation that are not closed yet.',
-        empty: 'Nothing is hanging right now.',
-      },
-      facts: {
-        title: 'What we settled',
-        subtitle: 'Conclusions we confirmed together. Editing one beats explaining again.',
-        empty: 'Nothing has been written down yet.',
-      },
+      'presence.idle': 'Backstage quiet',
+      'presence.running': 'Backstage',
+      'presence.title': 'Look at the backstage',
+      'drawer.title': 'Backstage',
+      'drawer.empty': 'Nothing is running right now.',
+      'drawer.hint': 'When something runs, its state and a stop control appear here.',
+      'drawer.close': 'Close',
+      'panel.loops': 'Open threads',
+      'panel.facts': 'What we settled',
+      'loops.title': 'Open threads',
+      'loops.subtitle': 'Threads in the conversation that are not closed yet.',
+      'loops.empty': 'Nothing is hanging right now.',
+      'facts.title': 'What we settled',
+      'facts.subtitle': 'Conclusions we confirmed together. Editing one beats explaining again.',
+      'facts.empty': 'Nothing has been written down yet.',
     }
 
     return {

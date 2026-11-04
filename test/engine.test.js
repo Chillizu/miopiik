@@ -31,7 +31,7 @@ async function fixture() {
 test('观测：只收用户真人消息与助手最终消息，append-only', async () => {
   const ctx = await fixture()
   try {
-    ctx.engine.observe({ type: 'user/message', data: { content: [{ type: 'text', text: '帮我看看竞品' }] } })
+    ctx.engine.observe({ type: 'user/message', data: { source: { kind: 'user' }, content: [{ type: 'text', text: '帮我看看竞品' }] } })
     ctx.engine.observe({
       type: 'assistant/message',
       data: { turn: 1, message: { content: [{ type: 'text', text: '好，我先理解一下' }] } },
@@ -125,6 +125,31 @@ test('收件箱动作：标记已读之后不再占待读位', async () => {
     assert.equal(ctx.engine.inboxView().previews.length, 0)
     const reopened = await openStore(ctx.dir, 'session-1')
     assert.equal(reopened.state.inbox.get(item.id).status, 'read')
+  } finally {
+    await ctx.cleanup()
+  }
+})
+
+test('观测只收真人提示：goal 轮次与时间上下文不算用户消息', async () => {
+  const ctx = await fixture()
+  try {
+    ctx.engine.observe({
+      type: 'user/message',
+      data: { source: { kind: 'goal' }, content: [{ type: 'text', text: '<goal_round>…</goal_round>' }] },
+    })
+    ctx.engine.observe({
+      type: 'user/message',
+      data: { source: { kind: 'time-context' }, content: [{ type: 'text', text: 'Time sampled…' }] },
+    })
+    ctx.engine.observe({
+      type: 'user/message',
+      data: { source: { kind: 'user' }, content: [{ type: 'text', text: '我想做个东西' }] },
+    })
+    await ctx.engine.queue
+    assert.deepEqual(
+      ctx.engine.state.observations.map((entry) => entry.text),
+      ['我想做个东西'],
+    )
   } finally {
     await ctx.cleanup()
   }

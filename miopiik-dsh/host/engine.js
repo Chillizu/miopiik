@@ -58,6 +58,8 @@ export class Engine {
     try {
       const type = event?.type
       if (type === 'user/message') {
+        // 只收真人提示：goal 轮次、时间上下文、审批等系统注入不是用户说的话。
+        if (event.data?.source?.kind !== 'user') return
         const text = textOf(event.data?.content)
         if (text !== '') this.enqueue(() => this.recordObservation('user', text, this.turn))
       } else if (type === 'assistant/message') {
