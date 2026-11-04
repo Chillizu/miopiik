@@ -10,7 +10,7 @@
 import { mkdir, readFile, appendFile } from 'node:fs/promises'
 import { join } from 'node:path'
 
-export const LOG_NAMES = Object.freeze(['observations', 'notes', 'loops', 'facts', 'inbox', 'briefings', 'jobs', 'drafts', 'cases', 'branches', 'folds'])
+export const LOG_NAMES = Object.freeze(['observations', 'notes', 'loops', 'facts', 'inbox', 'briefings', 'jobs', 'drafts', 'cases', 'branches', 'folds', 'details'])
 
 export function emptyState(sessionId) {
   return {
@@ -26,6 +26,7 @@ export function emptyState(sessionId) {
     cases: [],
     branches: new Map(),
     folds: new Map(),
+    details: [],
     counters: { obs: 0, note: 0, loop: 0, fact: 0, inbox: 0, job: 0, draft: 0, case: 0, branch: 0, fold: 0 },
     epoch: 0,
   }
@@ -191,6 +192,9 @@ export function applyRecord(state, log, record) {
       }
       return
     }
+    case 'details':
+      state.details.push(record)
+      return
     case 'folds': {
       if (record.op === 'propose') {
         state.folds.set(record.proposal.id, { ...record.proposal })

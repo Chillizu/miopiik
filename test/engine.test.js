@@ -292,9 +292,11 @@ test('收件箱三区与展开：unread / starred / history，展开能取回 no
     })
     const unread = ctx.engine.inboxZone('unread')
     assert.equal(unread.length, 1)
-    const opened = ctx.engine.openInboxItem(unread[0].id)
+    const opened = await ctx.engine.openInboxItem(unread[0].id)
     assert.equal(opened.note.kind, 'preview')
-    assert.ok(opened.note.detail.length > 400, 'detail 不截断到 120 字')
+    assert.ok(opened.note.detail.length > 100, 'note 里留的是预览，不塞全文')
+    assert.ok(opened.detail.length > 400, '全文从详情仓按指针读回，不截断')
+    assert.ok(opened.detail.includes('完整报告正文'))
 
     await ctx.engine.markInbox(unread[0].id, 'star')
     assert.equal(ctx.engine.inboxZone('starred').length, 1)

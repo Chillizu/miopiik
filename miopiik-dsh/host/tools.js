@@ -558,4 +558,42 @@ export function registerTools(ctx, engines, operator, services = {}) {
       },
     }),
   )
+  ctx.tools.register(
+    tool({
+      name: 'ink_recall',
+      description:
+        'Look back: search the detail index by keyword, entity, open thread, branch, or day. The ledger keeps full detail on disk; this finds which entries exist, then reads one back by its hash. Use it when you need something specific from long ago rather than the recent window.',
+      parameters: {
+        type: 'object',
+        properties: {
+          query: { type: 'string', description: 'Keyword to look for in the stored preview and entities.' },
+          entity: { type: 'string', description: 'Exact entity token (identifier, path, acronym).' },
+          loop: { type: 'string', description: 'Only details attached to this loop id.' },
+          branch: { type: 'string', description: 'Only details attached to this branch id.' },
+          sinceDay: { type: 'number', description: 'Only details on or after this day number (see ink_status.day).' },
+          limit: { type: 'number', description: 'Max results, default 10.' },
+          read: { type: 'string', description: 'Hash to read back in full (returns the stored text).' },
+        },
+        additionalProperties: false,
+      },
+      async execute(args, exec) {
+        const engine = engineFor(exec)
+        if (typeof args.read === 'string') {
+          const text = await engine.readDetailText(args.read)
+          if (text === null) throw new Error(`没有这份详情: ${args.read}`)
+          return { hash: args.read, text }
+        }
+        return {
+          entries: engine.recall({
+            query: args.query ?? null,
+            entity: args.entity ?? null,
+            loop: args.loop ?? null,
+            branch: args.branch ?? null,
+            sinceDay: args.sinceDay ?? null,
+            limit: args.limit ?? 10,
+          }),
+        }
+      },
+    }),
+  )
 }

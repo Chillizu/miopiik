@@ -17,6 +17,7 @@ import { activeFacts, makeFact, validateFact } from './facts.js'
 import { makeCase, matchCase, matchFacts, similarity } from './cases.js'
 import { buildArchive, makeProposal, settlementDraft, verifyProposal } from './fold.js'
 import { DEFAULTS } from './config-defaults.js'
+import { gcDetails, putDetail, readDetail, searchIndex, extractEntities } from './details.js'
 import { describeBranches, makeBranch, renderBranchSlice } from './branches.js'
 import { appendRecord } from './store.js'
 
@@ -37,6 +38,7 @@ export function textOf(content) {
 export class Engine {
   constructor({ store, sessionId, now = () => Date.now() }) {
     this.store = store
+    this.stateDir = store.dir
     this.sessionId = sessionId
     this.now = now
     this.queue = Promise.resolve()
@@ -297,11 +299,14 @@ export class Engine {
   }
 
   /** 展开一条收件箱条目：从账本取回它的 note（brief + detail）。 */
-  openInboxItem(id) {
+  async openInboxItem(id) {
     const item = this.state.inbox.get(id)
     if (item === undefined) throw new Error(`没有这条收件箱条目: ${id}`)
     const note = item.noteId === null ? undefined : this.state.notes.find((entry) => entry.id === item.noteId)
-    return { item, note: note ?? null }
+    const detailRef = note?.detailRef ?? null
+    // 指针指向详情仓时按需读回；短详情仍内联在 note 里，原样返回。
+    const detail = detailRef === null ? (note?.detail ?? null) : await this.readDetailText(detailRef)
+    return { item, note: note ?? null, detailRef, detail }
   }
 
   markInbox(id, action) {
@@ -335,11 +340,24 @@ export class Engine {
    * 后来的把前一条标 superseded（SPEC §3.3）。
    */
   async deliverNote(input, { blocking = false } = {}) {
+    // 长详情不进账本正文：先落详情仓，note 只留指针（SPEC §2.2「账本是数据，上下文只是索引」）。
+    let payload = input
+    if (typeof input?.detail === 'string' && input.detail.length > 2000) {
+      const entry = await this.storeDetail({
+        text: input.detail,
+        kind: 'note-detail',
+        refs: input.refs ?? [],
+        loops: input.loops ?? [],
+        branch: input.branch ?? null,
+        jobId: input.jobId ?? null,
+      })
+      payload = { ...input, detail: entry.preview, detailRef: entry.hash }
+    }
     const note = makeNote({
       id: `D-${this.state.counters.note + 1}`,
       epoch: this.state.epoch,
       at: this.now(),
-      ...input,
+      ...payload,
     })
     const errors = validateNote(note)
     if (errors.length > 0) throw new Error(`note 不成立：${errors.join('；')}`)
@@ -1019,6 +1037,45 @@ export class Engine {
       }),
     )
     return { proposal: this.state.folds.get(id), applied: appliedSeq !== null, replacement }
+  }
+
+  // ── 念旧内容：详情仓（SPEC §2.2） ──────────────────────────────────
+
+  /** 把一份长内容存进详情仓，返回 hash 与索引记录。 */
+  async storeDetail(input) {
+    const entry = await putDetail(this.stateDir, {
+      ...input,
+      at: input?.at ?? this.now(),
+      turn: input?.turn ?? this.turn,
+    })
+    await this.enqueue(() => appendRecord(this.store, 'details', entry))
+    return entry
+  }
+
+  readDetailText(hash) {
+    return readDetail(this.stateDir, hash)
+  }
+
+  /** 按时间/开环/分支/实体/关键词检索。hash 只取回，检索靠索引。 */
+  recall(options = {}) {
+    return searchIndex(this.state.details, options)
+  }
+
+  /** 回收：只删没被任何 note 引用、且超过保留期的详情。 */
+  async gcDetails({ retentionDays = 30 } = {}) {
+    const referenced = new Set()
+    for (const note of this.state.notes) {
+      if (typeof note.detailRef === 'string' && note.detailRef !== '') referenced.add(note.detailRef)
+    }
+    for (const entry of this.state.details) {
+      if (entry.refs.some((ref) => this.state.notes.some((note) => note.id === ref))) referenced.add(entry.hash)
+    }
+    return gcDetails(this.stateDir, {
+      entries: this.state.details,
+      referencedHashes: referenced,
+      now: this.now(),
+      retentionDays,
+    })
   }
 
   status() {

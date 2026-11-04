@@ -31,6 +31,7 @@ export function makeNote(input) {
     conf: input.conf ?? 'mid',
     question: input.question ?? null,
     detail: input.detail ?? null,
+    detailRef: input.detailRef ?? null,
     visibleToUser: input.visibleToUser === true,
     newConclusion: input.newConclusion === true,
     contradiction: input.contradiction ?? null,
