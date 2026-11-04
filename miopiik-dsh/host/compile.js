@@ -104,8 +104,8 @@ export async function compileResult({ ctx, engine, job, resultText, config, warn
     return fallbackPreview(job, `「${clip(job.contract?.goal ?? job.label)}」有结果了`, '要不要看原始结果？', text)
   }
 
-  let output = ''
-  try {
+  const ask = async (reminder) => {
+    let out = ''
     const stream = llm.stream({
       provider: model.provider,
       model: model.model,
@@ -120,6 +120,7 @@ export async function compileResult({ ctx, engine, job, resultText, config, warn
                 `## Contract goal\n${job.contract?.goal ?? job.label}`,
                 `## Mind 最近对用户说过的话（可能是 claim，也可能说错）\n${(engine?.recentUtterances?.(8) ?? []).map((line, index) => `${index + 1}. ${line}`).join('\n') || '（无）'}`,
                 `## Operator report (raw)\n${text.slice(0, 12000)}`,
+                ...(reminder === null ? [] : ['', reminder]),
               ].join('\n\n'),
             },
           ],
@@ -129,16 +130,37 @@ export async function compileResult({ ctx, engine, job, resultText, config, warn
       signal: AbortSignal.timeout(90_000),
     })
     for await (const chunk of stream) {
-      if (chunk?.type === 'text-delta') output += chunk.text ?? ''
+      if (chunk?.type === 'text-delta') out += chunk.text ?? ''
     }
-  } catch (error) {
-    warn?.(`Ink 编译调用失败：${error?.message ?? error}`)
-    return fallbackPreview(job, `「${clip(job.contract?.goal ?? job.label)}」有结果了`, '要不要看原始结果？', text)
+    return out
   }
 
-  const parsed = parseCompileOutput(output)
+  let output = ''
+  let failure = null
+  try {
+    output = await ask(null)
+  } catch (error) {
+    failure = `stream:${String(error?.message ?? error).slice(0, 60)}`
+    warn?.(`Ink 编译调用失败：${failure}`)
+  }
+
+  let parsed = parseCompileOutput(output)
+  if (parsed === null && failure === null) {
+    // 一次重试：模型偶尔会加解说或代码围栏，明确要它只吐 JSON。
+    failure = `parse:${String(output).slice(0, 60)}`
+    try {
+      output = await ask('上一次的输出不是可直接解析的 JSON。只输出那一个 JSON 对象，不要任何其他文字。')
+      parsed = parseCompileOutput(output)
+      if (parsed !== null) failure = null
+    } catch (error) {
+      failure = `retry:${String(error?.message ?? error).slice(0, 60)}`
+    }
+  }
+
   if (parsed === null) {
-    return fallbackPreview(job, `「${clip(job.contract?.goal ?? job.label)}」有结果了`, '要不要看原始结果？', text)
+    const note = fallbackPreview(job, `「${clip(job.contract?.goal ?? job.label)}」有结果了`, '要不要看原始结果？', text)
+    note.why = `compile:fallback (${failure ?? 'unknown'})`
+    return note
   }
 
   if (parsed.kind === 'absorb') {

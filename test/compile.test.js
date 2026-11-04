@@ -57,3 +57,26 @@ test('分支上的任务：编译出的预览带分支指针（落在 T1，而�
   const item = { blocking: false, loopId: null, branchId: 'B-2', newConclusion: false, epoch: 0, createdAt: 1 }
   assert.equal(tierOf(item, { currentEpoch: 0, activeLoopIds: new Set() }), 1)
 })
+
+test('编译失败可审计：降级时 why 里写明失败原因，不静默', async () => {
+  const { compileResult } = await import('../miopiik-dsh/host/compile.js')
+  const llm = {
+    async *stream() {
+      yield { type: 'text-delta', text: '这不是 JSON，只是一段解说' }
+    },
+  }
+  const ctx = { get: (name) => (name === 'llm' ? llm : undefined) }
+  const engine = { recentUtterances: () => [] }
+  const job = { id: 'J-9', loopId: 'L-9', branchId: null, contract: { goal: '复述前提' } }
+  const note = await compileResult({
+    ctx,
+    engine,
+    job,
+    resultText: '报告正文……',
+    config: { inkModel: { provider: 'p', model: 'm' } },
+    warn: () => {},
+  })
+  assert.equal(note.kind, 'preview')
+  assert.match(note.why, /compile:fallback \(parse:/)
+  assert.match(note.claim, /复述前提/)
+})
