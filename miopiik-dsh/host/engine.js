@@ -106,6 +106,9 @@ export class Engine {
   }
 
   /** 回合结束的确定性 Ink pass：老化 → 溢出折叠 → 休眠投递 → 记录回合边界。 */
+  /** 收工信号（SPEC §5.2）：只认明显在道别的话，不去猜「他是不是要走」。 */
+  static FAREWELL = /(先这样|先到这里|今天就到这儿?|明天再(说|聊|继续)|下次再聊|我去忙|我去睡|晚安|回头聊|拜拜|bye[- ]?bye|good ?night)/iu
+
   async finishTurn(turn) {
     const now = this.now()
     const today = dayOf(now)
@@ -130,6 +133,20 @@ export class Engine {
 
     for (const id of overflowToDormant([...this.state.loops.values()], ACTIVE_LOOP_CAP)) {
       await appendRecord(this.store, 'loops', { op: 'status', loopId: id, status: 'dormant', at: now })
+    }
+
+    // 收工信号：Ink 不替 Mind 写简报，只让它在下一轮看得见「用户刚才像在道别」。
+    const lastUser = [...this.state.observations].reverse().find((entry) => entry.kind === 'user')
+    if (lastUser !== undefined && Engine.FAREWELL.test(String(lastUser.text ?? ''))) {
+      await this.enqueue(() =>
+        appendRecord(this.store, 'briefings', {
+          kind: 'closing-signal',
+          day: today,
+          at: now,
+          turn,
+          quote: String(lastUser.text ?? '').slice(0, 120),
+        }),
+      )
     }
 
     await this.recordObservation('turn-end', '', turn)
@@ -963,6 +980,20 @@ export class Engine {
         lines.push('')
       }
     }
+    const today2 = dayOf(this.now())
+    const wroteToday = this.state.briefings.some(
+      (record) => record.day === today2 && (record.kind === undefined || record.kind === null),
+    )
+    const closing = [...this.state.briefings]
+      .reverse()
+      .find((record) => record.kind === 'closing-signal' && record.day === today2)
+    if (closing !== undefined && !wroteToday) {
+      lines.push('## 这次对话像是在收工')
+      lines.push(`用户最后一句：「${closing.quote}」`)
+      lines.push('如果今天到这儿，用 ink_brief save 写一段交接（推进/开环/在跑/草稿/下步），明天的你才接得上；不写也不算错。')
+      lines.push('')
+    }
+
     const openBranchCount = this.listBranches().length
     if (loops.length === 0 && view.previews.length === 0 && openBranchCount === 0 && lines.length === 0) return ''
     lines.push('## 后台（Ink）')

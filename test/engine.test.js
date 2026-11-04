@@ -579,3 +579,42 @@ test('utterance id 稳定：同一条消息的回放得到同一个 U-n', async 
     await ctx.cleanup()
   }
 })
+
+test('收工信号：用户道别 → 下一轮 L3 提醒写交接；写了简报后提醒消失', async () => {
+  const ctx = await fixture()
+  try {
+    ctx.engine.observe({
+      type: 'user/message',
+      data: { source: { kind: 'user' }, content: [{ type: 'text', text: '先这样，明天再说' }] },
+    })
+    await ctx.engine.queue
+    await ctx.engine.finishTurn(1)
+    await ctx.engine.queue
+
+    const l3 = ctx.engine.l3Text()
+    assert.match(l3, /这次对话像是在收工/)
+    assert.match(l3, /先这样，明天再说/)
+    assert.match(l3, /ink_brief save/)
+
+    await ctx.engine.saveBriefing({ progress: '做完了分支切片', next: '接着做草稿态派发' })
+    assert.doesNotMatch(ctx.engine.l3Text(), /这次对话像是在收工/)
+  } finally {
+    await ctx.cleanup()
+  }
+})
+
+test('收工信号不误报：普通聊天不算道别', async () => {
+  const ctx = await fixture()
+  try {
+    ctx.engine.observe({
+      type: 'user/message',
+      data: { source: { kind: 'user' }, content: [{ type: 'text', text: '我觉得这个方向可以继续' }] },
+    })
+    await ctx.engine.queue
+    await ctx.engine.finishTurn(1)
+    await ctx.engine.queue
+    assert.doesNotMatch(ctx.engine.l3Text(), /这次对话像是在收工/)
+  } finally {
+    await ctx.cleanup()
+  }
+})
