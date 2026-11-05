@@ -143,13 +143,19 @@ export function createOperator({ ctx, engines, config, warn }) {
       if (teamTask === null) return
       try {
         const teams = ctx.get('agentTeams')
-        // 一次调用同时改描述与状态：分开两次会因为版本号前进而失配（踩过）。
-        const current = teams.getTask(agent, teamTask.id)
+        // 任务板要求「先认领才能完成」，且每次操作都要最新版本号：
+        // claim → 重新取版本 → complete（一次到位会报 only in-progress can complete）。
+        const ready = teams.getTask(agent, teamTask.id)
+        const claimed = await teams.updateTask(agent, {
+          taskId: teamTask.id,
+          expectedRevision: ready.revision,
+          action: 'claim',
+        })
         await teams.updateTask(agent, {
           taskId: teamTask.id,
-          expectedRevision: current.revision,
+          expectedRevision: claimed.revision,
           action: 'complete',
-          description: `${current.description ?? ''}\n\n结果：${state}`,
+          description: `${ready.description ?? ''}\n\n结果：${state}`,
         })
       } catch {
         // 共享任务板只是可见性，不因为它的失败影响任务本身
