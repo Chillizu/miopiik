@@ -115,6 +115,50 @@ export function createOperator({ ctx, engines, config, warn }) {
     }
 
     await engine.updateJob(jobId, { childId: String(activation.childId) })
+
+    // 共享任务板：派发即开卡，团队视图里能看到「O 在做什么」。
+    // 没有会籍（普通会话不是 Lead）时静默跳过——这是可选接线，不是依赖。
+    let teamTask = null
+    try {
+      const teams = ctx.get('agentTeams')
+      if (teams !== undefined && teams.tryMembership?.(agent) !== undefined) {
+        teamTask = await teams.createTask(agent, {
+          subject: `O-${jobId} ${input.goal}`.slice(0, 80),
+          description: [
+            input.goal,
+            input.deliverables ? `交付：${input.deliverables}` : null,
+            input.acceptance ? `验收：${input.acceptance}` : null,
+            input.boundary ? `边界：${input.boundary}` : null,
+            input.budget ? `预算：${input.budget}` : null,
+          ].filter(Boolean).join('\n'),
+        })
+        await engine.updateJob(jobId, { teamTaskId: teamTask.id })
+      }
+    } catch {
+      teamTask = null
+    }
+
+    /** 任务收尾时把共享任务卡一并推进。 */
+    const settleTeamTask = async (state) => {
+      if (teamTask === null) return
+      try {
+        const teams = ctx.get('agentTeams')
+        const current = teams.getTask(agent, teamTask.id)
+        await teams.updateTask(agent, {
+          taskId: teamTask.id,
+          expectedRevision: current.revision,
+          action: 'edit',
+          description: `${teamTask.description ?? ''}\n\n结果：${state}`,
+        })
+        await teams.updateTask(agent, {
+          taskId: teamTask.id,
+          expectedRevision: current.revision + 1,
+          action: 'complete',
+        })
+      } catch {
+        // 共享任务板只是可见性，不因为它的失败影响任务本身
+      }
+    }
     if (branchId !== null) await engine.attachJobToBranch(branchId, jobId)
     childEngines.set(String(activation.childId), engine)
 
@@ -193,6 +237,7 @@ export function createOperator({ ctx, engines, config, warn }) {
           endedAt: Date.now(),
           stopReason: result?.stopReason ?? null,
         })
+        await settleTeamTask(result?.stopReason === 'completed' ? '完成' : `未完成（${result?.stopReason ?? 'unknown'}）`)
         if (draft) {
           // 草稿态：结果留在草稿区，不打扰用户、不进收件箱（SPEC §4.4）。
           await engine.addDraft({
