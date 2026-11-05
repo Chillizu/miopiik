@@ -143,17 +143,13 @@ export function createOperator({ ctx, engines, config, warn }) {
       if (teamTask === null) return
       try {
         const teams = ctx.get('agentTeams')
+        // 一次调用同时改描述与状态：分开两次会因为版本号前进而失配（踩过）。
         const current = teams.getTask(agent, teamTask.id)
         await teams.updateTask(agent, {
           taskId: teamTask.id,
           expectedRevision: current.revision,
-          action: 'edit',
-          description: `${teamTask.description ?? ''}\n\n结果：${state}`,
-        })
-        await teams.updateTask(agent, {
-          taskId: teamTask.id,
-          expectedRevision: current.revision + 1,
           action: 'complete',
+          description: `${current.description ?? ''}\n\n结果：${state}`,
         })
       } catch {
         // 共享任务板只是可见性，不因为它的失败影响任务本身
