@@ -55,6 +55,7 @@ export class Engine {
     this.turn = 0
     const last = store.state.observations[store.state.observations.length - 1]
     this.lastTurnDay = last !== undefined && Number.isFinite(last.day) ? last.day : null
+    this.lastWorkload = null
   }
 
   get state() {
@@ -160,6 +161,15 @@ export class Engine {
       if (!covered) await this.foldDay(this.lastTurnDay)
     }
     this.lastTurnDay = this.lastTurnDay === null ? today : Math.max(this.lastTurnDay, today)
+
+    // 「做了一堆事却没有分支承载」要让 M 看得见——不是规定它必须开分支，而是把这个事实摆出来。
+    try {
+      const toolCount = this.state.observations.filter((entry) => entry.kind === 'tool' && entry.turn === turn).length
+      const coveredByBranch = [...this.state.branches.values()].some((branch) => branch.forkedAtTurn === turn && branch.status === 'open')
+      this.lastWorkload = { turn, toolCount, coveredByBranch }
+    } catch {
+      this.lastWorkload = null
+    }
 
     for (const id of overflowToDormant([...this.state.loops.values()], ACTIVE_LOOP_CAP)) {
       await appendRecord(this.store, 'loops', { op: 'status', loopId: id, status: 'dormant', at: now })
@@ -1567,6 +1577,12 @@ export class Engine {
         lines.push(`- [${loop.id}] ${loop.text}${condition}`)
       }
       if (loops.length > 5) lines.push(`- …还有 ${loops.length - 5} 条活跃开环`)
+    }
+    const workload = this.lastWorkload
+    if (workload !== null && workload.toolCount >= 6 && !workload.coveredByBranch) {
+      lines.push(
+        `上一轮做了 ${workload.toolCount} 次工具调用，没有分支承载它——如果这已经是一条要推进的线，开一条分支；如果只是查一下，忽略这行。`,
+      )
     }
     const branchLines = describeBranches(
       [...this.state.branches.values()],

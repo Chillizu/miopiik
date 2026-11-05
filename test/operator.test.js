@@ -49,3 +49,10 @@ test('任务板开卡失败不能阻断派发，且归属在中间层模块', ()
   assert.match(source, /任务板开卡失败（不影响派发）/, '开卡要包在 try/catch 里')
   assert.match(source, /from '\.\/taskboard\.js'/, 'operator 应使用中间层的任务板模块')
 })
+
+test('「做了很多事却没有分支承载」要进 L3 可见性，而不是写成规则', () => {
+  assert.match(source, /lastWorkload/, '要记录上一轮的工具强度')
+  const engineSource = readFileSync(join(here, '..', 'miopiik-dsh', 'host', 'engine.js'), 'utf8')
+  assert.match(engineSource, /没有分支承载它——如果这已经是一条要推进的线/, 'L3 要摆出这条事实')
+  assert.match(engineSource, /如果只是查一下，忽略这行/, '给 M 留不做判断的自由')
+})
