@@ -590,14 +590,21 @@ window.__ModuleLoader__.load({
           'div',
           { style: { display: 'flex', flexDirection: 'column', gap: 6 } },
           h('div', { style: { fontSize: 12, fontWeight: 600, color: C.muted } }, t('tab.stream')),
-          notes.length === 0
-            ? h('div', { style: styles.empty }, t('stream.empty'))
-            : notes.map((note) =>
-                h('div', { key: note.id, style: { display: 'flex', gap: 8, alignItems: 'baseline' } },
-                  h('span', { style: { flex: 'none', fontSize: 11, color: C.muted } }, note.kind),
-                  h('span', { style: { flex: '1 1 auto', minWidth: 0, fontSize: 12, color: C.text } }, note.claim),
-                ),
-              ),
+          (() => {
+            const merged = [
+              ...notes.map((note) => ({ id: note.id, kind: note.kind, claim: note.claim, at: note.at ?? 0 })),
+              ...(snapshot?.audit?.factEvents ?? []).map((fact) => ({ id: fact.id, kind: 'fact', claim: fact.claim, at: fact.at ?? 0 })),
+              ...(snapshot?.audit?.branchEvents ?? []).map((branch) => ({ id: `ev-${branch.id}`, kind: 'branch', claim: `${branch.id} ${branch.label} · ${branch.status}`, at: branch.at ?? 0 })),
+            ].sort((a, b) => b.at - a.at).slice(0, 8)
+            return merged.length === 0
+              ? h('div', { style: styles.empty }, t('stream.empty'))
+              : merged.map((row) =>
+                  h('div', { key: row.id, style: { display: 'flex', gap: 8, alignItems: 'baseline' } },
+                    h('span', { style: { flex: 'none', fontSize: 11, color: row.kind === 'fact' ? C.success : row.kind === 'branch' ? C.brand : C.muted } }, row.kind),
+                    h('span', { style: { flex: '1 1 auto', minWidth: 0, fontSize: 12, color: C.text } }, row.claim),
+                  ),
+                )
+          })(),
         ),
       )
     }
