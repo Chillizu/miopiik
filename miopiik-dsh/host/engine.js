@@ -126,6 +126,15 @@ export class Engine {
   static FAREWELL = /(先这样|先到这里|今天就到这儿?|明天再(说|聊|继续)|下次再聊|我去忙|我去睡|晚安|回头聊|拜拜|bye[- ]?bye|good ?night)/iu
 
   async finishTurn(turn) {
+    try {
+      const last = [...this.state.observations].reverse()
+      const mine = last.find((entry) => entry.kind === 'user' && entry.turn === turn)
+      const theirs = last.find((entry) => entry.kind === 'assistant' && entry.turn === turn)
+      if (mine !== undefined) await this.appendInkContext({ kind: 'user', text: mine.text, refs: [`U-${mine.seq}`] })
+      if (theirs !== undefined) await this.appendInkContext({ kind: 'assistant', text: theirs.text, refs: [] })
+    } catch {
+      // 中间层上下文是增量，失败不影响回合结束
+    }
     const now = this.now()
     const today = dayOf(now)
     const epoch = this.state.epoch
@@ -318,6 +327,41 @@ export class Engine {
       }
     })
     return this.state.facts.get(id)
+  }
+
+  /**
+   * 中间层自己的连续上下文（SPEC §3「常驻的是它的上下文，不是它的注意力」）。
+   * 不重算：每次只是往尾部追加，尾部过长时折叠成头部（一次动作，两件产物）。
+   */
+  async appendInkContext(entry) {
+    const clean = {
+      at: entry.at ?? this.now(),
+      kind: entry.kind,
+      text: String(entry.text ?? '').replace(/\s+/gu, ' ').trim().slice(0, 200),
+      refs: entry.refs ?? [],
+    }
+    if (clean.text === '') return
+    await this.enqueue(async () => {
+      await appendRecord(this.store, 'ink-context', { op: 'entry', entry: clean, at: this.now() })
+      this.state.inkTail.push(clean)
+      const tailLimit = DEFAULTS.inkTailLimit
+      if (this.state.inkTail.length > tailLimit) {
+        // 折叠：把最老的一半压成一段头部摘要（确定性，不编造），其余留下。
+        const keep = this.state.inkTail.slice(-tailLimit)
+        const folded = this.state.inkTail.slice(0, this.state.inkTail.length - keep.length)
+        const lines = folded.map((item) => `- [${item.kind}] ${item.text}`).join('\n')
+        const head = `${this.state.inkHead === '' ? '' : `${this.state.inkHead}\n`}${lines}`.slice(-DEFAULTS.inkHeadMaxChars)
+        await appendRecord(this.store, 'ink-context', { op: 'fold', head, at: this.now() })
+        this.state.inkHead = head
+        this.state.inkTail = keep
+      }
+    })
+  }
+
+  /** 给编译用的连续上下文：头部 + 尾部，就是 Ink 的「会话」。 */
+  inkContext() {
+    const tail = this.state.inkTail.map((item) => `- [${item.kind}] ${item.text}`).join('\n')
+    return [this.state.inkHead, tail].filter((part) => part !== '').join('\n')
   }
 
   /** 事实卡的「重量」：条数、字节、近期增量、疑似重复。不设上限，只让它看得见。 */

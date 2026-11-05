@@ -17,7 +17,7 @@ function registeredTools() {
 }
 
 /** 只给 Operator 的通道：Mind 被单独 restrict 掉，所以它不在 INK_TOOL_NAMES 里。 */
-const OPERATOR_ONLY = ['ink_ask']
+const OPERATOR_ONLY = ['ink_ask', 'ink_report']
 
 test('除 Operator 专用通道外，注册的每个 ink_* 都在拒绝列表里（子 agent 拿不到）', () => {
   const registered = registeredTools()

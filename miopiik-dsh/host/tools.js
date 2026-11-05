@@ -439,6 +439,42 @@ export function registerTools(ctx, engines, operator, services = {}) {
       },
     }),
   )
+  // O 层交出事实：谁处理过上下文，谁就能给结论（用户裁决：事实由处理上下文的层撰写/给出）。
+  ctx.tools.register(
+    tool({
+      name: 'ink_report',
+      description:
+        'Operator-side channel: hand back conclusions from the work you just did, so they become fact cards. Only the layer that processed the context can report; Mind revises or voids them later. Use one claim per call, with the evidence that supports it.',
+      parameters: {
+        type: 'object',
+        properties: {
+          claim: { type: 'string', description: 'One conclusion that changes what someone does next.' },
+          conf: { type: 'string', enum: ['low', 'mid', 'high'] },
+          evidence: { type: 'string', description: 'What proves it (paths, outputs, measurements).' },
+        },
+        required: ['claim'],
+        additionalProperties: false,
+      },
+      async execute(args, exec) {
+        if (operator === undefined || typeof operator.engineForChild !== 'function') {
+          throw new Error('MiOpIIk: 没有可用的 Ink 运行时映射')
+        }
+        const sessionId = String(exec.agent?.session?.id ?? '')
+        const engine = operator.engineForChild(sessionId) ?? engines.get(sessionId)
+        if (engine === undefined) throw new Error('MiOpIIk: 这个会话没有对应的 Ink 运行时')
+        const job = [...engine.state.jobs.values()].find((entry) => String(entry.childId ?? '') === sessionId)
+        const fact = await engine.addFact({
+          claim: args.claim,
+          conf: args.conf ?? 'mid',
+          source: 'operator',
+          scope: 'session',
+          provenance: [job === undefined ? 'operator' : `job:${job.id}`, args.evidence ?? '无证据说明'].filter(Boolean),
+        })
+        await engine.appendInkContext({ kind: 'fact', text: fact.claim, refs: [fact.id] })
+        return { fact }
+      },
+    }),
+  )
   ctx.tools.register(
     tool({
       name: 'ink_branch',

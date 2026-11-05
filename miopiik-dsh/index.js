@@ -73,7 +73,7 @@ export function apply(ctx, config) {
       }
       // ink_ask 是 Operator 的通道，Mind 不该看到它。
       try {
-        agent.ctx?.tools?.restrict?.({ deny: ['ink_ask'] })
+        agent.ctx?.tools?.restrict?.({ deny: ['ink_ask', 'ink_report'] })
       } catch {
         // 老版本没有 per-agent 工具面时忽略。
       }

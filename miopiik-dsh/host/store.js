@@ -11,7 +11,7 @@ import { mkdir, readFile, appendFile, rename, stat, unlink } from 'node:fs/promi
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 
-export const LOG_NAMES = Object.freeze(['observations', 'notes', 'loops', 'facts', 'inbox', 'briefings', 'jobs', 'drafts', 'cases', 'branches', 'folds', 'details'])
+export const LOG_NAMES = Object.freeze(['observations', 'notes', 'loops', 'facts', 'inbox', 'briefings', 'jobs', 'drafts', 'cases', 'branches', 'folds', 'details', 'ink-context'])
 
 export function emptyState(sessionId) {
   return {
@@ -26,6 +26,9 @@ export function emptyState(sessionId) {
     drafts: new Map(),
     cases: [],
     branches: new Map(),
+    // 中间层自己的连续上下文：折叠过的头部 + 未折叠的尾部（SPEC §3「常驻的是上下文」）。
+    inkHead: '',
+    inkTail: [],
     folds: new Map(),
     details: [],
     counters: { obs: 0, note: 0, loop: 0, fact: 0, inbox: 0, job: 0, draft: 0, case: 0, branch: 0, fold: 0 },
@@ -194,6 +197,14 @@ export function applyRecord(state, log, record) {
       }
       return
     }
+    case 'ink-context':
+      // entry 追加到尾部；fold 把尾部并进头部（一次动作，两件产物）。
+      if (record.op === 'entry' && record.entry) state.inkTail.push(record.entry)
+      else if (record.op === 'fold') {
+        state.inkHead = record.head ?? state.inkHead
+        state.inkTail = []
+      }
+      break
     case 'details':
       state.details.push(record)
       return
