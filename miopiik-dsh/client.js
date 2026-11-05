@@ -1516,6 +1516,7 @@ window.__ModuleLoader__.load({
 
         // 右栏常驻面板：Ink 的视角。类型注册 + 正文席位 + 控制器引用（按钮用它 openTab）。
         ctx.inject(['sidebarRightTabs'], (inner) => {
+          console.log('[miopiik] sidebarRightTabs available', typeof inner.sidebarRightTabs?.register)
           inner.effect(
             () =>
               inner.sidebarRightTabs.register({
