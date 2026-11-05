@@ -575,6 +575,20 @@ window.__ModuleLoader__.load({
         h(
           'div',
           { style: { display: 'flex', flexDirection: 'column', gap: 6 } },
+          h('div', { style: { fontSize: 12, fontWeight: 600, color: C.muted } }, t('rightbar.inbox')),
+          (snapshot?.inbox?.previews ?? []).length === 0
+            ? h('div', { style: styles.empty }, t('rightbar.inboxEmpty'))
+            : (snapshot?.inbox?.previews ?? []).map((item) =>
+                h('div', { key: item.id, style: { display: 'flex', gap: 8, alignItems: 'baseline' } },
+                  h('span', { style: { flex: 'none', fontSize: 10, color: C.brand } }, item.tier),
+                  h('span', { style: { flex: '1 1 auto', minWidth: 0, fontSize: 12, color: C.text } }, item.claim),
+                  item.question ? h('span', { style: { flex: 'none', fontSize: 11, color: C.muted } }, '→') : null,
+                ),
+              ),
+        ),
+        h(
+          'div',
+          { style: { display: 'flex', flexDirection: 'column', gap: 6 } },
           h('div', { style: { fontSize: 12, fontWeight: 600, color: C.muted } }, t('tab.stream')),
           notes.length === 0
             ? h('div', { style: styles.empty }, t('stream.empty'))
@@ -1331,6 +1345,8 @@ window.__ModuleLoader__.load({
       'tab.list': '清单',
       'tab.stream': '流水',
       'rightbar.title': 'Ink',
+      'rightbar.inbox': '收件箱（未读）',
+      'rightbar.inboxEmpty': '没有待读的预览。',
       'rightbar.open': '在右侧栏打开',
       'tab.audit': '审计',
       'graph.title': '鱼骨图',
@@ -1410,6 +1426,8 @@ window.__ModuleLoader__.load({
       'tab.list': 'List',
       'tab.stream': 'Stream',
       'rightbar.title': 'Ink',
+      'rightbar.inbox': '收件箱（未读）',
+      'rightbar.inboxEmpty': '没有待读的预览。',
       'rightbar.open': 'Open in sidebar',
       'presence.label': 'Backstage',
       'presence.title': 'Open the backstage panel',
@@ -1426,6 +1444,8 @@ window.__ModuleLoader__.load({
       'tab.list': '清单',
       'tab.stream': '流水',
       'rightbar.title': 'Ink',
+      'rightbar.inbox': '收件箱（未读）',
+      'rightbar.inboxEmpty': '没有待读的预览。',
       'rightbar.open': '在右侧栏打开',
       'tab.audit': 'Audit',
       'graph.title': 'Fishbone graph',
