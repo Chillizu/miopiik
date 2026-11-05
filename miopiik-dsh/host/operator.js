@@ -115,6 +115,67 @@ export function createOperator({ ctx, engines, config, warn }) {
     }
 
     await engine.updateJob(jobId, { childId: String(activation.childId) })
+    if (branchId !== null) await engine.attachJobToBranch(branchId, jobId)
+    childEngines.set(String(activation.childId), engine)
+
+    // 无进展守夜（SPEC §3.4）：不是「跑太久」，而是「跑着但没动静」。
+    // 判据是观测日志里有没有新事件（工具结果、回合边界都算），不是猜它在想什么。
+    const stallMs = Number(config?.operatorStallMs ?? DEFAULTS.operatorStallMs)
+    let lastSeen = engine.state.counters.obs
+    let lastProgressAt = Date.now()
+    let stalled = false
+    const stallTimer = setInterval(async () => {
+      try {
+        const now = engine.state.counters.obs
+        const job = engine.state.jobs.get(jobId)
+        if (job === undefined || job.state !== 'running') return
+        if (now !== lastSeen) {
+          lastSeen = now
+          lastProgressAt = Date.now()
+          return
+        }
+        const decision = shouldStall({
+          job,
+          observedSeq: now,
+          lastSeen,
+          lastProgressAt,
+          stallMs,
+          now: Date.now(),
+        })
+        if (!decision || stalled) return
+        stalled = true
+        await engine.updateJob(jobId, { state: 'stalled', stalledAt: Date.now() })
+        const synthetic = { id: jobId, loopId: loop.id, branchId, label: input.goal.slice(0, 40) }
+        await engine.deliverNote(
+          fallbackPreview(
+            synthetic,
+            `O-${jobId} 看起来卡住了：${Math.round(stallMs / 60000)} 分钟没有新动静`,
+            '要不要停掉它，或者让它换个做法？',
+            `最后一次观测在 job ${jobId}；预算：${input.budget}`,
+          ),
+          { blocking: true },
+        )
+      } catch (error) {
+        warn(`无进展守夜失败：${error?.message ?? error}`)
+      }
+    }, Math.max(30_000, Math.floor(stallMs / 3)))
+    if (typeof stallTimer.unref === 'function') stallTimer.unref()
+
+    const timeoutMs = Number(config?.operatorTimeoutMs ?? DEFAULTS.operatorTimeoutMs)
+    const timer = setTimeout(() => {
+      clearInterval(stallTimer)
+      // 超时守夜：只投递 [阻塞] 预览，不替 Mind/用户做回滚决定（SPEC §3.4）。
+      engine.updateJob(jobId, { state: 'timeout' }).catch(() => undefined)
+      const synthetic = { id: jobId, loopId: loop.id, branchId, label: input.goal.slice(0, 40) }
+      engine
+        .deliverNote(fallbackPreview(synthetic, `O-${jobId} 超时未回（预算：${input.budget}）`, '要不要停掉它？'), {
+          blocking: true,
+        })
+        .catch((error) => warn(`守夜投递失败：${error?.message ?? error}`))
+    }, timeoutMs)
+    if (typeof timer.unref === 'function') timer.unref()
+
+    running.set(jobId, { activation, timer, stallTimer, engine, agent })
 
     // 任务板归中间层（Ink）——这里只是把契约交给它开卡。
     const teamTask = await openCard(ctx, agent, { jobId, contract: input })
