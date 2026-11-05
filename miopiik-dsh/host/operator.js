@@ -9,6 +9,7 @@
 import { renderContractPrompt, renderDraftPrompt, validateContract, validateDraft } from './contract.js'
 import { DEFAULTS } from './config-defaults.js'
 import { compileResult, fallbackPreview } from './compile.js'
+import { openCard, settleCard } from './taskboard.js'
 
 /**
  * 无进展判定（纯函数，便于测试）：任务仍在跑、观测序号没变、且已超过静默阈值。
@@ -178,7 +179,14 @@ export function createOperator({ ctx, engines, config, warn }) {
     running.set(jobId, { activation, timer, stallTimer, engine, agent })
 
     // 任务板归中间层（Ink）——这里只是把契约交给它开卡。
-    const teamTask = await openCard(ctx, agent, { jobId, contract: input })
+    const teamTask = await (async () => {
+      try {
+        return await openCard(ctx, agent, { jobId, contract: input })
+      } catch (error) {
+        warn(`任务板开卡失败（不影响派发）：${String(error?.message ?? error).slice(0, 120)}`)
+        return null
+      }
+    })()
     if (teamTask !== null) await engine.updateJob(jobId, { teamTaskId: teamTask.id })
 
     activation.result
