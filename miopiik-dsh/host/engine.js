@@ -771,6 +771,13 @@ export class Engine {
             .reverse()
             .map((entry) => ({ kind: entry.kind, at: entry.at ?? 0, turn: entry.turn ?? null, text: String(entry.text ?? '').slice(0, 600) })),
         },
+        // 事实与分支的变动也进流水：不然「后台做过什么」会漏掉一半。
+        factEvents: [...this.state.facts.values()]
+          .slice(-12)
+          .map((fact) => ({ id: fact.id, claim: fact.claim, at: fact.revisedAt ?? fact.createdAt ?? 0, scope: fact.scope ?? 'session', stale: fact.stale === true })),
+        branchEvents: [...this.state.branches.values()]
+          .slice(-12)
+          .map((branch) => ({ id: branch.id, label: branch.label, status: branch.status, at: branch.settledAt ?? branch.createdAt ?? 0 })),
         // 执行层（Operator）：契约、派出去的完整提示、以及回来的结果。
         jobs: [...this.state.jobs.values()]
           .slice(-10)

@@ -855,6 +855,23 @@ window.__ModuleLoader__.load({
       if (audit === undefined) return h('div', { style: styles.empty }, t('stream.offline'))
 
       const notes = (audit.notes ?? []).map((note) => ({ ...note, rowKind: note.kind === 'preview' || note.kind === 'answer' ? 'note' : note.kind }))
+      const factRows = (audit.factEvents ?? []).map((fact) => ({
+        id: fact.id,
+        rowKind: 'fact',
+        kindLabel: 'fact',
+        claim: `${fact.stale ? '（已失效）' : ''}${fact.claim}`,
+        at: fact.at,
+        branch: null,
+        fact,
+      }))
+      const branchRows = (audit.branchEvents ?? []).map((branch) => ({
+        id: `ev-${branch.id}`,
+        rowKind: 'branch',
+        kindLabel: 'branch',
+        claim: `${branch.id} ${branch.label} · ${branch.status}`,
+        at: branch.at,
+        branch: branch.id,
+      }))
       const jobs = (audit.jobs ?? []).map((job) => ({
         id: job.id,
         rowKind: 'job',
@@ -865,7 +882,7 @@ window.__ModuleLoader__.load({
         job,
       }))
       const obs = audit.observations ?? {}
-      const rows = [...notes, ...jobs].sort((a, b) => (b.at ?? 0) - (a.at ?? 0))
+      const rows = [...notes, ...factRows, ...branchRows, ...jobs].sort((a, b) => (b.at ?? 0) - (a.at ?? 0))
 
       const counts = rows.reduce((acc, row) => {
         acc[row.kindLabel ?? row.kind] = (acc[row.kindLabel ?? row.kind] ?? 0) + 1
