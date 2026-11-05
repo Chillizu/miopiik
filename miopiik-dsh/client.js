@@ -33,6 +33,10 @@ window.__ModuleLoader__.load({
 
     const overlay = createStore({ open: false, tab: 'loops' })
 
+    // 右栏入口：tab 类型的 id 与控制器引用（按钮要用它 openTab）。
+    const INK_TAB_ID = 'miopiik-dsh/ink'
+    let rightbar = null
+
     const useStore = React.useSyncExternalStore
       ? (store) => React.useSyncExternalStore(store.subscribe, store.get)
       : (store) => {
@@ -1516,19 +1520,16 @@ window.__ModuleLoader__.load({
 
         // 右栏常驻面板：Ink 的视角。类型注册 + 正文席位 + 控制器引用（按钮用它 openTab）。
         ctx.inject(['sidebarRightTabs'], (inner) => {
-          console.log('[miopiik] registry', typeof inner.sidebarRightTabs?.register, 'kinds', inner.sidebarRightTabs?.kinds?.size)
-          try {
-            const disposer = inner.sidebarRightTabs.register({
-              id: INK_TAB_ID,
-              kind: 'miopiik',
-              title: () => t('rightbar.title'),
-              keepMounted: true,
-            })
-            console.log('[miopiik] registered, kinds now', inner.sidebarRightTabs?.kinds?.size, typeof disposer)
-            inner.effect(() => disposer, 'miopiik-dsh: rightbar tab type')
-          } catch (error) {
-            console.error('[miopiik] register failed', String(error?.message ?? error))
-          }
+          inner.effect(
+            () =>
+              inner.sidebarRightTabs.register({
+                id: INK_TAB_ID,
+                kind: 'miopiik',
+                title: () => t('rightbar.title'),
+                keepMounted: true,
+              }),
+            'miopiik-dsh: rightbar tab type',
+          )
           inner.slots.inject('sidebar.right.pane.tab', () =>
             inner.slots.register({ name: 'sidebar.right.pane.tab', key: INK_TAB_ID, locale: NS }, InkPane),
           )
