@@ -1516,17 +1516,19 @@ window.__ModuleLoader__.load({
 
         // 右栏常驻面板：Ink 的视角。类型注册 + 正文席位 + 控制器引用（按钮用它 openTab）。
         ctx.inject(['sidebarRightTabs'], (inner) => {
-          console.log('[miopiik] sidebarRightTabs available', typeof inner.sidebarRightTabs?.register)
-          inner.effect(
-            () =>
-              inner.sidebarRightTabs.register({
-                id: INK_TAB_ID,
-                kind: 'miopiik',
-                title: () => t('rightbar.title'),
-                keepMounted: true,
-              }),
-            'miopiik-dsh: rightbar tab type',
-          )
+          console.log('[miopiik] registry', typeof inner.sidebarRightTabs?.register, 'kinds', inner.sidebarRightTabs?.kinds?.size)
+          try {
+            const disposer = inner.sidebarRightTabs.register({
+              id: INK_TAB_ID,
+              kind: 'miopiik',
+              title: () => t('rightbar.title'),
+              keepMounted: true,
+            })
+            console.log('[miopiik] registered, kinds now', inner.sidebarRightTabs?.kinds?.size, typeof disposer)
+            inner.effect(() => disposer, 'miopiik-dsh: rightbar tab type')
+          } catch (error) {
+            console.error('[miopiik] register failed', String(error?.message ?? error))
+          }
           inner.slots.inject('sidebar.right.pane.tab', () =>
             inner.slots.register({ name: 'sidebar.right.pane.tab', key: INK_TAB_ID, locale: NS }, InkPane),
           )
