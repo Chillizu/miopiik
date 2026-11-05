@@ -130,8 +130,13 @@ export class Engine {
       const last = [...this.state.observations].reverse()
       const mine = last.find((entry) => entry.kind === 'user' && entry.turn === turn)
       const theirs = last.find((entry) => entry.kind === 'assistant' && entry.turn === turn)
-      if (mine !== undefined) await this.appendInkContext({ kind: 'user', text: mine.text, refs: [`U-${mine.seq}`] })
-      if (theirs !== undefined) await this.appendInkContext({ kind: 'assistant', text: theirs.text, refs: [] })
+      const nowAt = this.now()
+      if (mine !== undefined) {
+        await this.appendInkContextNow({ at: nowAt, kind: 'user', text: mine.text, refs: [`U-${mine.seq}`] })
+      }
+      if (theirs !== undefined) {
+        await this.appendInkContextNow({ at: nowAt, kind: 'assistant', text: theirs.text, refs: [] })
+      }
     } catch {
       // 中间层上下文是增量，失败不影响回合结束
     }
@@ -341,21 +346,26 @@ export class Engine {
       refs: entry.refs ?? [],
     }
     if (clean.text === '') return
-    await this.enqueue(async () => {
-      await appendRecord(this.store, 'ink-context', { op: 'entry', entry: clean, at: this.now() })
-      this.state.inkTail.push(clean)
-      const tailLimit = DEFAULTS.inkTailLimit
-      if (this.state.inkTail.length > tailLimit) {
-        // 折叠：把最老的一半压成一段头部摘要（确定性，不编造），其余留下。
-        const keep = this.state.inkTail.slice(-tailLimit)
-        const folded = this.state.inkTail.slice(0, this.state.inkTail.length - keep.length)
-        const lines = folded.map((item) => `- [${item.kind}] ${item.text}`).join('\n')
-        const head = `${this.state.inkHead === '' ? '' : `${this.state.inkHead}\n`}${lines}`.slice(-DEFAULTS.inkHeadMaxChars)
-        await appendRecord(this.store, 'ink-context', { op: 'fold', head, at: this.now() })
-        this.state.inkHead = head
-        this.state.inkTail = keep
-      }
-    })
+    await this.enqueue(() => this.appendInkContextNow(clean))
+  }
+
+  /**
+   * 真正的写入。**不再入队**：finishTurn 本身就在队列里跑，再入队会与自己互相等待（自锁，踩过一次）。
+   */
+  async appendInkContextNow(clean) {
+    await appendRecord(this.store, 'ink-context', { op: 'entry', entry: clean, at: this.now() })
+    this.state.inkTail.push(clean)
+    const tailLimit = DEFAULTS.inkTailLimit
+    if (this.state.inkTail.length > tailLimit) {
+      // 折叠：把最老的一段压成头部摘要（确定性，不编造），其余留下。
+      const keep = this.state.inkTail.slice(-tailLimit)
+      const folded = this.state.inkTail.slice(0, this.state.inkTail.length - keep.length)
+      const lines = folded.map((item) => `- [${item.kind}] ${item.text}`).join('\n')
+      const head = `${this.state.inkHead === '' ? '' : `${this.state.inkHead}\n`}${lines}`.slice(-DEFAULTS.inkHeadMaxChars)
+      await appendRecord(this.store, 'ink-context', { op: 'fold', head, at: this.now() })
+      this.state.inkHead = head
+      this.state.inkTail = keep
+    }
   }
 
   /** 给编译用的连续上下文：头部 + 尾部，就是 Ink 的「会话」。 */

@@ -286,3 +286,30 @@ test('事实卡不设条数上限，但会算重量并指出疑似重复', async
     await rm(root, { recursive: true, force: true })
   }
 })
+
+test('中间层的连续上下文：回合结束后追加，且在队列内不会自锁', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'miopiik-inkctx-'))
+  try {
+    const engine = new Engine({ store: await openStore(join(root, 'sessions', 'a'), 'a', { workspaceRoot: root }), sessionId: 'a' })
+    engine.observe({ type: 'turn/start', data: { turn: 1 } })
+    engine.observe({
+      type: 'user/message',
+      data: { source: { kind: 'user' }, content: [{ type: 'text', text: '第一轮用户的话' }] },
+    })
+    engine.observe({
+      type: 'assistant/message',
+      data: { turn: 1, message: { content: [{ type: 'text', text: '第一轮我的回答' }] } },
+    })
+    // finishTurn 在队列里跑：这里若再入队就会自锁，所以给一个超时断言。
+    await Promise.race([
+      engine.observe({ type: 'turn/end', data: { turn: 1 } }),
+      new Promise((_, reject) => setTimeout(() => reject(new Error('turn/end 自锁了')), 2000)),
+    ])
+    await engine.queue
+    assert.match(engine.inkContext(), /第一轮用户的话/)
+    assert.match(engine.inkContext(), /第一轮我的回答/)
+    assert.ok(engine.state.inkTail.length >= 2)
+  } finally {
+    await rm(root, { recursive: true, force: true })
+  }
+})
