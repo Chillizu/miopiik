@@ -32,7 +32,7 @@ test('同一开环最多一条待读：新的保留，旧的标 superseded', () 
   assert.deepEqual(mergeByLoop([newer, older]), ['I-1'])
 })
 
-test('每轮最多 3 条完整预览 + 一行计数，按层级排序', () => {
+test('预览按字符预算给，不数条数：能塞几条塞几条，至少一条', () => {
   const items = [
     makeItem({ id: 'I-1', epoch: 1, createdAt: 1 }),
     makeItem({ id: 'I-2', epoch: 1, newConclusion: true, createdAt: 2 }),
@@ -40,14 +40,23 @@ test('每轮最多 3 条完整预览 + 一行计数，按层级排序', () => {
     makeItem({ id: 'I-4', epoch: 1, blocking: true, createdAt: 4 }),
     makeItem({ id: 'I-5', epoch: 1, loopId: 'L-1', createdAt: 5 }),
   ]
-  const view = selectView(items, { currentEpoch: 1, activeLoopIds })
-  assert.equal(view.previews.length, 3)
-  assert.equal(view.hiddenCount, 2)
+  // 预算很小时只给最靠前的一条，其余折叠成计数
+  const tight = selectView(items, { currentEpoch: 1, activeLoopIds, budget: 10 })
+  assert.equal(tight.previews.length, 1)
+  assert.equal(tight.previews[0].item.id, 'I-4', '阻塞优先')
+  assert.equal(tight.hiddenCount, 4)
+
+  // 预算够大时全部给出
+  const roomy = selectView(items, { currentEpoch: 1, activeLoopIds, budget: 5000 })
+  assert.equal(roomy.previews.length, 5)
+  assert.equal(roomy.hiddenCount, 0)
+
+  // 排序仍然是层级优先
   assert.deepEqual(
-    view.previews.map((entry) => entry.item.id),
-    ['I-4', 'I-5', 'I-3'],
+    roomy.previews.map((entry) => entry.item.id),
+    ['I-4', 'I-5', 'I-3', 'I-2', 'I-1'],
   )
-  assert.deepEqual(view.byTier, { T0: 1, T1: 2, T2: 1, T3: 1 })
+  assert.deepEqual(roomy.byTier, { T0: 1, T1: 2, T2: 1, T3: 1 })
   assert.equal(tierName(0), 'T0')
 })
 

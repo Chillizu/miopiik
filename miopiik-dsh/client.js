@@ -1297,7 +1297,7 @@ window.__ModuleLoader__.load({
       ['foldedAfterDays', '几天后折成一行', 7],
       ['draftExpireDays', '草稿几天没人碰自动丢弃', 7],
       ['briefingMaxChars', '简报字数上限', 1800],
-      ['inboxMaxPreviews', '每轮最多几条完整预览', 3],
+      ['inboxPreviewChars', '每轮预览总字数上限', 220],
       ['detailInlineMaxChars', '多长的详情转成指针', 1200],
       ['inkTailLimit', '中间层上下文尾部条数', 24],
       ['inkHeadMaxChars', '中间层头部上限（字）', 2000],

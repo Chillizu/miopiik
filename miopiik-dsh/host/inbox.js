@@ -10,7 +10,7 @@
 export const TIER = Object.freeze({ T0: 0, T1: 1, T2: 2, T3: 3 })
 import { DEFAULTS } from './config-defaults.js'
 
-export const MAX_FULL_PREVIEWS = DEFAULTS.inboxMaxPreviews
+export const PREVIEW_CHAR_BUDGET = DEFAULTS.inboxPreviewChars
 const TIER_NAMES = ['T0', 'T1', 'T2', 'T3']
 
 /** 待读状态（已读/星标不算待读，但仍在三区里可见）。 */
@@ -83,7 +83,7 @@ export function mergeByLoop(items) {
  * 组装这一轮 Mind 看到的视图。
  * @returns {{ previews: Array, hiddenCount: number, byTier: Record<string, number> }}
  */
-export function selectView(items, { currentEpoch, activeLoopIds, max = MAX_FULL_PREVIEWS, all = false }) {
+export function selectView(items, { currentEpoch, activeLoopIds, budget = PREVIEW_CHAR_BUDGET, all = false }) {
   const live = items.filter((item) => item.status !== 'superseded')
   const pending = live
     .filter((item) => PENDING_STATUSES.includes(item.status))
@@ -92,7 +92,18 @@ export function selectView(items, { currentEpoch, activeLoopIds, max = MAX_FULL_
       if (a.tier !== b.tier) return a.tier - b.tier
       return b.item.createdAt - a.item.createdAt
     })
-  const shown = all ? pending : pending.slice(0, max)
+  // 不数条数，数字：能塞几条塞几条，至少给一条（「能挤就挤」，但挤不下本身就是信号）。
+  const shown = []
+  if (all) shown.push(...pending)
+  else {
+    let used = 0
+    for (const entry of pending) {
+      const cost = `${entry.item.claim ?? ''}${entry.item.question ?? ''}`.length + 8
+      if (shown.length > 0 && used + cost > budget) break
+      shown.push(entry)
+      used += cost
+    }
+  }
   return {
     previews: shown,
     hiddenCount: Math.max(0, pending.length - shown.length),
