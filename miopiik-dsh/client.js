@@ -535,6 +535,55 @@ window.__ModuleLoader__.load({
      * MiOpIIk 功能页：唯一入口。上面是页签（鱼骨为主视图），下面是各面板。
      * 原来顶栏胶囊 + 抽屉的入口已合并到这里，避免同一件事有两个入口。
      */
+    /**
+     * 右栏面板：中间层（Ink）的常驻视图——未结事项、最近决定、运行中。
+     * 与 MiOpIIk 页共用同一份投影，只是换个位置常驻。
+     */
+    function InkPane(props) {
+      const { sessionId, useProjection } = props ?? {}
+      const snapshot = typeof useProjection === 'function' ? useProjection('miopiikBackstage') : undefined
+      const loops = snapshot?.loops?.active ?? []
+      const notes = (snapshot?.audit?.notes ?? []).slice(0, 8)
+      const running = snapshot?.jobs?.running ?? 0
+      return h(
+        'div',
+        { style: { display: 'flex', flexDirection: 'column', gap: 12, height: '100%', padding: '14px 16px', background: C.base, color: C.text, overflow: 'auto' } },
+        h(
+          'div',
+          { style: { display: 'flex', gap: 14, fontSize: 11, color: C.muted } },
+          h('span', null, `${t('tab.loops')} ${loops.length}`),
+          h('span', null, `${t('tab.running')} ${running}`),
+          h('span', null, `${t('tab.facts')} ${(snapshot?.facts?.items ?? []).filter(isSettled).length}`),
+        ),
+        h(
+          'div',
+          { style: { display: 'flex', flexDirection: 'column', gap: 6 } },
+          h('div', { style: { fontSize: 12, fontWeight: 600, color: C.muted } }, t('tab.loops')),
+          loops.length === 0
+            ? h('div', { style: styles.empty }, t('loops.empty'))
+            : loops.slice(0, 6).map((loop) =>
+                h('div', { key: loop.id, style: { display: 'flex', gap: 8, alignItems: 'baseline' } },
+                  h('span', { style: { flex: 'none', fontSize: 11, color: C.brand } }, loop.id),
+                  h('span', { style: { fontSize: 12, color: C.text } }, loop.text),
+                ),
+              ),
+        ),
+        h(
+          'div',
+          { style: { display: 'flex', flexDirection: 'column', gap: 6 } },
+          h('div', { style: { fontSize: 12, fontWeight: 600, color: C.muted } }, t('tab.stream')),
+          notes.length === 0
+            ? h('div', { style: styles.empty }, t('stream.empty'))
+            : notes.map((note) =>
+                h('div', { key: note.id, style: { display: 'flex', gap: 8, alignItems: 'baseline' } },
+                  h('span', { style: { flex: 'none', fontSize: 11, color: C.muted } }, note.kind),
+                  h('span', { style: { flex: '1 1 auto', minWidth: 0, fontSize: 12, color: C.text } }, note.claim),
+                ),
+              ),
+        ),
+      )
+    }
+
     function MiOpIIkView(props) {
       const { sessionId, useProjection } = props ?? {}
       const snapshot = typeof useProjection === 'function' ? useProjection('miopiikBackstage') : undefined
@@ -618,6 +667,27 @@ window.__ModuleLoader__.load({
               },
               label,
             ),
+          ),
+          h(
+            'button',
+            {
+              type: 'button',
+              onClick: () => rightbar?.openTab?.('miopiik'),
+              title: t('rightbar.open'),
+              style: {
+                marginLeft: 'auto',
+                marginBottom: 9,
+                padding: '2px 9px',
+                border: `0.5px solid ${C.border}`,
+                borderRadius: 12,
+                background: 'transparent',
+                color: C.muted,
+                cursor: 'pointer',
+                fontSize: 11,
+                whiteSpace: 'nowrap',
+              },
+            },
+            t('rightbar.open'),
           ),
         ),
         h(
@@ -1254,6 +1324,8 @@ window.__ModuleLoader__.load({
       'tab.graph': '鱼骨',
       'tab.list': '清单',
       'tab.stream': '流水',
+      'rightbar.title': 'Ink',
+      'rightbar.open': '在右侧栏打开',
       'tab.audit': '审计',
       'graph.title': '鱼骨图',
       'graph.empty': '还没有分支。',
@@ -1331,6 +1403,8 @@ window.__ModuleLoader__.load({
       'tab.graph': 'Fishbone',
       'tab.list': 'List',
       'tab.stream': 'Stream',
+      'rightbar.title': 'Ink',
+      'rightbar.open': 'Open in sidebar',
       'presence.label': 'Backstage',
       'presence.title': 'Open the backstage panel',
       'drawer.title': 'Backstage',
@@ -1345,6 +1419,8 @@ window.__ModuleLoader__.load({
       'tab.graph': '鱼骨',
       'tab.list': '清单',
       'tab.stream': '流水',
+      'rightbar.title': 'Ink',
+      'rightbar.open': '在右侧栏打开',
       'tab.audit': 'Audit',
       'graph.title': 'Fishbone graph',
       'graph.empty': 'No branches yet.',
@@ -1437,6 +1513,26 @@ window.__ModuleLoader__.load({
             SettingsSection,
           ),
         )
+
+        // 右栏常驻面板：Ink 的视角。类型注册 + 正文席位 + 控制器引用（按钮用它 openTab）。
+        ctx.inject(['sidebarRightTabs'], (inner) => {
+          inner.effect(
+            () =>
+              inner.sidebarRightTabs.register({
+                id: INK_TAB_ID,
+                kind: 'miopiik',
+                title: () => t('rightbar.title'),
+                keepMounted: true,
+              }),
+            'miopiik-dsh: rightbar tab type',
+          )
+          inner.slots.inject('sidebar.right.pane.tab', () =>
+            inner.slots.register({ name: 'sidebar.right.pane.tab', key: INK_TAB_ID, locale: NS }, InkPane),
+          )
+        })
+        ctx.inject(['sidebarRight'], (inner) => {
+          rightbar = inner.sidebarRight
+        })
 
         // 唯一入口：会话视图里的一个功能页（与「对话 / 轨迹」并列），图与各面板都在这一页里。
         ctx.slots.inject('conversation.view', () =>
