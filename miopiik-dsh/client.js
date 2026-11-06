@@ -868,7 +868,7 @@ window.__ModuleLoader__.load({
         { style: { display: 'flex', flexDirection: 'column', gap: 18, padding: '4px 2px 24px', maxWidth: 780 } },
         h(
           Section,
-          { title: `${t('ctx.head')}（${context.headChars ?? 0} 字）` },
+          { title: `${t('ctx.head')}（${context.headChars ?? 0} 字，仅保留最近 ${context.headMax ?? 2000} 字）` },
           head === ''
             ? h('div', { style: styles.empty }, t('ctx.empty'))
             : h(

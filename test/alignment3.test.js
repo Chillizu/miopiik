@@ -101,6 +101,21 @@ test('后台快照带上 Ink 上下文与候选（所见视图的数据面）', 
   }
 })
 
+test('折叠按整行截断并去掉连续重复行', async () => {
+  const ctx = await fixture()
+  try {
+    await ctx.engine.appendInkContext({ kind: 'user', text: '同一句话', refs: ['U-1'] })
+    await ctx.engine.appendInkContext({ kind: 'assistant', text: '一条很长的回复'.repeat(200), refs: [] })
+    await ctx.engine.advanceEpoch({ note: '换话题' })
+    const head = ctx.engine.state.inkHead
+    assert.ok(head.length <= 2000)
+    assert.ok(!head.startsWith(' '), '头部应从行首开始，不该停在半句话')
+    assert.ok(head.includes('- [user] 同一句话'))
+  } finally {
+    await ctx.cleanup()
+  }
+})
+
 test('无人值守判定：本轮没有真人的话就不算', async () => {
   const ctx = await fixture()
   try {

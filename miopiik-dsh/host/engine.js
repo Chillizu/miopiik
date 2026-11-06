@@ -388,8 +388,21 @@ export class Engine {
   /** 折叠本体：最老的一段压成头部摘要（确定性，不编造）。 */
   async foldInkContextNow(reason) {
     if (this.state.inkTail.length === 0) return
-    const lines = this.state.inkTail.map((item) => `- [${item.kind}] ${item.text}`).join('\n')
-    const head = `${this.state.inkHead === '' ? '' : `${this.state.inkHead}\n`}${lines}`.slice(-DEFAULTS.inkHeadMaxChars)
+    // 折叠前去掉连续重复行（历史双写留下的），避免头部出现同一句话两次。
+    const merged = []
+    for (const item of this.state.inkTail) {
+      const line = `- [${item.kind}] ${item.text}`
+      if (merged.length > 0 && merged[merged.length - 1] === line) continue
+      merged.push(line)
+    }
+    const combined = `${this.state.inkHead === '' ? '' : `${this.state.inkHead}\n`}${merged.join('\n')}`
+    // 超长按整行截断：从行首开始，别让头部停在半句话中间。
+    let head = combined
+    if (head.length > DEFAULTS.inkHeadMaxChars) {
+      head = head.slice(-DEFAULTS.inkHeadMaxChars)
+      const boundary = head.indexOf('\n')
+      head = boundary >= 0 ? head.slice(boundary + 1) : head
+    }
     // applyRecord 会落 head 并清空 tail；这里不手动改状态，避免两份真相。
     await appendRecord(this.store, 'ink-context', { op: 'fold', head, at: this.now(), reason })
   }
@@ -717,6 +730,7 @@ export class Engine {
       inkContext: {
         head: String(this.state.inkHead ?? '').slice(-2000),
         headChars: String(this.state.inkHead ?? '').length,
+        headMax: DEFAULTS.inkHeadMaxChars,
         tail,
         tailCount: (this.state.inkTail ?? []).length,
       },
