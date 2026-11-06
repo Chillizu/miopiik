@@ -1,0 +1,155 @@
+{
+  "schema_version": 1,
+  "diagram_type": "sequence",
+  "meta": {
+    "title": "M 与 Ink 的全部通信：两条被动、两条主动",
+    "locale": "zh-CN",
+    "quality_profile": "showcase",
+    "viewBox": [
+      1080,
+      520
+    ],
+    "column_fit": "spread"
+  },
+  "participants": [
+    {
+      "id": "user",
+      "type": "external",
+      "label": "用户",
+      "sublabel": "只跟 Mind 说话"
+    },
+    {
+      "id": "mind",
+      "type": "backend",
+      "label": "Mind",
+      "sublabel": "对话主干"
+    },
+    {
+      "id": "ink",
+      "type": "messagebus",
+      "label": "Ink",
+      "sublabel": "中间层"
+    }
+  ],
+  "segments": [
+    {
+      "from": 152,
+      "to": 240,
+      "label": "每轮：被动推送"
+    },
+    {
+      "from": 245,
+      "to": 338,
+      "label": "回合内：主动调用与应答"
+    },
+    {
+      "from": 344,
+      "to": 470,
+      "label": "低频：折叠 / 守夜 / 闸门"
+    }
+  ],
+  "messages": [
+    {
+      "from": "user",
+      "to": "mind",
+      "y": 160,
+      "label": "说一句话",
+      "variant": "emphasis"
+    },
+    {
+      "from": "mind",
+      "to": "ink",
+      "y": 191,
+      "label": "观测事件流：user / assistant / tool / turn-end（被动）",
+      "variant": "dashed"
+    },
+    {
+      "from": "mind",
+      "to": "ink",
+      "y": 222,
+      "label": "上下文 append：用户话 + 最终回复（被动）",
+      "variant": "dashed"
+    },
+    {
+      "from": "ink",
+      "to": "mind",
+      "y": 253,
+      "label": "L3 装配：开环 + 收件箱预览 + 提示行",
+      "variant": "emphasis"
+    },
+    {
+      "from": "mind",
+      "to": "ink",
+      "y": 284,
+      "label": "主动调用：ink_* 工具（界面按钮走同一条宿主通道）",
+      "variant": "emphasis"
+    },
+    {
+      "from": "ink",
+      "to": "mind",
+      "y": 315,
+      "label": "工具返回值：决定账 / 召回 / 状态",
+      "variant": "return"
+    },
+    {
+      "from": "ink",
+      "to": "mind",
+      "y": 346,
+      "label": "折叠提案：propose → M 审核 → approve"
+    },
+    {
+      "from": "ink",
+      "to": "mind",
+      "y": 377,
+      "label": "守夜：[阻塞] 预览（任务卡死 / 超时）"
+    },
+    {
+      "from": "ink",
+      "to": "mind",
+      "y": 408,
+      "label": "即时通知：冲突 / 不可逆（待实现）",
+      "variant": "dashed"
+    },
+    {
+      "from": "ink",
+      "to": "user",
+      "y": 437,
+      "label": "闸门提问：只问「行 / 不行」",
+      "variant": "emphasis"
+    }
+  ],
+  "cards": [
+    {
+      "dot": "cyan",
+      "title": "被动：M → Ink",
+      "items": [
+        "观测事件流：每轮自动落盘",
+        "上下文 append：回合末推进"
+      ]
+    },
+    {
+      "dot": "orange",
+      "title": "主动：M → Ink",
+      "items": [
+        "ink_* 工具：记账 / 派发 / 召回",
+        "界面命令：页面划掉一条也走这条"
+      ]
+    },
+    {
+      "dot": "emerald",
+      "title": "主动：Ink → M",
+      "items": [
+        "L3 装配 + 折叠提案 + 守夜",
+        "即时通知（待实现）"
+      ]
+    },
+    {
+      "dot": "rose",
+      "title": "闸门：Ink → 用户",
+      "items": [
+        "commit 只问「行 / 不行」",
+        "中间层不参与批准"
+      ]
+    }
+  ]
+}
