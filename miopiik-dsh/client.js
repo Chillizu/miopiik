@@ -641,6 +641,7 @@ window.__ModuleLoader__.load({
         ['graph', t('tab.graph')],
         ...(wide ? [] : [['list', t('tab.list')]]),
         ['stream', t('tab.stream')],
+        ['context', t('tab.context')],
       ]
       return h(
         'div',
@@ -742,6 +743,8 @@ window.__ModuleLoader__.load({
               : h(FishboneView, { ...props, onOpenStream: openStream, focusBranch })
             : tab === 'list'
               ? h(ListPane, { snapshot, sessionId })
+              : tab === 'context'
+              ? h(ContextPane, { snapshot })
               : h(StreamPane, {
                   snapshot,
                   filter: streamFilter,
@@ -854,6 +857,108 @@ window.__ModuleLoader__.load({
      * 流水：一行一条（决定或任务），点开右侧看完整内容。
      * 不设全局「完整模式」——详情是按需的，不是一次性倒出来。
      */
+    function ContextPane({ snapshot }) {
+      const context = snapshot?.inkContext
+      const candidates = snapshot?.candidates ?? []
+      if (context === undefined) return h('div', { style: styles.empty }, t('ctx.offline'))
+      const head = context.head ?? ''
+      const tail = context.tail ?? []
+      return h(
+        'div',
+        { style: { display: 'flex', flexDirection: 'column', gap: 18, padding: '4px 2px 24px', maxWidth: 780 } },
+        h(
+          Section,
+          { title: `${t('ctx.head')}（${context.headChars ?? 0} 字）` },
+          head === ''
+            ? h('div', { style: styles.empty }, t('ctx.empty'))
+            : h(
+                'div',
+                {
+                  style: {
+                    fontSize: 12,
+                    lineHeight: 1.65,
+                    color: C.muted,
+                    whiteSpace: 'pre-wrap',
+                    wordBreak: 'break-word',
+                    background: C.layer1,
+                    border: `1px solid ${C.border}`,
+                    borderRadius: 8,
+                    padding: '10px 12px',
+                    maxHeight: 260,
+                    overflow: 'auto',
+                  },
+                },
+                head,
+              ),
+        ),
+        h(
+          Section,
+          { title: `${t('ctx.tail')}（${context.tailCount ?? 0} 条）` },
+          tail.length === 0
+            ? h('div', { style: styles.empty }, t('ctx.empty'))
+            : h(
+                'div',
+                { style: { display: 'flex', flexDirection: 'column', gap: 6 } },
+                ...tail.map((entry, index) =>
+                  h(
+                    'div',
+                    {
+                      key: `${entry.at ?? index}-${index}`,
+                      style: {
+                        display: 'flex',
+                        gap: 10,
+                        alignItems: 'baseline',
+                        padding: '7px 10px',
+                        background: C.layer1,
+                        border: `1px solid ${C.border}`,
+                        borderRadius: 6,
+                        fontSize: 12,
+                      },
+                    },
+                    h('span', { style: { fontSize: 10, color: C.muted, minWidth: 56 } }, entry.kind),
+                    h('span', { style: { flex: '1 1 auto', wordBreak: 'break-word' } }, entry.text),
+                    (entry.refs ?? []).length === 0
+                      ? null
+                      : h('span', { style: { fontSize: 10, color: C.muted } }, (entry.refs ?? []).join(',')),
+                  ),
+                ),
+              ),
+        ),
+        h(
+          Section,
+          { title: t('ctx.candidates') },
+          candidates.length === 0
+            ? h('div', { style: styles.empty }, t('ctx.empty'))
+            : h(
+                'div',
+                { style: { display: 'flex', flexDirection: 'column', gap: 6 } },
+                ...candidates.map((entry) =>
+                  h(
+                    'div',
+                    {
+                      key: entry.id,
+                      style: {
+                        padding: '8px 10px',
+                        background: C.layer1,
+                        border: `1px solid ${C.border}`,
+                        borderRadius: 6,
+                        fontSize: 12,
+                        display: 'flex',
+                        flexDirection: 'column',
+                        gap: 3,
+                      },
+                    },
+                    h('div', {}, entry.claim),
+                    entry.question === null
+                      ? null
+                      : h('div', { style: { fontSize: 11, color: C.muted } }, `→ ${entry.question}`),
+                  ),
+                ),
+              ),
+        ),
+      )
+    }
+
     function StreamPane({ snapshot, filter = null, onClearFilter, onOpenGraph }) {
       const audit = snapshot?.audit
       const [kind, setKind] = React.useState('all')
@@ -1369,6 +1474,12 @@ window.__ModuleLoader__.load({
       'tab.graph': '鱼骨',
       'tab.list': '清单',
       'tab.stream': '流水',
+      'tab.context': '所见',
+      'ctx.head': '折叠头部',
+      'ctx.tail': '尾部',
+      'ctx.candidates': '对话编译候选',
+      'ctx.empty': '还没有内容。',
+      'ctx.offline': '后台还没准备好。',
       'rightbar.title': 'Ink',
       'rightbar.inbox': '收件箱（未读）',
       'rightbar.inboxEmpty': '没有待读的预览。',
@@ -1450,6 +1561,12 @@ window.__ModuleLoader__.load({
       'tab.graph': 'Fishbone',
       'tab.list': 'List',
       'tab.stream': 'Stream',
+      'tab.context': 'Seen',
+      'ctx.head': 'Folded head',
+      'ctx.tail': 'Tail',
+      'ctx.candidates': 'Conversation candidates',
+      'ctx.empty': 'Nothing yet.',
+      'ctx.offline': 'Backstage is not ready.',
       'rightbar.title': 'Ink',
       'rightbar.inbox': '收件箱（未读）',
       'rightbar.inboxEmpty': '没有待读的预览。',

@@ -86,6 +86,21 @@ test('开工时星标被带上来（L3 里出现）', async () => {
   }
 })
 
+test('后台快照带上 Ink 上下文与候选（所见视图的数据面）', async () => {
+  const ctx = await fixture()
+  try {
+    await ctx.engine.appendInkContext({ kind: 'user', text: '一句话', refs: ['U-1'] })
+    await ctx.engine.deliverNote({ kind: 'absorb', claim: '看过了', why: 'no-signal', conf: 'low', refs: [] })
+    const snapshot = ctx.engine.backstageSnapshot()
+    assert.ok(typeof snapshot.inkContext.head === 'string')
+    assert.equal(snapshot.inkContext.tail.length, 2, '用户话 + 决定都应出现在尾部')
+    assert.ok(['note', 'user'].includes(snapshot.inkContext.tail[0].kind))
+    assert.ok(Array.isArray(snapshot.candidates))
+  } finally {
+    await ctx.cleanup()
+  }
+})
+
 test('无人值守判定：本轮没有真人的话就不算', async () => {
   const ctx = await fixture()
   try {

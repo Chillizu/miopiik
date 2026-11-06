@@ -703,7 +703,24 @@ export class Engine {
     const facts = this.listFacts()
     const view = this.inboxView({ all: false })
     const running = [...this.state.jobs.values()].filter((job) => job.state === 'running')
+    const tail = (this.state.inkTail ?? []).slice(-12).map((entry) => ({
+      kind: entry.kind,
+      text: String(entry.text ?? '').slice(0, 160),
+      refs: entry.refs ?? [],
+      at: entry.at ?? null,
+    }))
+    const candidates = this.state.notes
+      .filter((note) => note.why === 'compile:conversation')
+      .slice(-5)
+      .map((note) => ({ id: note.id, claim: note.claim, question: note.question ?? null, at: note.at ?? null }))
     return {
+      inkContext: {
+        head: String(this.state.inkHead ?? '').slice(-2000),
+        headChars: String(this.state.inkHead ?? '').length,
+        tail,
+        tailCount: (this.state.inkTail ?? []).length,
+      },
+      candidates,
       epoch: this.state.epoch,
       day: dayOf(this.now()),
       loops: {
