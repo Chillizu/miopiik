@@ -76,5 +76,6 @@ export function renderContractPrompt(contract, branchSlice = null) {
     '- Do not ask the user anything. If the contract is ambiguous, pick the reading the sample supports and say so in your final report.',
     '- If you need a fact the contract does not state, call ink_ask. It answers only by citation; if it escalates, proceed on your best reading and note the assumption.',
     '- Your final message is the deliverable report: what you produced, where it is, how it meets each acceptance criterion, and what remains uncertain.',
+    '- If you settled a conclusion that should change future judgment, hand it back with ink_report (claim + evidence). One or two at most; it is a ledger, not a notepad.',
   ].join('\n')
 }

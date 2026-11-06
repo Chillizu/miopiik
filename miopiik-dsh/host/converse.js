@@ -129,7 +129,7 @@ export function buildCandidateNote(parsed) {
  * 调一次模型，读 Ink 自己的上下文，产出候选。
  * 失败、无模型、没有可引用的原话时返回 null —— 不编造、不投降级预览。
  */
-export async function compileConversation({ ctx, engine, config, warn, utterances, contextText, facts, loops }) {
+export async function compileConversation({ ctx, engine, config, warn, utterances, contextText, facts, loops, onSkip = null }) {
   const llm = (() => {
     try {
       return ctx?.get?.('llm')
@@ -138,7 +138,10 @@ export async function compileConversation({ ctx, engine, config, warn, utterance
     }
   })()
   const model = resolveModel(ctx, engine, config)
-  if (llm === undefined || model === undefined) return null
+  if (llm === undefined || model === undefined) {
+    onSkip?.('no-llm-or-model')
+    return null
+  }
 
   const ask = async (reminder) => {
     let out = ''
@@ -167,7 +170,7 @@ export async function compileConversation({ ctx, engine, config, warn, utterance
           ],
         },
       ],
-      maxTokens: 600,
+      maxTokens: 1600,
       signal: AbortSignal.timeout(60_000),
     })
     for await (const chunk of stream) {
@@ -180,7 +183,9 @@ export async function compileConversation({ ctx, engine, config, warn, utterance
   try {
     output = await ask(null)
   } catch (error) {
-    warn?.(`Ink 对话编译失败：${String(error?.message ?? error).slice(0, 80)}`)
+    const reason = `stream:${String(error?.message ?? error).slice(0, 80)}`
+    warn?.(`Ink 对话编译失败：${reason}`)
+    onSkip?.(reason)
     return null
   }
   let parsed = parseConversationOutput(output, utterances)
@@ -188,9 +193,11 @@ export async function compileConversation({ ctx, engine, config, warn, utterance
     try {
       output = await ask('上一次的输出不是可直接解析的 JSON。只输出那一个 JSON 对象，不要任何其他文字。')
       parsed = parseConversationOutput(output, utterances)
-    } catch {
+    } catch (error) {
+      onSkip?.(`retry:${String(error?.message ?? error).slice(0, 60)}`)
       return null
     }
   }
+  if (parsed === null) onSkip?.(`parse:${String(output).slice(0, 120)}`)
   return parsed
 }

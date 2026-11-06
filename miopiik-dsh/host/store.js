@@ -11,7 +11,7 @@ import { mkdir, readFile, appendFile, rename, stat, unlink } from 'node:fs/promi
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 
-export const LOG_NAMES = Object.freeze(['observations', 'notes', 'loops', 'facts', 'inbox', 'briefings', 'jobs', 'drafts', 'cases', 'branches', 'folds', 'details', 'ink-context'])
+export const LOG_NAMES = Object.freeze(['observations', 'notes', 'loops', 'facts', 'inbox', 'briefings', 'jobs', 'drafts', 'cases', 'branches', 'folds', 'details', 'ink-context', 'ink-debug'])
 
 export function emptyState(sessionId) {
   return {

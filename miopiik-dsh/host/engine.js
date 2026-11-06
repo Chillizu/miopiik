@@ -436,6 +436,7 @@ export class Engine {
       .slice(0, 12)
       .map((loop) => ({ id: loop.id, text: loop.text }))
     const contextText = this.inkContext()
+    const onSkip = (reason) => this.debugRecord('conversation-compile', reason)
     this._conversationPassBusy = true
     void (async () => {
       try {
@@ -448,8 +449,10 @@ export class Engine {
           contextText,
           facts,
           loops,
+          onSkip,
         })
         if (parsed === null) return
+        this.debugRecord('conversation-compile', `ok:${parsed.claims.length}:${parsed.loops.length}`)
         await this.deliverNote(buildCandidateNote(parsed))
       } catch {
         // 对话编译是增量：失败不影响回合，也不编造候选。
@@ -457,6 +460,19 @@ export class Engine {
         this._conversationPassBusy = false
       }
     })()
+  }
+
+  /** 只为排障留痕：不进上下文、不进决定账，落 ink-debug 日志。 */
+  debugRecord(kind, reason) {
+    try {
+      void appendRecord(this.store, 'ink-debug', {
+        at: this.now(),
+        kind,
+        reason: String(reason ?? '').slice(0, 300),
+      }).catch(() => undefined)
+    } catch {
+      // 排障通道本身不能制造故障。
+    }
   }
 
   /** 本轮有没有真人的话（SPEC §1.10：无人值守不 commit）。 */

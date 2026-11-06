@@ -79,6 +79,6 @@ test('编译失败可审计：降级时 why 里写明失败原因，不静默', 
     warn: () => {},
   })
   assert.equal(note.kind, 'preview')
-  assert.match(note.why, /compile:fallback \(parse:/)
+  assert.match(note.why, /compile:fallback \(parse\(len=\d+\):/)
   assert.match(note.claim, /复述前提/)
 })

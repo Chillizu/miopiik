@@ -143,7 +143,7 @@ export async function compileResult({ ctx, engine, job, resultText, config, warn
           ],
         },
       ],
-      maxTokens: 600,
+      maxTokens: 1600,
       signal: AbortSignal.timeout(90_000),
     })
     for await (const chunk of stream) {
@@ -164,7 +164,7 @@ export async function compileResult({ ctx, engine, job, resultText, config, warn
   let parsed = parseCompileOutput(output)
   if (parsed === null && failure === null) {
     // 一次重试：模型偶尔会加解说或代码围栏，明确要它只吐 JSON。
-    failure = `parse:${String(output).slice(0, 60)}`
+    failure = `parse(len=${String(output).length}):${String(output).slice(0, 60)}`
     try {
       output = await ask('上一次的输出不是可直接解析的 JSON。只输出那一个 JSON 对象，不要任何其他文字。')
       parsed = parseCompileOutput(output)
