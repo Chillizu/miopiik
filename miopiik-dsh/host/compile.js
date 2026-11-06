@@ -143,13 +143,19 @@ export async function compileResult({ ctx, engine, job, resultText, config, warn
           ],
         },
       ],
-      maxTokens: 2200,
+      maxTokens: 4000,
       reasoningEffort: 'low',
+      purpose: 'ink-compile',
+      ...(typeof engine?.sessionId === 'string' ? { sessionId: engine.sessionId } : {}),
       signal: AbortSignal.timeout(90_000),
     })
+    const census = {}
     for await (const chunk of stream) {
+      const kind = String(chunk?.type ?? 'unknown')
+      census[kind] = (census[kind] ?? 0) + 1
       if (chunk?.type === 'text-delta') out += chunk.text ?? ''
     }
+    if (out === '') out = `[no-text ${JSON.stringify(census)}]`
     return out
   }
 
