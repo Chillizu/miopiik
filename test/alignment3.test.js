@@ -1,0 +1,100 @@
+import test from 'node:test'
+import assert from 'node:assert/strict'
+import { mkdtemp, readFile, rm } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+
+import { openStore } from '../miopiik-dsh/host/store.js'
+import { Engine } from '../miopiik-dsh/host/engine.js'
+
+const DAY = 24 * 60 * 60 * 1000
+const T0 = Date.UTC(2026, 10, 1, 10, 0, 0)
+
+async function fixture() {
+  const dir = await mkdtemp(join(tmpdir(), 'miopiik-align3-'))
+  const store = await openStore(dir, 'session-1')
+  let clock = T0
+  const engine = new Engine({ store, sessionId: 'session-1', now: () => clock })
+  return {
+    dir,
+    engine,
+    advance(ms) {
+      clock += ms
+    },
+    async cleanup() {
+      await rm(dir, { recursive: true, force: true })
+    },
+  }
+}
+
+test('决定也进它自己的上下文：note 落账后追加到 ink-context', async () => {
+  const ctx = await fixture()
+  try {
+    await ctx.engine.deliverNote({ kind: 'absorb', claim: '这轮没有需要动的事', why: 'no-signal', conf: 'low', refs: [] })
+    await ctx.engine.queue
+    const entry = ctx.engine.state.inkTail.at(-1)
+    assert.equal(entry.kind, 'note')
+    assert.match(entry.text, /absorb｜这轮没有需要动的事/)
+    assert.deepEqual(entry.refs, ['D-1'])
+  } finally {
+    await ctx.cleanup()
+  }
+})
+
+test('折叠由事件触发：epoch 前进就折，不看条数', async () => {
+  const ctx = await fixture()
+  try {
+    for (const index of [1, 2, 3]) {
+      await ctx.engine.appendInkContext({ kind: 'user', text: `第 ${index} 句话`, refs: [`U-${index}`] })
+    }
+    assert.equal(ctx.engine.state.inkTail.length, 3, '三条不该触发折叠（上限 24）')
+    await ctx.engine.advanceEpoch({ note: '换话题' })
+    assert.equal(ctx.engine.state.inkTail.length, 0)
+    assert.ok(ctx.engine.state.inkHead.includes('第 1 句话'))
+    const rows = (await readFile(join(ctx.dir, 'ink-context.jsonl'), 'utf8'))
+      .trim()
+      .split('\n')
+      .map((line) => JSON.parse(line))
+    const fold = rows.filter((row) => row.op === 'fold').at(-1)
+    assert.equal(fold.reason, 'epoch')
+  } finally {
+    await ctx.cleanup()
+  }
+})
+
+test('开工时星标被带上来（L3 里出现）', async () => {
+  const ctx = await fixture()
+  try {
+    await ctx.engine.deliverNote({
+      kind: 'preview',
+      claim: '这件事值得回来看',
+      question: '要不要现在接回？',
+      why: 'test',
+      conf: 'mid',
+      refs: ['L-1'],
+      loops: ['L-1'],
+    })
+    const itemId = [...ctx.engine.state.inbox.keys()][0]
+    await ctx.engine.markInbox(itemId, 'star')
+    await ctx.engine.saveBriefing({ progress: '推进了一件事', next: '明天接着看' })
+    ctx.advance(DAY)
+    const text = ctx.engine.l3Text()
+    assert.match(text, /星标（跨天带上来）：1 条/)
+    assert.match(text, /这件事值得回来看/)
+  } finally {
+    await ctx.cleanup()
+  }
+})
+
+test('无人值守判定：本轮没有真人的话就不算', async () => {
+  const ctx = await fixture()
+  try {
+    ctx.engine.observe({ type: 'turn/start', data: { turn: 2 } })
+    assert.equal(ctx.engine.hadUserInputThisTurn(), false, '自动续跑的回合没有用户输入')
+    ctx.engine.observe({ type: 'user/message', data: { turn: 2, source: { kind: 'user' }, content: [{ type: 'text', text: '继续' }] } })
+    await ctx.engine.queue
+    assert.equal(ctx.engine.hadUserInputThisTurn(), true)
+  } finally {
+    await ctx.cleanup()
+  }
+})

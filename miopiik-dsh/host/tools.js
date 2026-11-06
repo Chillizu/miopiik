@@ -292,6 +292,11 @@ export function registerTools(ctx, engines, operator, services = {}) {
         if (args.confidence === 'low') {
           throw new Error('低置信不提交：留在草稿区，继续做或丢掉（SPEC §4.1）')
         }
+        // 无人值守不 commit（SPEC §1.10）：本轮没有真人的话，就只允许留在草稿。
+        const engine = engineFor(exec)
+        if (engine.hadUserInputThisTurn() !== true) {
+          throw new Error('无人值守不 commit：本轮没有用户输入。夜里或自动续跑只产草稿，等你回来再提交（SPEC §1.10）')
+        }
         const questions = (() => {
           try {
             return ctx.get('userQuestions')

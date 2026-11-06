@@ -52,6 +52,7 @@ export class Engine {
     this.config = config ?? {}
     this.ctx = ctx
     this.warn = warn
+    this._queueDepth = 0
     this._conversationPassBusy = false
     this.stateDir = store.dir
     this.sessionId = sessionId
@@ -69,7 +70,14 @@ export class Engine {
 
   /** 串行化写操作：日志顺序就是事实顺序。 */
   enqueue(task) {
-    const run = this.queue.then(task)
+    const run = this.queue.then(async () => {
+      this._queueDepth += 1
+      try {
+        return await task()
+      } finally {
+        this._queueDepth -= 1
+      }
+    })
     this.queue = run.then(
       () => undefined,
       () => undefined,
@@ -166,6 +174,7 @@ export class Engine {
         (record) => record.day === this.lastTurnDay && (record.kind === undefined || record.kind === 'auto-materials'),
       )
       if (!covered) await this.foldDay(this.lastTurnDay)
+      await this.foldInkContextNow('day')
     }
     this.lastTurnDay = this.lastTurnDay === null ? today : Math.max(this.lastTurnDay, today)
 
@@ -194,6 +203,7 @@ export class Engine {
           quote: String(lastUser.text ?? '').slice(0, 120),
         }),
       )
+      await this.foldInkContextNow('closing')
     }
 
     await this.recordObservation('turn-end', '', turn)
@@ -363,26 +373,35 @@ export class Engine {
       refs: entry.refs ?? [],
     }
     if (clean.text === '') return
+    // 已在队列里跑（finishTurn 等）就直接写，不再入队——再入队会等自己（自锁，踩过）。
+    if (this._queueDepth > 0) return this.appendInkContextNow(clean)
     await this.enqueue(() => this.appendInkContextNow(clean))
+  }
+
+  /** 事件驱动的折叠：话题结束 / 收工 / 跨天时把尾巴压进头部。容量只是护栏，不是触发器。 */
+  async foldInkContext(reason) {
+    if (this.state.inkTail.length === 0) return
+    if (this._queueDepth > 0) return this.foldInkContextNow(reason)
+    await this.enqueue(() => this.foldInkContextNow(reason))
+  }
+
+  /** 折叠本体：最老的一段压成头部摘要（确定性，不编造）。 */
+  async foldInkContextNow(reason) {
+    if (this.state.inkTail.length === 0) return
+    const lines = this.state.inkTail.map((item) => `- [${item.kind}] ${item.text}`).join('\n')
+    const head = `${this.state.inkHead === '' ? '' : `${this.state.inkHead}\n`}${lines}`.slice(-DEFAULTS.inkHeadMaxChars)
+    // applyRecord 会落 head 并清空 tail；这里不手动改状态，避免两份真相。
+    await appendRecord(this.store, 'ink-context', { op: 'fold', head, at: this.now(), reason })
   }
 
   /**
    * 真正的写入。**不再入队**：finishTurn 本身就在队列里跑，再入队会与自己互相等待（自锁，踩过一次）。
    */
   async appendInkContextNow(clean) {
+    // appendRecord 会经 applyRecord 把 entry 推进 inkTail —— 不要再手动 push，否则每条都存两遍。
     await appendRecord(this.store, 'ink-context', { op: 'entry', entry: clean, at: this.now() })
-    this.state.inkTail.push(clean)
-    const tailLimit = DEFAULTS.inkTailLimit
-    if (this.state.inkTail.length > tailLimit) {
-      // 折叠：把最老的一段压成头部摘要（确定性，不编造），其余留下。
-      const keep = this.state.inkTail.slice(-tailLimit)
-      const folded = this.state.inkTail.slice(0, this.state.inkTail.length - keep.length)
-      const lines = folded.map((item) => `- [${item.kind}] ${item.text}`).join('\n')
-      const head = `${this.state.inkHead === '' ? '' : `${this.state.inkHead}\n`}${lines}`.slice(-DEFAULTS.inkHeadMaxChars)
-      await appendRecord(this.store, 'ink-context', { op: 'fold', head, at: this.now() })
-      this.state.inkHead = head
-      this.state.inkTail = keep
-    }
+    // 容量只作护栏：超了就折，避免无限长；正常折叠由事件触发（SPEC §3：话题/事件驱动）。
+    if (this.state.inkTail.length > DEFAULTS.inkTailLimit * 2) await this.foldInkContextNow('capacity-guard')
   }
 
   /** 给编译用的连续上下文：头部 + 尾部，就是 Ink 的「会话」。 */
@@ -438,6 +457,12 @@ export class Engine {
         this._conversationPassBusy = false
       }
     })()
+  }
+
+  /** 本轮有没有真人的话（SPEC §1.10：无人值守不 commit）。 */
+  hadUserInputThisTurn() {
+    const turn = this.turn
+    return this.state.observations.some((entry) => entry.kind === 'user' && entry.turn === turn)
   }
 
   /** 事实卡的「重量」：条数、字节、近期增量、疑似重复。不设上限，只让它看得见。 */
@@ -552,6 +577,12 @@ export class Engine {
     const errors = validateNote(note)
     if (errors.length > 0) throw new Error(`note 不成立：${errors.join('；')}`)
     await this.enqueue(() => appendRecord(this.store, 'notes', note))
+    // 它做过的判断也要进它自己的上下文（SPEC §3「append 上…做的操作，做一个总结 note」）。
+    try {
+      await this.appendInkContext({ kind: 'note', text: `${note.kind}｜${note.claim}`, refs: [note.id] })
+    } catch {
+      // 上下文是增量：失败不影响决定落账。
+    }
     const deliverable = note.kind === 'preview' || (blocking && note.kind === 'hold')
     if (!deliverable) return note
 
@@ -645,6 +676,8 @@ export class Engine {
       }),
     )
     this.state.counters.obs = seq
+    // 话题 epoch 前进 = 这一段可以收了：折叠由事件驱动，不看条数。
+    await this.foldInkContext('epoch')
     return { epoch: next }
   }
 
@@ -1579,6 +1612,18 @@ export class Engine {
         lines.push('')
       }
     }
+    // 开工时把星标带上来（SPEC §3.3）：星标是跨天标记，比开环轻、比事实卡重。
+    const opening = hardBreak !== undefined || (briefing !== null && briefing.day < today)
+    const starred = [...this.state.inbox.values()].filter((item) => item.status === 'starred')
+    if (opening && starred.length > 0) {
+      lines.push(`星标（跨天带上来）：${starred.length} 条`)
+      for (const item of starred.slice(0, 3)) {
+        const question = item.question === null ? '' : ` → ${item.question}`
+        lines.push(`- ${item.claim}${question}`)
+      }
+      lines.push('')
+    }
+
     const today2 = dayOf(this.now())
     const wroteToday = this.state.briefings.some(
       (record) => record.day === today2 && (record.kind === undefined || record.kind === null),
