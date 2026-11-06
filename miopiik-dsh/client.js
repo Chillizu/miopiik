@@ -1304,6 +1304,7 @@ window.__ModuleLoader__.load({
       ['operatorTimeoutMs', 'Operator 超时（毫秒）', 1200000],
       ['operatorStallMs', '多久没新观测算卡住（毫秒）', 360000],
       ['inkModel', 'Ink 编译模型（空=跟随会话）', null],
+      ['conversationCompile', '对话编译（回合后产候选）', true],
     ]
 
     function SettingsSection() {

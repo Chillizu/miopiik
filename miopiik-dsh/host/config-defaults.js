@@ -20,6 +20,7 @@ export const DEFAULTS = Object.freeze({
   operatorTimeoutMs: 20 * 60 * 1000,
   operatorStallMs: 6 * 60 * 1000,
   inkModel: null,
+  conversationCompile: true,
 })
 
 /** 给设置页用的说明（同上，改这里等于改文档）。 */
@@ -37,4 +38,5 @@ export const KNOB_DOCS = Object.freeze([
   ['operatorTimeoutMs', 'Operator 超时多少毫秒算超时', 20 * 60 * 1000],
   ['operatorStallMs', '多久没有新观测算「卡住」', 6 * 60 * 1000],
   ['inkModel', 'Ink 编译用的模型（空=跟随会话默认）', null],
+  ['conversationCompile', '回合结束后让 Ink 读自己的上下文并产出候选（关=只记账不处理）', true],
 ])

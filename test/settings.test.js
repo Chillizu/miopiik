@@ -18,10 +18,20 @@ function clientKnobs() {
   assert.ok(end > start, 'KNOBS 表应有结束括号')
   const block = clientSource.slice(start, end)
   const entries = []
-  const re = /\['([^']+)',\s*'([^']*)',\s*(null|'[^']*'|\d+)\]/gu
+  const re = /\['([^']+)',\s*'([^']*)',\s*(null|true|false|'[^']*'|\d+)\]/gu
   for (const match of block.matchAll(re)) {
     const raw = match[3]
-    entries.push([match[1], match[2], raw === 'null' ? null : raw.startsWith("'") ? raw.slice(1, -1) : Number(raw)])
+    const value =
+      raw === 'null'
+        ? null
+        : raw === 'true'
+          ? true
+          : raw === 'false'
+            ? false
+            : raw.startsWith("'")
+              ? raw.slice(1, -1)
+              : Number(raw)
+    entries.push([match[1], match[2], value])
   }
   return entries
 }

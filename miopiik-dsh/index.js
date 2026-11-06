@@ -84,7 +84,7 @@ export function apply(ctx, config) {
         // 只有事实卡在工作区级共享（<工作区>/.dsh/miopiik/shared/）。
         const workspaceRoot = join(cwdOf(agent.session), stateRoot)
         const store = await openStore(join(workspaceRoot, 'sessions', sessionId), sessionId, { workspaceRoot })
-        const engine = new Engine({ store, sessionId })
+        const engine = new Engine({ store, sessionId, config, ctx, warn })
         engines.set(sessionId, engine)
         // 跨天断点检测（SPEC §5.2）：启动时补一次，L3 当天会提醒承认断点。
         void engine.detectGap().catch(() => undefined)

@@ -22,13 +22,15 @@ test('非 absorb 必须带 refs', () => {
   assert.match(validateNote(note).join(''), /refs/)
 })
 
-test('preview 必须连着对话节点（开环或分支），且以一个问题结尾', () => {
+test('preview 必须连着对话节点（开环 / 分支 / U-n），且以一个问题结尾', () => {
   const bad = baseNote({ kind: 'preview', refs: ['L-1'] })
   const errors = validateNote(bad).join('')
-  assert.match(errors, /开环或分支指针/)
+  assert.match(errors, /开环、分支或对话节点/)
   assert.match(errors, /问题/)
   const byBranch = baseNote({ kind: 'preview', refs: ['B-1'], branch: 'B-1', question: '要不要接回？' })
   assert.deepEqual(validateNote(byBranch), [])
+  const byUtterance = baseNote({ kind: 'preview', refs: ['U-7'], question: '要不要记为已定结论？' })
+  assert.deepEqual(validateNote(byUtterance), [])
   const good = baseNote({
     kind: 'preview',
     refs: ['L-1'],

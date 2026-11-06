@@ -61,7 +61,9 @@ export function validateNote(note) {
     // 预览必须连着一个对话节点：一条开环，或一条鱼骨分支（分支本身就是「从哪句话长出来的」）。
     const hasLoop = Array.isArray(note.loops) && note.loops.length > 0
     const hasBranch = typeof note.branch === 'string' && note.branch !== ''
-    if (!hasLoop && !hasBranch) errors.push('preview 必须带开环或分支指针')
+    // 对话节点（U-n）也算「连着对话节点」：候选结论的预览就以它引用的那几句话为锚。
+    const hasUtterance = Array.isArray(note.refs) && note.refs.some((ref) => /^U-\d+$/u.test(String(ref)))
+    if (!hasLoop && !hasBranch && !hasUtterance) errors.push('preview 必须带开环、分支或对话节点（U-n）指针')
     if (typeof note.question !== 'string' || note.question.trim() === '') errors.push('preview 必须以一个问题结尾')
   }
   if (note.kind === 'verify' && (typeof note.detail !== 'string' || note.detail.trim() === '')) {

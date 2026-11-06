@@ -20,6 +20,7 @@ import { DEFAULTS } from './config-defaults.js'
 import { gcDetails, putDetail, readDetail, searchIndex, extractEntities } from './details.js'
 import { describeBranches, makeBranch, renderBranchSlice } from './branches.js'
 import { appendRecord, appendSharedFact, applyRecord, readSharedFactsSince } from './store.js'
+import { buildCandidateNote, compileConversation } from './converse.js'
 
 /** 工具返回值必须是无损 JSON：去掉 undefined 之类的不可序列化字段。 */
 export function lossless(value) {
@@ -45,9 +46,13 @@ export function textOf(content) {
 }
 
 export class Engine {
-  constructor({ store, sessionId, now = () => Date.now() }) {
+  constructor({ store, sessionId, now = () => Date.now(), config = null, ctx = null, warn = null }) {
     this.store = store
     this.shared = store.shared ?? null
+    this.config = config ?? {}
+    this.ctx = ctx
+    this.warn = warn
+    this._conversationPassBusy = false
     this.stateDir = store.dir
     this.sessionId = sessionId
     this.now = now
@@ -141,6 +146,8 @@ export class Engine {
     } catch {
       // 中间层上下文是增量，失败不影响回合结束
     }
+    // 上下文 append 之后读它一次：产出候选，出口是收件箱（不阻塞回合）。
+    this.scheduleConversationPass(turn)
     const now = this.now()
     const today = dayOf(now)
     const epoch = this.state.epoch
@@ -384,6 +391,55 @@ export class Engine {
     return [this.state.inkHead, tail].filter((part) => part !== '').join('\n')
   }
 
+  /**
+   * 回合结束后的一次对话编译（SPEC §3.1 对话侧）：读自己的上下文，产候选，出口是收件箱。
+   * 三条硬约束：没有可引用的原话不跑；已有待读候选不叠投；失败静默（候选是增量，不打扰）。
+   */
+  scheduleConversationPass(turn) {
+    if (this.ctx === null || this.config?.conversationCompile === false) return
+    if (this._conversationPassBusy === true) return
+    const pending = [...this.state.inbox.values()].some((item) => {
+      if (item.status !== 'unread' && item.status !== 'deferred') return false
+      const note = item.noteId === null ? undefined : this.state.notes.find((entry) => entry.id === item.noteId)
+      return note?.why === 'compile:conversation'
+    })
+    if (pending) return
+    const utterances = this.state.inkTail
+      .filter((entry) => /^U-\d+$/u.test(String(entry.refs?.[0] ?? '')))
+      .map((entry) => ({ id: entry.refs[0], role: entry.kind, text: entry.text }))
+    if (utterances.length === 0) return
+    const facts = this.listFacts()
+      .filter((fact) => fact.stale !== true)
+      .slice(-12)
+      .map((fact) => ({ id: fact.id, claim: fact.claim }))
+    const loops = this.listLoops()
+      .filter((loop) => loop.status === 'active')
+      .slice(0, 12)
+      .map((loop) => ({ id: loop.id, text: loop.text }))
+    const contextText = this.inkContext()
+    this._conversationPassBusy = true
+    void (async () => {
+      try {
+        const parsed = await compileConversation({
+          ctx: this.ctx,
+          engine: this,
+          config: this.config,
+          warn: this.warn,
+          utterances,
+          contextText,
+          facts,
+          loops,
+        })
+        if (parsed === null) return
+        await this.deliverNote(buildCandidateNote(parsed))
+      } catch {
+        // 对话编译是增量：失败不影响回合，也不编造候选。
+      } finally {
+        this._conversationPassBusy = false
+      }
+    })()
+  }
+
   /** 事实卡的「重量」：条数、字节、近期增量、疑似重复。不设上限，只让它看得见。 */
   factStats() {
     const facts = this.listFacts()
@@ -522,6 +578,7 @@ export class Engine {
           claim: note.claim,
           question: note.question,
           blocking,
+          newConclusion: note.newConclusion === true,
           at: this.now(),
         }),
       }),

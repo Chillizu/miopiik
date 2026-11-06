@@ -78,7 +78,7 @@ export function fallbackPreview(job, claim, question, rawText = null) {
   }
 }
 
-function resolveModel(ctx, engine, config) {
+export function resolveModel(ctx, engine, config) {
   const configured = config?.inkModel
   if (configured?.provider !== undefined && configured?.model !== undefined) {
     return { provider: String(configured.provider), model: String(configured.model) }
