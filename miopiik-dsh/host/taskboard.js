@@ -30,7 +30,18 @@ export async function openCard(ctx, agent, { jobId, contract }) {
       subject: `O-${jobId} ${contract.goal}`.slice(0, 80),
       description,
     })
-    return { id: view.id, description }
+    // 开工即认领：卡片在运行期间就该显示「进行中」，而不是一直 pending。
+    let claimed = view
+    try {
+      claimed = await teams.updateTask(agent, {
+        taskId: view.id,
+        expectedRevision: view.revision,
+        action: 'claim',
+      })
+    } catch {
+      claimed = view
+    }
+    return { id: view.id, description, revision: claimed.revision, status: claimed.status }
   } catch {
     return null
   }
@@ -42,14 +53,19 @@ export async function settleCard(ctx, agent, card, note) {
   try {
     const teams = ctx.get('agentTeams')
     const ready = teams.getTask(agent, card.id)
-    const claimed = await teams.updateTask(agent, {
-      taskId: card.id,
-      expectedRevision: ready.revision,
-      action: 'claim',
-    })
+    if (ready.status === 'completed') return
+    // 开卡时已认领；老卡片可能还是 pending，这里兜底补认领。
+    const current =
+      ready.status === 'in_progress'
+        ? ready
+        : await teams.updateTask(agent, {
+            taskId: card.id,
+            expectedRevision: ready.revision,
+            action: 'claim',
+          })
     await teams.updateTask(agent, {
       taskId: card.id,
-      expectedRevision: claimed.revision,
+      expectedRevision: current.revision,
       action: 'complete',
       description: `${ready.description ?? ''}\n\n结果：${note}`,
     })

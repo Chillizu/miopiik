@@ -170,7 +170,8 @@ export async function compileConversation({ ctx, engine, config, warn, utterance
           ],
         },
       ],
-      maxTokens: 1600,
+      maxTokens: 2200,
+      reasoningEffort: 'low',
       signal: AbortSignal.timeout(60_000),
     })
     for await (const chunk of stream) {

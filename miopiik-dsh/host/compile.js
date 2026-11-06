@@ -143,7 +143,8 @@ export async function compileResult({ ctx, engine, job, resultText, config, warn
           ],
         },
       ],
-      maxTokens: 1600,
+      maxTokens: 2200,
+      reasoningEffort: 'low',
       signal: AbortSignal.timeout(90_000),
     })
     for await (const chunk of stream) {
