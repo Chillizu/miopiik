@@ -116,6 +116,34 @@ test('折叠按整行截断并去掉连续重复行', async () => {
   }
 })
 
+test('收工回合不会自锁：closing-signal 落账、上下文按 closing 折叠', async () => {
+  const ctx = await fixture()
+  try {
+    ctx.engine.observe({ type: 'turn/start', data: { turn: 1 } })
+    ctx.engine.observe({
+      type: 'user/message',
+      data: { turn: 1, source: { kind: 'user' }, content: [{ type: 'text', text: '先这样' }] },
+    })
+    ctx.engine.observe({
+      type: 'assistant/message',
+      data: { turn: 1, message: { content: [{ type: 'text', text: '好' }] } },
+    })
+    await Promise.race([
+      ctx.engine.observe({ type: 'turn/end', data: { turn: 1 } }),
+      new Promise((_, reject) => setTimeout(() => reject(new Error('收工自锁了')), 2000)),
+    ])
+    await ctx.engine.queue
+    assert.ok(ctx.engine.state.briefings.some((record) => record.kind === 'closing-signal'))
+    const rows = (await readFile(join(ctx.dir, 'ink-context.jsonl'), 'utf8'))
+      .trim()
+      .split('\n')
+      .map((line) => JSON.parse(line))
+    assert.ok(rows.some((row) => row.op === 'fold' && row.reason === 'closing'))
+  } finally {
+    await ctx.cleanup()
+  }
+})
+
 test('无人值守判定：本轮没有真人的话就不算', async () => {
   const ctx = await fixture()
   try {

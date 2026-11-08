@@ -119,3 +119,28 @@ D-1 的 `why` 是 `compile:fallback (parse(len=0))`——模型流返回的文�
 - RP 行为符合预期：讨论层、主动、会用工具。
 - `聊天` 工作区（/tmp）不适合承载有记忆的对话；要长期使用，工作区应指向持久目录。
 - 台账丢失能被 M 自己发现并说出来，说明「记忆缺失」不是静默失败。
+
+## 9. models 工作区长程对话（2026-11-08，session-a6756e85）
+
+持久工作区（/home/data/models），四轮 RP：想法 → 追问 → 换话题 → 收工。
+
+**M（符合预期）**
+
+- 第 1 轮：先查后台（`ink_status` / `ink_recall` / `ink_facts`）再回答；主动开分支 `B-1`（带前提与原文引用），登记 forming-intent 开环 `L-1`。
+- 第 2 轮：给三步验证路径，并把判断点从「权重里有没有」重构为「手上材料够不够落笔」。
+- 第 3 轮：主动换话题时调 `ink_epoch advance`（epoch 1，note 写明从哪切到哪），为新话题开 `B-2`、登记 `L-2`。
+- 第 4 轮（「先这样」）：**触发了自锁**——见下。
+
+**Ink**
+
+- 对话编译 `ok:2:2`，候选 D-1 进收件箱（2 条结论、2 条悬着的话，问句具体）；
+- epoch 折叠已发生（`reason: epoch`，头部 1997 字）；
+- 收工回合的 `turn-end`、`closing-signal` 与 `reason: closing` 的折叠**都没有出现**。
+
+**真 bug：收工自锁**
+
+`finishTurn` 本身跑在串行队列里，而「收工信号」分支又 `await this.enqueue(...)`——等自己，队列永久挂起。第 1–3 轮没有道别（不触发该分支）所以正常；第 4 轮一告别就卡死。
+
+这与之前 `appendInkContext` 的自锁是同一个模式，但那条路径修了，这条没修。已改为队列内直接 `appendRecord`，并补回归测试（收工回合 2 秒内必须完成、closing-signal 落账、折叠带 `reason: closing`）。131 项测试通过。
+
+**待复测**：重载后同样四轮跑一遍，验收点是第 4 轮结束后出现 `turn-end`、`closing-signal` 和 `fold reason: closing`。

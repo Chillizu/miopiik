@@ -194,15 +194,14 @@ export class Engine {
     // 收工信号：Ink 不替 Mind 写简报，只让它在下一轮看得见「用户刚才像在道别」。
     const lastUser = [...this.state.observations].reverse().find((entry) => entry.kind === 'user')
     if (lastUser !== undefined && Engine.FAREWELL.test(String(lastUser.text ?? ''))) {
-      await this.enqueue(() =>
-        appendRecord(this.store, 'briefings', {
-          kind: 'closing-signal',
-          day: today,
-          at: now,
-          turn,
-          quote: String(lastUser.text ?? '').slice(0, 120),
-        }),
-      )
+      // finishTurn 本身在队列里：直接写，不再入队——再入队会等自己（收工自锁，实机踩到过）。
+      await appendRecord(this.store, 'briefings', {
+        kind: 'closing-signal',
+        day: today,
+        at: now,
+        turn,
+        quote: String(lastUser.text ?? '').slice(0, 120),
+      })
       await this.foldInkContextNow('closing')
     }
 
