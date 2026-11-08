@@ -697,4 +697,36 @@ export function registerTools(ctx, engines, operator, services = {}) {
       },
     }),
   )
+
+  ctx.tools.register(
+    tool({
+      name: 'ink_view',
+      description:
+        'Extra 展示层：把一份结构化的 view spec 放到 MiOpIIk 的「视图」页（不占对话、不占 L3）。一个 IR，五个投影：dataset / graph / timeline / text / choice / media，外加 layout 容器。spec 是数据不是像素：必须有 fallback 纯文本。',
+      parameters: {
+        type: 'object',
+        properties: {
+          action: { type: 'string', enum: ['show', 'list', 'clear'] },
+          spec: {
+            type: 'object',
+            description:
+              'view spec：{widget, title?, props, fallback}。widget=dataset（columns/rows，可选 chart）、graph（nodes/edges）、timeline（items）、text（paragraphs/bullets）、choice（question/actions≤2）、media（url）、layout（direction/children）。',
+          },
+        },
+        required: ['action'],
+        additionalProperties: false,
+      },
+      async execute(args, exec) {
+        const engine = engineFor(exec)
+        if (args.action === 'list') return { widgets: engine.listWidgets() }
+        if (args.action === 'clear') return engine.clearWidgets()
+        const checked = validateWidget(args.spec)
+        if (!checked.ok) {
+          throw new Error(`${checked.errors.join('；')}。可用：${(checked.available ?? WIDGET_KINDS).join(' / ')}`)
+        }
+        if (layoutDepth(checked.spec) > 2) throw new Error('layout 最多嵌套 2 层')
+        return engine.pushWidget(checked.spec)
+      },
+    }),
+  )
 }

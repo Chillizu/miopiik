@@ -131,3 +131,10 @@ spec（数据 + 意图） → IR → 投影选择（数据形状 + 能力清单�
 ## 8. 非目标
 
 不做任意 HTML/CSS；不做导航；不做第二套设计系统；不做用户可编辑布局；不做「模型生成组件代码」。
+
+## 9. v1 落地（2026-11-08）
+
+- 入口：`ink_view`（show / list / clear），spec 经 `host/widgets.js` 校验后落 `widgets.jsonl`；
+- 渲染：MiOpIIk 页新增「视图」页签，支持 dataset（表格 + 可选条形）、graph（按 lane 分列 + 边表）、timeline、text、choice、media、layout；
+- 硬规则已生效：fallback 必填、未知 widget 报错列清单、choice ≤2 动作、layout 嵌套 ≤2；
+- 未做：交互（v1 只读，选择回到对话）、自由 HTML 逃逸档、对话流内联。

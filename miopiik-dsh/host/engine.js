@@ -31,7 +31,7 @@ export function lossless(value) {
   }
 }
 
-export const INK_TOOL_NAMES = Object.freeze(['ink_status', 'ink_loops', 'ink_facts', 'ink_inbox', 'ink_dispatch', 'ink_commit', 'ink_brief', 'ink_epoch', 'ink_draft', 'ink_branch', 'ink_fold', 'ink_recall'])
+export const INK_TOOL_NAMES = Object.freeze(['ink_status', 'ink_loops', 'ink_facts', 'ink_inbox', 'ink_dispatch', 'ink_commit', 'ink_brief', 'ink_epoch', 'ink_draft', 'ink_branch', 'ink_fold', 'ink_recall', 'ink_view'])
 
 const MAX_L3_LINES = 14
 
@@ -474,6 +474,21 @@ export class Engine {
     })()
   }
 
+  /** Extra 展示层：Mind 提交一份 view spec（渲染在「视图」页，不占对话与 L3）。 */
+  async pushWidget(spec) {
+    await this.enqueue(() => appendRecord(this.store, 'widgets', { op: 'show', spec, at: this.now() }))
+    return { ok: true, widgets: this.state.widgets.length }
+  }
+
+  async clearWidgets() {
+    await this.enqueue(() => appendRecord(this.store, 'widgets', { op: 'clear', at: this.now() }))
+    return { ok: true }
+  }
+
+  listWidgets() {
+    return [...this.state.widgets]
+  }
+
   /** 只为排障留痕：不进上下文、不进决定账，落 ink-debug 日志。 */
   debugRecord(kind, reason) {
     try {
@@ -734,6 +749,7 @@ export class Engine {
         tailCount: (this.state.inkTail ?? []).length,
       },
       candidates,
+      view: { widgets: this.listWidgets().slice(-3) },
       epoch: this.state.epoch,
       day: dayOf(this.now()),
       loops: {

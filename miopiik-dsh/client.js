@@ -642,6 +642,7 @@ window.__ModuleLoader__.load({
         ...(wide ? [] : [['list', t('tab.list')]]),
         ['stream', t('tab.stream')],
         ['context', t('tab.context')],
+        ['view', t('tab.view')],
       ]
       return h(
         'div',
@@ -745,6 +746,8 @@ window.__ModuleLoader__.load({
               ? h(ListPane, { snapshot, sessionId })
               : tab === 'context'
               ? h(ContextPane, { snapshot })
+              : tab === 'view'
+              ? h(WidgetCanvas, { snapshot })
               : h(StreamPane, {
                   snapshot,
                   filter: streamFilter,
@@ -857,6 +860,215 @@ window.__ModuleLoader__.load({
      * 流水：一行一条（决定或任务），点开右侧看完整内容。
      * 不设全局「完整模式」——详情是按需的，不是一次性倒出来。
      */
+    function WidgetCanvas({ snapshot }) {
+      const widgets = snapshot?.view?.widgets ?? []
+      const card = (spec, key) =>
+        h(
+          'div',
+          {
+            key,
+            style: {
+              border: `1px solid ${C.border}`,
+              borderRadius: 10,
+              background: C.layer1,
+              padding: '12px 14px',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: 10,
+            },
+          },
+          spec.title ? h('div', { style: { fontSize: 13, fontWeight: 600 } }, spec.title) : null,
+          renderWidget(spec),
+          spec.fallback
+            ? h('div', { style: { fontSize: 10, color: C.muted, borderTop: `1px dashed ${C.border}`, paddingTop: 6 } }, spec.fallback)
+            : null,
+        )
+      if (widgets.length === 0) return h('div', { style: styles.empty }, t('view.empty'))
+      return h(
+        'div',
+        { style: { display: 'flex', flexDirection: 'column', gap: 14, maxWidth: 780, padding: '4px 2px 24px' } },
+        ...widgets.map((spec, index) => card(spec, `w-${index}`)),
+      )
+    }
+
+    function renderWidget(spec) {
+      const props = spec?.props ?? {}
+      const muted = { fontSize: 11, color: C.muted }
+      if (spec.widget === 'dataset') {
+        const columns = props.columns ?? []
+        const rows = props.rows ?? []
+        if (props.chart !== undefined) {
+          const max = Math.max(1, ...rows.map((row) => Number(row[1]) || 0))
+          return h(
+            'div',
+            { style: { display: 'flex', flexDirection: 'column', gap: 6 } },
+            ...rows.map((row, index) =>
+              h(
+                'div',
+                { key: index, style: { display: 'flex', alignItems: 'center', gap: 8 } },
+                h('span', { style: { ...muted, width: 96, flexShrink: 0 } }, String(row[0] ?? '')),
+                h('div', {
+                  style: {
+                    height: 10,
+                    width: `${Math.round(((Number(row[1]) || 0) / max) * 100)}%`,
+                    background: C.brand,
+                    borderRadius: 3,
+                    minWidth: 2,
+                  },
+                }),
+                h('span', { style: muted }, String(row[1] ?? '')),
+              ),
+            ),
+          )
+        }
+        return h(
+          'table',
+          { style: { borderCollapse: 'collapse', fontSize: 12, width: '100%' } },
+          h(
+            'thead',
+            {},
+            h(
+              'tr',
+              {},
+              ...columns.map((column, index) =>
+                h('th', { key: index, style: { textAlign: 'left', padding: '4px 6px', color: C.muted, fontWeight: 500, borderBottom: `1px solid ${C.border}` } }, String(column.label ?? column)),
+              ),
+            ),
+          ),
+          h(
+            'tbody',
+            {},
+            ...rows.map((row, rowIndex) =>
+              h(
+                'tr',
+                { key: rowIndex },
+                ...row.map((cell, cellIndex) =>
+                  h('td', { key: cellIndex, style: { padding: '4px 6px', borderBottom: `1px solid ${C.border}` } }, String(cell ?? '')),
+                ),
+              ),
+            ),
+          ),
+        )
+      }
+      if (spec.widget === 'graph') {
+        const nodes = props.nodes ?? []
+        const edges = props.edges ?? []
+        const lanes = [...new Set(nodes.map((node) => String(node.lane ?? '')))]
+        return h(
+          'div',
+          { style: { display: 'flex', flexDirection: 'column', gap: 8 } },
+          h(
+            'div',
+            { style: { display: 'flex', gap: 12, alignItems: 'flex-start', flexWrap: 'wrap' } },
+            ...lanes.map((lane, laneIndex) =>
+              h(
+                'div',
+                { key: laneIndex, style: { display: 'flex', flexDirection: 'column', gap: 6, minWidth: 120 } },
+                lane === ''
+                  ? null
+                  : h('div', { style: { ...muted, textTransform: 'uppercase', letterSpacing: 0.4 } }, lane),
+                ...nodes
+                  .filter((node) => String(node.lane ?? '') === lane)
+                  .map((node, nodeIndex) =>
+                    h(
+                      'div',
+                      {
+                        key: nodeIndex,
+                        style: {
+                          fontSize: 12,
+                          padding: '6px 8px',
+                          border: `1px solid ${C.border}`,
+                          borderRadius: 6,
+                          background: C.base,
+                        },
+                      },
+                      String(node.label ?? node.id ?? ''),
+                    ),
+                  ),
+              ),
+            ),
+          ),
+          edges.length === 0
+            ? null
+            : h(
+                'div',
+                { style: muted },
+                edges.map((edge, index) => `${edge.from} → ${edge.to}${edge.label ? `（${edge.label}）` : ''}`).join('　'),
+              ),
+        )
+      }
+      if (spec.widget === 'timeline') {
+        return h(
+          'div',
+          { style: { display: 'flex', flexDirection: 'column', gap: 6 } },
+          ...(props.items ?? []).map((item, index) =>
+            h(
+              'div',
+              { key: index, style: { display: 'flex', gap: 10, alignItems: 'baseline', fontSize: 12 } },
+              h('span', { style: { ...muted, minWidth: 72 } }, String(item.at ?? '')),
+              h('span', {}, String(item.label ?? '')),
+              item.detail ? h('span', { style: muted }, String(item.detail)) : null,
+            ),
+          ),
+        )
+      }
+      if (spec.widget === 'text') {
+        return h(
+          'div',
+          { style: { display: 'flex', flexDirection: 'column', gap: 6, fontSize: 12, lineHeight: 1.6 } },
+          ...(props.paragraphs ?? []).map((text, index) => h('div', { key: `p${index}` }, String(text))),
+          (props.bullets ?? []).length === 0
+            ? null
+            : h(
+                'ul',
+                { style: { margin: 0, paddingLeft: 18 } },
+                ...(props.bullets ?? []).map((text, index) => h('li', { key: `b${index}` }, String(text))),
+              ),
+        )
+      }
+      if (spec.widget === 'choice') {
+        return h(
+          'div',
+          { style: { display: 'flex', flexDirection: 'column', gap: 8, fontSize: 12 } },
+          h('div', {}, String(props.question ?? '')),
+          ...(props.actions ?? []).map((action, index) =>
+            h(
+              'div',
+              { key: index, style: { border: `1px solid ${C.border}`, borderRadius: 6, padding: '6px 8px' } },
+              h('div', {}, String(action.label ?? '')),
+              action.description ? h('div', { style: muted }, String(action.description)) : null,
+            ),
+          ),
+          h('div', { style: muted }, '选择在对话里说，这里不代劳。'),
+        )
+      }
+      if (spec.widget === 'media') {
+        const url = String(props.url ?? '')
+        return props.kind === 'image'
+          ? h('img', { src: url, alt: props.alt ?? '', style: { maxWidth: '100%', borderRadius: 6 } })
+          : h('a', { href: url, target: '_blank', rel: 'noreferrer', style: { fontSize: 12, color: C.brand } }, String(props.label ?? url))
+      }
+      if (spec.widget === 'layout') {
+        const direction = props.direction ?? 'stack'
+        const children = props.children ?? []
+        return h(
+          'div',
+          {
+            style:
+              direction === 'row'
+                ? { display: 'flex', gap: 10, flexWrap: 'wrap' }
+                : direction === 'grid'
+                  ? { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 10 }
+                  : { display: 'flex', flexDirection: 'column', gap: 10 },
+          },
+          ...children.map((child, index) =>
+            h('div', { key: index, style: { flex: direction === 'row' ? '1 1 220px' : undefined } }, renderWidget(child)),
+          ),
+        )
+      }
+      return h('div', { style: muted }, '（不认识的展示类型）')
+    }
+
     function ContextPane({ snapshot }) {
       const context = snapshot?.inkContext
       const candidates = snapshot?.candidates ?? []
@@ -1475,6 +1687,8 @@ window.__ModuleLoader__.load({
       'tab.list': '清单',
       'tab.stream': '流水',
       'tab.context': '所见',
+      'tab.view': '视图',
+      'view.empty': '还没有展示内容。让我画点东西时会出现在这里。',
       'ctx.head': '折叠头部',
       'ctx.tail': '尾部',
       'ctx.candidates': '对话编译候选',
@@ -1562,6 +1776,8 @@ window.__ModuleLoader__.load({
       'tab.list': 'List',
       'tab.stream': 'Stream',
       'tab.context': 'Seen',
+      'tab.view': 'View',
+      'view.empty': 'Nothing shown yet.',
       'ctx.head': 'Folded head',
       'ctx.tail': 'Tail',
       'ctx.candidates': 'Conversation candidates',

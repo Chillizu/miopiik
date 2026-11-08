@@ -11,7 +11,7 @@ import { mkdir, readFile, appendFile, rename, stat, unlink } from 'node:fs/promi
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 
-export const LOG_NAMES = Object.freeze(['observations', 'notes', 'loops', 'facts', 'inbox', 'briefings', 'jobs', 'drafts', 'cases', 'branches', 'folds', 'details', 'ink-context', 'ink-debug'])
+export const LOG_NAMES = Object.freeze(['observations', 'notes', 'loops', 'facts', 'inbox', 'briefings', 'jobs', 'drafts', 'cases', 'branches', 'folds', 'details', 'ink-context', 'ink-debug', 'widgets'])
 
 export function emptyState(sessionId) {
   return {
@@ -31,6 +31,8 @@ export function emptyState(sessionId) {
     inkTail: [],
     folds: new Map(),
     details: [],
+    // Extra 展示层：Mind 提交的 view spec（只增，保留最近若干条）。
+    widgets: [],
     counters: { obs: 0, note: 0, loop: 0, fact: 0, inbox: 0, job: 0, draft: 0, case: 0, branch: 0, fold: 0 },
     epoch: 0,
   }
@@ -151,6 +153,17 @@ export function applyRecord(state, log, record) {
       const job = state.jobs.get(record.jobId)
       if (job === undefined) return
       if (record.op === 'update') Object.assign(job, record.patch ?? {})
+      return
+    }
+    case 'widgets': {
+      if (record.op === 'clear') {
+        state.widgets = []
+        return
+      }
+      if (record.op === 'show' && record.spec !== undefined) {
+        state.widgets.push({ ...record.spec, at: record.at ?? null })
+        if (state.widgets.length > 30) state.widgets = state.widgets.slice(-30)
+      }
       return
     }
     case 'drafts': {
