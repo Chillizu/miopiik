@@ -1628,13 +1628,14 @@ window.__ModuleLoader__.load({
     function InkViewRow(props) {
       const phase = props?.phase
       const block = props?.block
+      // 结果阶段：原始参数在 block.call.argsRaw；起始阶段在 block.argsRaw。
       const raw =
-        typeof block?.argsRaw === 'string'
-          ? block.argsRaw
-          : typeof block?.args?.raw === 'string'
-            ? block.args.raw
-            : block?.args !== undefined
-              ? JSON.stringify(block.args)
+        typeof block?.call?.argsRaw === 'string'
+          ? block.call.argsRaw
+          : typeof block?.argsRaw === 'string'
+            ? block.argsRaw
+            : typeof block?.args?.raw === 'string'
+              ? block.args.raw
               : ''
       let spec = null
       try {
@@ -1642,6 +1643,10 @@ window.__ModuleLoader__.load({
         if (parsed?.action === 'show' && parsed?.spec !== undefined) spec = parsed.spec
       } catch {
         spec = null
+      }
+      if (spec === null && block?.args !== null && typeof block?.args === 'object') {
+        const direct = block.args
+        if (direct?.action === 'show' && direct?.spec !== undefined) spec = direct.spec
       }
       if (spec === null) {
         return h(
