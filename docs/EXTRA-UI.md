@@ -156,3 +156,6 @@ spec（数据 + 意图） → IR → 投影选择（数据形状 + 能力清单�
 - 渲染：复用 `renderWidget`，卡底仍显示 fallback。
 
 这比“自定义 chat node kind + 会话事件”那条路便宜得多，且不碰内核。
+
+实机验证（2026-11-08 20:57 重启后）：卡片直接长在对话流里，标题、表格与卡底 fallback 文本齐全 —— [inline-widget-fixed.png](screenshots/inline-widget-fixed.png)。
+坑记一笔：`result` 阶段原始参数在 `block.call.argsRaw`，`start` 阶段在 `block.argsRaw`；只读 `block.args` 会解析成空、退化成占位文案。
