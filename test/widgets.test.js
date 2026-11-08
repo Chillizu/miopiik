@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { mkdtemp, rm } from 'node:fs/promises'
+import { mkdtemp, readFile, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
@@ -43,6 +43,12 @@ test('view spec：choice 最多两个动作，layout 嵌套有上限', () => {
   const level2 = { widget: 'layout', props: { direction: 'row', children: [level1] }, fallback: 'x' }
   const level3 = { widget: 'layout', props: { direction: 'grid', children: [level2] }, fallback: 'x' }
   assert.equal(layoutDepth(level3), 3)
+})
+
+test('工具面确实接上了 widgets 模块（防漏 import）', async () => {
+  const source = await readFile(new URL('../miopiik-dsh/host/tools.js', import.meta.url), 'utf8')
+  assert.match(source, /import \{ WIDGET_KINDS, layoutDepth, validateWidget \} from '\.\/widgets\.js'/)
+  assert.match(source, /name: 'ink_view'/)
 })
 
 test('widgets 账本：show 进快照，clear 清空', async () => {

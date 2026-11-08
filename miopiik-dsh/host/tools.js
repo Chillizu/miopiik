@@ -9,6 +9,7 @@
  */
 
 import { LOOP_TYPES } from './loops.js'
+import { WIDGET_KINDS, layoutDepth, validateWidget } from './widgets.js'
 
 const RESULT_SCHEMA = { type: 'object', additionalProperties: true }
 
