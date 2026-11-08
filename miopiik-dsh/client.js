@@ -1624,6 +1624,56 @@ window.__ModuleLoader__.load({
       ['conversationCompile', '对话编译（回合后产候选）', true],
     ]
 
+    // 嵌在会话里的展示：按工具名接管 ink_view 的 toolview 席位（keyed seat，公开接缝）。
+    function InkViewRow(props) {
+      const phase = props?.phase
+      const block = props?.block
+      const raw =
+        typeof block?.argsRaw === 'string'
+          ? block.argsRaw
+          : typeof block?.args?.raw === 'string'
+            ? block.args.raw
+            : block?.args !== undefined
+              ? JSON.stringify(block.args)
+              : ''
+      let spec = null
+      try {
+        const parsed = JSON.parse(raw)
+        if (parsed?.action === 'show' && parsed?.spec !== undefined) spec = parsed.spec
+      } catch {
+        spec = null
+      }
+      if (spec === null) {
+        return h(
+          'div',
+          { style: { fontSize: 12, color: C.muted, padding: '4px 0' } },
+          phase === 'preparing' ? t('inline.preparing') : t('inline.pending'),
+        )
+      }
+      const title = typeof spec.title === 'string' && spec.title !== '' ? spec.title : t('inline.title')
+      return h(
+        'div',
+        {
+          style: {
+            border: `1px solid ${C.border}`,
+            borderRadius: 10,
+            background: C.layer1,
+            padding: '10px 12px',
+            margin: '4px 0',
+            display: 'flex',
+            flexDirection: 'column',
+            gap: 8,
+            maxWidth: 720,
+          },
+        },
+        h('div', { style: { fontSize: 12, fontWeight: 600 } }, title),
+        renderWidget(spec),
+        typeof spec.fallback === 'string' && spec.fallback !== ''
+          ? h('div', { style: { fontSize: 10, color: C.muted, borderTop: `1px dashed ${C.border}`, paddingTop: 6 } }, spec.fallback)
+          : null,
+      )
+    }
+
     function SettingsSection() {
       return h(
         'div',
@@ -1688,6 +1738,9 @@ window.__ModuleLoader__.load({
       'tab.stream': '流水',
       'tab.context': '所见',
       'tab.view': '视图',
+      'inline.title': '展示',
+      'inline.preparing': '正在准备展示…',
+      'inline.pending': '这一条不是展示指令。',
       'view.empty': '还没有展示内容。让我画点东西时会出现在这里。',
       'ctx.head': '折叠头部',
       'ctx.tail': '尾部',
@@ -1777,6 +1830,9 @@ window.__ModuleLoader__.load({
       'tab.stream': 'Stream',
       'tab.context': 'Seen',
       'tab.view': 'View',
+      'inline.title': 'View',
+      'inline.preparing': 'Preparing…',
+      'inline.pending': 'Not a view command.',
       'view.empty': 'Nothing shown yet.',
       'ctx.head': 'Folded head',
       'ctx.tail': 'Tail',
@@ -1917,6 +1973,11 @@ window.__ModuleLoader__.load({
         ctx.inject(['sidebarRight'], (inner) => {
           rightbar = inner.sidebarRight
         })
+
+        // 嵌在会话流里的展示：接管 ink_view 的 toolview 席位，卡片直接出现在对话里。
+        ctx.slots.inject('tool.call.toolview', () =>
+          ctx.slots.register({ name: 'tool.call.toolview', key: 'ink_view', locale: NS }, InkViewRow),
+        )
 
         // 唯一入口：会话视图里的一个功能页（与「对话 / 轨迹」并列），图与各面板都在这一页里。
         ctx.slots.inject('conversation.view', () =>

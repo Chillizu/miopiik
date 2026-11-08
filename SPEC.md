@@ -504,5 +504,5 @@ L3 之外，Mind 还能从 L3 末尾看到一行鱼骨：「B-1 定位验证：�
 - **一个 IR，五个投影**：`dataset`（表格/条形，columns+rows）、`graph`（节点+边，按 lane 分列）、`timeline`（时间序列）、`text`（段落/列表）、`choice`（≤2 个动作）、`media`（图片/链接），外加 `layout` 容器（stack/row/grid，嵌套 ≤2 层）。
 - **spec 是数据，不是像素**：落盘的是 `{widget, title?, props, fallback}`；渲染器负责长相，样式只用设计 token，spec 内不允许出现 CSS。
 - **硬规则**：`fallback` 必填（导出与降级的唯一出口）；未知 widget 报错并列出可用清单，不静默降级；一张卡只放一个决定；v1 只读——一切交互都回到对话或 session command。
-- **入口**：`ink_view` 工具（show / list / clear），渲染在 MiOpIIk 页的「视图」页签；每轮快照只带最近 3 条。
+- **入口**：`ink_view` 工具（show / list / clear）。**在对话流里内联渲染**（接管 `tool.call.toolview` 的 `ink_view` 席位，数据取工具参数里的 spec）；同时进 MiOpIIk 页的「视图」页签；快照只带最近 3 条。
 - **不做的**：不往对话流里插 widget；不做自由 HTML；不做第二套设计系统；不做模型生成组件代码。

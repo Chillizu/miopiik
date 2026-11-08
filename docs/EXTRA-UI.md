@@ -145,3 +145,14 @@ spec（数据 + 意图） → IR → 投影选择（数据形状 + 能力清单�
 - 「视图」页签渲染通过（截图：[extra-view-live.png](screenshots/extra-view-live.png)、[extra-view-live-2.png](screenshots/extra-view-live-2.png)）；
 - 观察：`graph` 目前是“按 lane 分列 + 边表”的轻量渲染，不是 SVG 关系图——复杂图仍走 archify 的 HTML 逃逸档，这条边界要守住；
 - 待做：`choice` 的点击回传（走 session command）、`dataset` 的折线/环形图型、把「流水」「所见」也换成同一套渲染器。
+
+### 9.2 内联进对话流（2026-11-08）
+
+找到了 DSH 的公开接缝：`tool.call.toolview` 是按**工具名**键控的席位（契约原话：“Keyed Tool call view dispatched by wire Tool name. Any name is allowed, including tools registered by your package.”）。
+
+因此 `ink_view` 的调用可以直接在对话流里渲染成卡片，而不是躲在「视图」页签：
+- 注册：`ctx.slots.register({ name: 'tool.call.toolview', key: 'ink_view' }, InkViewRow)`；
+- 数据来源：工具调用的 `argsRaw`（含 spec），不新增会话事件；
+- 渲染：复用 `renderWidget`，卡底仍显示 fallback。
+
+这比“自定义 chat node kind + 会话事件”那条路便宜得多，且不碰内核。
