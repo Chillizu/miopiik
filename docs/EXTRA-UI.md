@@ -138,3 +138,10 @@ spec（数据 + 意图） → IR → 投影选择（数据形状 + 能力清单�
 - 渲染：MiOpIIk 页新增「视图」页签，支持 dataset（表格 + 可选条形）、graph（按 lane 分列 + 边表）、timeline、text、choice、media、layout；
 - 硬规则已生效：fallback 必填、未知 widget 报错列清单、choice ≤2 动作、layout 嵌套 ≤2；
 - 未做：交互（v1 只读，选择回到对话）、自由 HTML 逃逸档、对话流内联。
+
+### 9.1 实机验证（2026-11-08 晚）
+
+- `ink_view show` 连放三份 spec（表格 / 时间线 / 泳道图），`ink_view list` 读回正常；
+- 「视图」页签渲染通过（截图：[extra-view-live.png](screenshots/extra-view-live.png)、[extra-view-live-2.png](screenshots/extra-view-live-2.png)）；
+- 观察：`graph` 目前是“按 lane 分列 + 边表”的轻量渲染，不是 SVG 关系图——复杂图仍走 archify 的 HTML 逃逸档，这条边界要守住；
+- 待做：`choice` 的点击回传（走 session command）、`dataset` 的折线/环形图型、把「流水」「所见」也换成同一套渲染器。
