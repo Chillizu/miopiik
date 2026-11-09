@@ -173,3 +173,6 @@ spec（数据 + 意图） → IR → 投影选择（数据形状 + 能力清单�
 `groupTree: 'turn'` 是关键：Chat 的过程组只收「过程层」的节点（`isAtOrOutside(node, 'process')` 为假才进 pending），Turn 层节点会在分组时先 flush 再单独成行，于是卡片落在调用处、不被折叠。
 
 渲染仍走同一套：`ctx.slots.register({ name: 'conversation.chat.node', key: 'miopiik-widget' })`。旧的 toolview 席位撤掉，免得同一张卡在折叠区里重复出现。
+
+实机验证（2026-11-09 21:51，重载后）：卡片独立成行，`data-chat-flow-kind="miopiik-widget"`、无 `data-turn-process-member` —— [inline-widget-body.png](screenshots/inline-widget-body.png)。
+结构上它不会再被折叠：过程组只收 `isAtOrOutside(node,'process')` 为假的节点，而 `groupTree: 'turn'` 的深度是 2，判真。
