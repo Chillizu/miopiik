@@ -862,27 +862,7 @@ window.__ModuleLoader__.load({
      */
     function WidgetCanvas({ snapshot }) {
       const widgets = snapshot?.view?.widgets ?? []
-      const card = (spec, key) =>
-        h(
-          'div',
-          {
-            key,
-            style: {
-              border: `1px solid ${C.border}`,
-              borderRadius: 10,
-              background: C.layer1,
-              padding: '12px 14px',
-              display: 'flex',
-              flexDirection: 'column',
-              gap: 10,
-            },
-          },
-          spec.title ? h('div', { style: { fontSize: 13, fontWeight: 600 } }, spec.title) : null,
-          renderWidget(spec),
-          spec.fallback
-            ? h('div', { style: { fontSize: 10, color: C.muted, borderTop: `1px dashed ${C.border}`, paddingTop: 6 } }, spec.fallback)
-            : null,
-        )
+      const card = (spec, key) => h('div', { key }, h(WidgetCard, { spec, padded: true }))
       if (widgets.length === 0) return h('div', { style: styles.empty }, t('view.empty'))
       return h(
         'div',
@@ -1067,6 +1047,84 @@ window.__ModuleLoader__.load({
         )
       }
       return h('div', { style: muted }, '（不认识的展示类型）')
+    }
+
+    // 一张卡：标题 + 投影 + 卡底 fallback。对话流节点与「视图」页共用同一套渲染。
+    function WidgetCard({ spec, padded }) {
+      return h(
+        'div',
+        {
+          style: {
+            border: `1px solid ${C.border}`,
+            borderRadius: 10,
+            background: C.layer1,
+            padding: padded ? '12px 14px' : '10px 12px',
+            margin: padded ? 0 : '4px 0',
+            display: 'flex',
+            flexDirection: 'column',
+            gap: 8,
+            maxWidth: 720,
+          },
+        },
+        spec.title ? h('div', { style: { fontSize: 12, fontWeight: 600 } }, spec.title) : null,
+        renderWidget(spec),
+        typeof spec.fallback === 'string' && spec.fallback !== ''
+          ? h('div', { style: { fontSize: 10, color: C.muted, borderTop: `1px dashed ${C.border}`, paddingTop: 6 } }, spec.fallback)
+          : null,
+      )
+    }
+
+    // 对话流里的卡片节点：由 ink_view 的 tool/call 事件长出一行，站到正文里。
+    // 站在 Turn 这一层（groupTree: 'turn'）：与工具行同一次调用，但不进可折叠的「过程」组。
+    const WIDGET_NODE_KIND = 'miopiik-widget'
+
+    function readInkViewSpec(event) {
+      if (event?.type !== 'tool/call') return null
+      const data = event.data ?? {}
+      if (data.name !== 'ink_view') return null
+      let parsed = null
+      try {
+        parsed = JSON.parse(data.arguments)
+      } catch {
+        return null
+      }
+      if (parsed === null || typeof parsed !== 'object' || parsed.action !== 'show' || parsed.spec === undefined) return null
+      return { id: String(data.callId), spec: parsed.spec }
+    }
+
+    const widgetNodeDefinition = {
+      kind: WIDGET_NODE_KIND,
+      target: 'chat',
+      match: (event) => {
+        const hit = readInkViewSpec(event)
+        return hit === null ? null : { id: hit.id, role: 'start' }
+      },
+      start: (_context, match) => {
+        const hit = readInkViewSpec(match.event)
+        if (hit === null) throw new Error('miopiik-widget start requires an ink_view tool/call')
+        return { seq: match.event.seq, spec: hit.spec }
+      },
+      update: (context) => context.state,
+      buildViewNode: (context) => {
+        if (context.state === undefined) return null
+        return {
+          key: context.key,
+          kind: WIDGET_NODE_KIND,
+          id: context.id,
+          target: 'chat',
+          anchorSeq: context.state.seq + 0.2, // 与工具行同一次调用，排它后面一点点：卡片落在调用处，不是另起一行到末尾
+          location: context.start?.location ?? { kind: 'unresolved' },
+          visibility: 'visible',
+          groupTree: 'turn',
+          data: { spec: context.state.spec },
+        }
+      },
+    }
+
+    function WidgetNodeView(props) {
+      const spec = props?.node?.data?.spec
+      if (spec === null || typeof spec !== 'object') return null
+      return h('div', { style: { padding: '2px 0' } }, h(WidgetCard, { spec }))
     }
 
     function ContextPane({ snapshot }) {
@@ -1624,61 +1682,6 @@ window.__ModuleLoader__.load({
       ['conversationCompile', '对话编译（回合后产候选）', true],
     ]
 
-    // 嵌在会话里的展示：按工具名接管 ink_view 的 toolview 席位（keyed seat，公开接缝）。
-    function InkViewRow(props) {
-      const phase = props?.phase
-      const block = props?.block
-      // 结果阶段：原始参数在 block.call.argsRaw；起始阶段在 block.argsRaw。
-      const raw =
-        typeof block?.call?.argsRaw === 'string'
-          ? block.call.argsRaw
-          : typeof block?.argsRaw === 'string'
-            ? block.argsRaw
-            : typeof block?.args?.raw === 'string'
-              ? block.args.raw
-              : ''
-      let spec = null
-      try {
-        const parsed = JSON.parse(raw)
-        if (parsed?.action === 'show' && parsed?.spec !== undefined) spec = parsed.spec
-      } catch {
-        spec = null
-      }
-      if (spec === null && block?.args !== null && typeof block?.args === 'object') {
-        const direct = block.args
-        if (direct?.action === 'show' && direct?.spec !== undefined) spec = direct.spec
-      }
-      if (spec === null) {
-        return h(
-          'div',
-          { style: { fontSize: 12, color: C.muted, padding: '4px 0' } },
-          phase === 'preparing' ? t('inline.preparing') : t('inline.pending'),
-        )
-      }
-      const title = typeof spec.title === 'string' && spec.title !== '' ? spec.title : t('inline.title')
-      return h(
-        'div',
-        {
-          style: {
-            border: `1px solid ${C.border}`,
-            borderRadius: 10,
-            background: C.layer1,
-            padding: '10px 12px',
-            margin: '4px 0',
-            display: 'flex',
-            flexDirection: 'column',
-            gap: 8,
-            maxWidth: 720,
-          },
-        },
-        h('div', { style: { fontSize: 12, fontWeight: 600 } }, title),
-        renderWidget(spec),
-        typeof spec.fallback === 'string' && spec.fallback !== ''
-          ? h('div', { style: { fontSize: 10, color: C.muted, borderTop: `1px dashed ${C.border}`, paddingTop: 6 } }, spec.fallback)
-          : null,
-      )
-    }
-
     function SettingsSection() {
       return h(
         'div',
@@ -1979,10 +1982,13 @@ window.__ModuleLoader__.load({
           rightbar = inner.sidebarRight
         })
 
-        // 嵌在会话流里的展示：接管 ink_view 的 toolview 席位，卡片直接出现在对话里。
-        ctx.slots.inject('tool.call.toolview', () =>
-          ctx.slots.register({ name: 'tool.call.toolview', key: 'ink_view', locale: NS }, InkViewRow),
-        )
+        // 嵌在会话正文里的展示：ink_view 的调用自己长成一行卡片（Turn 层，不进可折叠的过程组）。
+        ctx.inject(['uiConversation'], (inner) => {
+          inner.effect(() => inner.uiConversation.events.register(widgetNodeDefinition), 'miopiik-dsh: widget node')
+          inner.slots.inject('conversation.chat.node', () =>
+            inner.slots.register({ name: 'conversation.chat.node', key: WIDGET_NODE_KIND, locale: NS }, WidgetNodeView),
+          )
+        })
 
         // 唯一入口：会话视图里的一个功能页（与「对话 / 轨迹」并列），图与各面板都在这一页里。
         ctx.slots.inject('conversation.view', () =>

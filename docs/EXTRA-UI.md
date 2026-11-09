@@ -159,3 +159,17 @@ spec（数据 + 意图） → IR → 投影选择（数据形状 + 能力清单�
 
 实机验证（2026-11-08 20:57 重启后）：卡片直接长在对话流里，标题、表格与卡底 fallback 文本齐全 —— [inline-widget-fixed.png](screenshots/inline-widget-fixed.png)。
 坑记一笔：`result` 阶段原始参数在 `block.call.argsRaw`，`start` 阶段在 `block.argsRaw`；只读 `block.args` 会解析成空、退化成占位文案。
+
+### 9.3 卡片站进正文（2026-11-09）
+
+§9.2 的 toolview 席位能渲染，但它在**过程组**里——回合结束就跟着「思考块」一起折叠。用户要的是卡片站在正文对应位置。
+
+换到更靠里的接缝：Conversation 业务定义。
+
+- 注册一个 `target: 'chat'` 的 Definition（`ctx.uiConversation.events.register`），`kind: 'miopiik-widget'`；
+- `match` 只认 `tool/call` 且 `data.name === 'ink_view'`，spec 从 `data.arguments` 里解析（本来就是落盘日志里的调用参数，不新增事件）；
+- `buildViewNode` 的 `anchorSeq` 取调用事件的 seq（+0.2 排在工具行之后），`groupTree: 'turn'`。
+
+`groupTree: 'turn'` 是关键：Chat 的过程组只收「过程层」的节点（`isAtOrOutside(node, 'process')` 为假才进 pending），Turn 层节点会在分组时先 flush 再单独成行，于是卡片落在调用处、不被折叠。
+
+渲染仍走同一套：`ctx.slots.register({ name: 'conversation.chat.node', key: 'miopiik-widget' })`。旧的 toolview 席位撤掉，免得同一张卡在折叠区里重复出现。

@@ -66,3 +66,18 @@ test('widgets 账本：show 进快照，clear 清空', async () => {
     await rm(dir, { recursive: true, force: true })
   }
 })
+
+test('对话正文里的卡片：由 ink_view 的 tool/call 长成 Turn 层节点，不进可折叠的过程组', async () => {
+  const source = await readFile(new URL('../miopiik-dsh/client.js', import.meta.url), 'utf8')
+  // 注册面：keyed 节点席位 + 事件定义
+  assert.match(source, /name: 'conversation\.chat\.node', key: WIDGET_NODE_KIND/)
+  assert.match(source, /uiConversation\.events\.register\(widgetNodeDefinition\)/)
+  // 定义：认 ink_view 的调用事件，站在 Turn 层
+  assert.match(source, /const WIDGET_NODE_KIND = 'miopiik-widget'/)
+  assert.match(source, /data\.name !== 'ink_view'/)
+  assert.match(source, /parsed\.action !== 'show'/)
+  assert.match(source, /groupTree: 'turn'/)
+  // 旧的 toolview 席位已让位：同一张卡不再在折叠区里重复出现
+  assert.ok(!source.includes("'tool.call.toolview'"), '不该再挂 toolview 席位')
+  assert.ok(!source.includes('function InkViewRow('), '旧的 toolview 行已移除')
+})
