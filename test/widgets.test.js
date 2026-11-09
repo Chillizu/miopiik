@@ -97,5 +97,5 @@ test('渲染器：真图表与真连线，不是文字占位', async () => {
     assert.ok(source.includes(needle), `client.js 缺少：${needle}`)
   }
   // 边不再退化成一行文字表
-  assert.ok(!source.includes('edges.map((edge, index) => `${edge.from} → ${edge.to}'),'), '边表不该回到纯文字')
+  assert.ok(!source.includes('edge.from} → ${edge.to}${edge.label'), '边表不该回到纯文字')
 })
