@@ -81,3 +81,21 @@ test('对话正文里的卡片：由 ink_view 的 tool/call 长成 Turn 层节�
   assert.ok(!source.includes("'tool.call.toolview'"), '不该再挂 toolview 席位')
   assert.ok(!source.includes('function InkViewRow('), '旧的 toolview 行已移除')
 })
+
+test('渲染器：真图表与真连线，不是文字占位', async () => {
+  const source = await readFile(new URL('../miopiik-dsh/client.js', import.meta.url), 'utf8')
+  for (const needle of [
+    'function renderGraph(',
+    'function renderChart(',
+    "if (kind === 'line')",
+    "if (kind === 'donut')",
+    "preserveAspectRatio: 'xMidYMid meet'",
+    "markerEnd: 'url(#miopiik-arrow)'",
+    "h('polyline', {",
+    "gridTemplateColumns: '54px 14px minmax(0, 1fr)'",
+  ]) {
+    assert.ok(source.includes(needle), `client.js 缺少：${needle}`)
+  }
+  // 边不再退化成一行文字表
+  assert.ok(!source.includes('edges.map((edge, index) => `${edge.from} → ${edge.to}'),'), '边表不该回到纯文字')
+})

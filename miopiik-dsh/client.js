@@ -871,6 +871,264 @@ window.__ModuleLoader__.load({
       )
     }
 
+    // SVG 画布：viewBox 固定、宽度自适应；文字按 viewBox 里的坐标排，缩放时整体等比。
+    function svgCanvas(width, height, children) {
+      return h(
+        'svg',
+        {
+          viewBox: `0 0 ${width} ${height}`,
+          width,
+          height,
+          preserveAspectRatio: 'xMidYMid meet',
+          style: { display: 'block', maxWidth: '100%', height: 'auto', margin: '0 auto', overflow: 'visible' },
+        },
+        ...children,
+      )
+    }
+
+    function svgArrow(color) {
+      return h(
+        'defs',
+        { key: 'miopiik-arrow-def' },
+        h(
+          'marker',
+          { id: 'miopiik-arrow', markerWidth: 7, markerHeight: 7, refX: 6, refY: 3.5, orient: 'auto', markerUnits: 'userSpaceOnUse' },
+          h('path', { d: 'M0,0 L7,3.5 L0,7 Z', fill: color }),
+        ),
+      )
+    }
+
+    const SANS = 'ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif'
+
+    // graph：按 lane 分列排节点，边画成曲线——不是列一张边表。
+    function renderGraph(nodes, edges) {
+      const nodeW = 116
+      const nodeH = 32
+      const colGap = 88
+      const rowGap = 14
+      const headH = 18
+      const pad = 4
+      const lanes = []
+      for (const node of nodes) {
+        const lane = String(node.lane ?? '')
+        if (!lanes.includes(lane)) lanes.push(lane)
+      }
+      const laneRows = lanes.map((lane) => nodes.filter((node) => String(node.lane ?? '') === lane))
+      const maxRows = Math.max(1, ...laneRows.map((rows) => rows.length))
+      const width = pad * 2 + lanes.length * nodeW + Math.max(0, lanes.length - 1) * colGap
+      const routesBelow = edges.some((edge) => {
+        const from = nodes.findIndex((node) => String(node.id ?? node.label ?? '') === String(edge.from))
+        const to = nodes.findIndex((node) => String(node.id ?? node.label ?? '') === String(edge.to))
+        return from >= 0 && to >= 0 && lanes.indexOf(String(nodes[to].lane ?? '')) < lanes.indexOf(String(nodes[from].lane ?? ''))
+      })
+      const height = pad * 2 + headH + maxRows * nodeH + Math.max(0, maxRows - 1) * rowGap + (routesBelow ? 38 : 0)
+      const position = new Map()
+      lanes.forEach((lane, laneIndex) => {
+        const rows = laneRows[laneIndex]
+        const offset = ((maxRows - rows.length) * (nodeH + rowGap)) / 2
+        rows.forEach((node, rowIndex) => {
+          position.set(String(node.id ?? node.label ?? `${laneIndex}:${rowIndex}`), {
+            x: pad + laneIndex * (nodeW + colGap),
+            y: pad + headH + offset + rowIndex * (nodeH + rowGap),
+            laneIndex,
+          })
+        })
+      })
+      const parts = [svgArrow(C.link)]
+      lanes.forEach((lane, laneIndex) => {
+        if (lane === '') return
+        parts.push(
+          h(
+            'text',
+            { key: `lane-${laneIndex}`, x: pad + laneIndex * (nodeW + colGap), y: pad + 10, fontSize: 9, fill: C.muted, fontFamily: SANS, letterSpacing: 0.4 },
+            lane,
+          ),
+        )
+      })
+      edges.forEach((edge, index) => {
+        const from = position.get(String(edge.from))
+        const to = position.get(String(edge.to))
+        if (from === undefined || to === undefined) return
+        let d = ''
+        if (from.laneIndex === to.laneIndex) {
+          const cx = from.x + nodeW / 2
+          const down = to.y > from.y
+          const y1 = down ? from.y + nodeH : from.y
+          const y2 = down ? to.y : to.y + nodeH
+          if (Math.abs(y2 - y1) < 2) return
+          d = `M${cx},${y1} L${cx},${y2}`
+        } else if (to.laneIndex > from.laneIndex) {
+          const x1 = from.x + nodeW
+          const x2 = to.x
+          const y1 = from.y + nodeH / 2
+          const y2 = to.y + nodeH / 2
+          const bend = Math.max(18, Math.abs(x2 - x1) * 0.45)
+          d = `M${x1},${y1} C${x1 + bend},${y1} ${x2 - bend},${y2} ${x2},${y2}`
+        } else {
+          // 回边从盒子底部的偏侧进出，免得和同列的竖直边叠成双箭头
+          const offset = Math.round(nodeW * 0.26)
+          const x1 = from.x + nodeW / 2 + offset
+          const x2 = to.x + nodeW / 2 + offset
+          const y1 = from.y + nodeH
+          const y2 = to.y + nodeH
+          const laneBottom = pad + headH + maxRows * nodeH + Math.max(0, maxRows - 1) * rowGap
+          const dip = laneBottom + 16
+          d = `M${x1},${y1} C${x1},${dip} ${x2},${dip} ${x2},${y2}`
+        }
+        parts.push(h('path', { key: `edge-${index}`, d, fill: 'none', stroke: C.link, strokeWidth: 1.2, markerEnd: 'url(#miopiik-arrow)' }))
+      })
+      nodes.forEach((node, index) => {
+        const spot = position.get(String(node.id ?? node.label ?? ''))
+        if (spot === undefined) return
+        parts.push(
+          h('rect', { key: `node-${index}`, x: spot.x, y: spot.y, width: nodeW, height: nodeH, rx: 7, fill: C.base, stroke: C.borderStrong, strokeWidth: 1 }),
+        )
+        parts.push(
+          h(
+            'text',
+            { key: `node-label-${index}`, x: spot.x + nodeW / 2, y: spot.y + nodeH / 2 + 3.5, fontSize: 10.5, fill: C.text, fontFamily: SANS, textAnchor: 'middle' },
+            String(node.label ?? node.id ?? ''),
+          ),
+        )
+      })
+      const named = edges.filter((edge) => typeof edge.label === 'string' && edge.label !== '')
+      const diagram = svgCanvas(width, height, parts)
+      if (named.length === 0) return diagram
+      return h(
+        'div',
+        { style: { display: 'flex', flexDirection: 'column', gap: 8, width: '100%' } },
+        diagram,
+        h(
+          'div',
+          { style: { display: 'flex', flexWrap: 'wrap', gap: '2px 14px', fontSize: 10, color: C.muted, paddingTop: 2 } },
+          ...named.map((edge, index) =>
+            h('span', { key: `legend-${index}` }, `${edge.from} → ${edge.to}　${edge.label}`),
+          ),
+        ),
+      )
+    }
+
+    // dataset.chart：bar / line / donut 三种真图表，都带刻度与数值。
+    function renderChart(columns, rows, kind) {
+      const values = rows.map((row) => Number(row[1]) || 0)
+      const max = Math.max(1, ...values)
+      const labels = rows.map((row) => String(row[0] ?? ''))
+      if (kind === 'line') {
+        const width = 360
+        const height = 128
+        const padL = 8
+        const padR = 8
+        const padT = 18
+        const padB = 22
+        const step = rows.length > 1 ? (width - padL - padR) / (rows.length - 1) : 0
+        const points = values.map((value, index) => ({
+          x: padL + index * step,
+          y: height - padB - (value / max) * (height - padB - padT),
+        }))
+        const parts = []
+        parts.push(h('line', { key: 'axis', x1: padL, y1: height - padB, x2: width - padR, y2: height - padB, stroke: C.border, strokeWidth: 1 }))
+        parts.push(
+          h('polyline', {
+            key: 'line',
+            points: points.map((point) => `${point.x},${point.y}`).join(' '),
+            fill: 'none',
+            stroke: C.brand,
+            strokeWidth: 2,
+            strokeLinecap: 'round',
+            strokeLinejoin: 'round',
+          }),
+        )
+        points.forEach((point, index) => {
+          parts.push(h('circle', { key: `dot-${index}`, cx: point.x, cy: point.y, r: 3, fill: C.brand }))
+          parts.push(
+            h('text', { key: `val-${index}`, x: point.x, y: point.y - 8, fontSize: 9, fill: C.text, fontFamily: SANS, textAnchor: 'middle' }, String(values[index])),
+          )
+          parts.push(
+            h('text', { key: `lab-${index}`, x: point.x, y: height - 7, fontSize: 8.5, fill: C.muted, fontFamily: SANS, textAnchor: 'middle' }, labels[index]),
+          )
+        })
+        return svgCanvas(width, height, parts)
+      }
+      if (kind === 'donut') {
+        const size = 124
+        const radius = 42
+        const thickness = 16
+        const total = values.reduce((sum, value) => sum + value, 0) || 1
+        const circumference = 2 * Math.PI * radius
+        let offset = 0
+        const palette = [C.brand, C.success, C.warn, C.idle, C.error]
+        const arcs = values.map((value, index) => {
+          const length = (value / total) * circumference
+          const arc = h('circle', {
+            key: `arc-${index}`,
+            cx: size / 2,
+            cy: size / 2,
+            r: radius,
+            fill: 'none',
+            stroke: palette[index % palette.length],
+            strokeWidth: thickness,
+            strokeDasharray: `${Math.max(0, length - 2)} ${circumference}`,
+            strokeDashoffset: -offset,
+            transform: `rotate(-90 ${size / 2} ${size / 2})`,
+            strokeLinecap: 'butt',
+          })
+          offset += length
+          return arc
+        })
+        return h(
+          'div',
+          { style: { display: 'flex', alignItems: 'center', gap: 16, flexWrap: 'wrap' } },
+          h('div', { style: { width: size, flex: 'none' } }, svgCanvas(size, size, arcs)),
+          h(
+            'div',
+            { style: { display: 'flex', flexDirection: 'column', gap: 4, fontSize: 11 } },
+            ...labels.map((label, index) =>
+              h(
+                'div',
+                { key: index, style: { display: 'flex', alignItems: 'center', gap: 6 } },
+                h('span', { style: { width: 8, height: 8, borderRadius: 2, background: palette[index % palette.length], flex: 'none' } }),
+                h('span', { style: { color: C.text } }, label),
+                h('span', { style: { color: C.muted } }, String(values[index])),
+              ),
+            ),
+          ),
+        )
+      }
+      const chartHeight = 96
+      const axis = h(
+        'div',
+        { key: 'plot', style: { display: 'flex', alignItems: 'flex-end', gap: 10, height: chartHeight, borderBottom: `1px solid ${C.border}` } },
+        ...rows.map((row, index) =>
+          h(
+            'div',
+            { key: `bar-${index}`, style: { flex: '1 1 0', minWidth: 0, height: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'flex-end', gap: 3 } },
+            h('div', { style: { fontSize: 10, color: C.text, lineHeight: '12px' } }, String(values[index])),
+            h('div', {
+              style: {
+                width: '100%',
+                maxWidth: 52,
+                height: Math.max(2, Math.round((values[index] / max) * (chartHeight - 18))),
+                background: C.brand,
+                borderRadius: '3px 3px 0 0',
+              },
+            }),
+          ),
+        ),
+      )
+      const labelsRow = h(
+        'div',
+        { key: 'labels', style: { display: 'flex', gap: 10, marginTop: 5 } },
+        ...labels.map((label, index) =>
+          h(
+            'div',
+            { key: `lab-${index}`, style: { flex: '1 1 0', minWidth: 0, textAlign: 'center', fontSize: 10, color: C.muted, lineHeight: '13px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' } },
+            label,
+          ),
+        ),
+      )
+      return h('div', { style: { display: 'flex', flexDirection: 'column', width: '100%' } }, axis, labelsRow)
+    }
+
     function renderWidget(spec) {
       const props = spec?.props ?? {}
       const muted = { fontSize: 11, color: C.muted }
@@ -878,32 +1136,12 @@ window.__ModuleLoader__.load({
         const columns = props.columns ?? []
         const rows = props.rows ?? []
         if (props.chart !== undefined) {
-          const max = Math.max(1, ...rows.map((row) => Number(row[1]) || 0))
-          return h(
-            'div',
-            { style: { display: 'flex', flexDirection: 'column', gap: 6 } },
-            ...rows.map((row, index) =>
-              h(
-                'div',
-                { key: index, style: { display: 'flex', alignItems: 'center', gap: 8 } },
-                h('span', { style: { ...muted, width: 96, flexShrink: 0 } }, String(row[0] ?? '')),
-                h('div', {
-                  style: {
-                    height: 10,
-                    width: `${Math.round(((Number(row[1]) || 0) / max) * 100)}%`,
-                    background: C.brand,
-                    borderRadius: 3,
-                    minWidth: 2,
-                  },
-                }),
-                h('span', { style: muted }, String(row[1] ?? '')),
-              ),
-            ),
-          )
+          const kind = props.chart === true ? 'bar' : String(props.chart)
+          return renderChart(columns, rows, kind)
         }
         return h(
           'table',
-          { style: { borderCollapse: 'collapse', fontSize: 12, width: '100%' } },
+          { style: { borderCollapse: 'collapse', fontSize: 12, width: '100%', tableLayout: 'fixed' } },
           h(
             'thead',
             {},
@@ -911,7 +1149,11 @@ window.__ModuleLoader__.load({
               'tr',
               {},
               ...columns.map((column, index) =>
-                h('th', { key: index, style: { textAlign: 'left', padding: '4px 6px', color: C.muted, fontWeight: 500, borderBottom: `1px solid ${C.border}` } }, String(column.label ?? column)),
+                h(
+                  'th',
+                  { key: index, style: { textAlign: 'left', padding: '5px 8px', color: C.muted, fontWeight: 500, borderBottom: `1px solid ${C.border}`, width: index === 0 ? '38%' : undefined } },
+                  String(column.label ?? column),
+                ),
               ),
             ),
           ),
@@ -923,7 +1165,11 @@ window.__ModuleLoader__.load({
                 'tr',
                 { key: rowIndex },
                 ...row.map((cell, cellIndex) =>
-                  h('td', { key: cellIndex, style: { padding: '4px 6px', borderBottom: `1px solid ${C.border}` } }, String(cell ?? '')),
+                  h(
+                    'td',
+                    { key: cellIndex, style: { padding: '5px 8px', borderBottom: `1px solid ${C.border}`, overflowWrap: 'anywhere', verticalAlign: 'top' } },
+                    String(cell ?? ''),
+                  ),
                 ),
               ),
             ),
@@ -931,118 +1177,120 @@ window.__ModuleLoader__.load({
         )
       }
       if (spec.widget === 'graph') {
-        const nodes = props.nodes ?? []
-        const edges = props.edges ?? []
-        const lanes = [...new Set(nodes.map((node) => String(node.lane ?? '')))]
-        return h(
-          'div',
-          { style: { display: 'flex', flexDirection: 'column', gap: 8 } },
-          h(
-            'div',
-            { style: { display: 'flex', gap: 12, alignItems: 'flex-start', flexWrap: 'wrap' } },
-            ...lanes.map((lane, laneIndex) =>
-              h(
-                'div',
-                { key: laneIndex, style: { display: 'flex', flexDirection: 'column', gap: 6, minWidth: 120 } },
-                lane === ''
-                  ? null
-                  : h('div', { style: { ...muted, textTransform: 'uppercase', letterSpacing: 0.4 } }, lane),
-                ...nodes
-                  .filter((node) => String(node.lane ?? '') === lane)
-                  .map((node, nodeIndex) =>
-                    h(
-                      'div',
-                      {
-                        key: nodeIndex,
-                        style: {
-                          fontSize: 12,
-                          padding: '6px 8px',
-                          border: `1px solid ${C.border}`,
-                          borderRadius: 6,
-                          background: C.base,
-                        },
-                      },
-                      String(node.label ?? node.id ?? ''),
-                    ),
-                  ),
-              ),
-            ),
-          ),
-          edges.length === 0
-            ? null
-            : h(
-                'div',
-                { style: muted },
-                edges.map((edge, index) => `${edge.from} → ${edge.to}${edge.label ? `（${edge.label}）` : ''}`).join('　'),
-              ),
-        )
+        return renderGraph(props.nodes ?? [], props.edges ?? [])
       }
       if (spec.widget === 'timeline') {
+        const items = props.items ?? []
         return h(
           'div',
-          { style: { display: 'flex', flexDirection: 'column', gap: 6 } },
-          ...(props.items ?? []).map((item, index) =>
+          { style: { display: 'grid', gridTemplateColumns: '54px 14px minmax(0, 1fr)', rowGap: 2, columnGap: 0, fontSize: 12 } },
+          ...items.flatMap((item, index) => [
             h(
               'div',
-              { key: index, style: { display: 'flex', gap: 10, alignItems: 'baseline', fontSize: 12 } },
-              h('span', { style: { ...muted, minWidth: 72 } }, String(item.at ?? '')),
-              h('span', {}, String(item.label ?? '')),
-              item.detail ? h('span', { style: muted }, String(item.detail)) : null,
+              { key: `t${index}`, style: { ...muted, textAlign: 'right', padding: '6px 8px 6px 0', lineHeight: '16px' } },
+              String(item.at ?? ''),
             ),
-          ),
+            h(
+              'div',
+              { key: `r${index}`, style: { position: 'relative', display: 'flex', justifyContent: 'center' } },
+              h('div', {
+                style: {
+                  position: 'absolute',
+                  top: index === 0 ? 14 : 0,
+                  bottom: index === items.length - 1 ? 'calc(100% - 14px)' : 0,
+                  width: 1.5,
+                  background: C.borderStrong,
+                },
+              }),
+              h('div', { style: { position: 'relative', marginTop: 13, width: 7, height: 7, borderRadius: '50%', background: index === items.length - 1 ? C.brand : C.muted } }),
+            ),
+            h(
+              'div',
+              { key: `c${index}`, style: { padding: '4px 0 10px 10px', minWidth: 0 } },
+              h('div', { style: { color: C.text, lineHeight: '17px' } }, String(item.label ?? '')),
+              item.detail ? h('div', { style: { ...muted, lineHeight: '16px', marginTop: 1 } }, String(item.detail)) : null,
+            ),
+          ]),
         )
       }
       if (spec.widget === 'text') {
+        const paragraphs = props.paragraphs ?? []
+        const bullets = props.bullets ?? []
         return h(
           'div',
-          { style: { display: 'flex', flexDirection: 'column', gap: 6, fontSize: 12, lineHeight: 1.6 } },
-          ...(props.paragraphs ?? []).map((text, index) => h('div', { key: `p${index}` }, String(text))),
-          (props.bullets ?? []).length === 0
+          { style: { display: 'flex', flexDirection: 'column', gap: 8, fontSize: 12, lineHeight: 1.65, color: C.text } },
+          ...paragraphs.map((text, index) => h('div', { key: `p${index}` }, String(text))),
+          bullets.length === 0
             ? null
             : h(
                 'ul',
-                { style: { margin: 0, paddingLeft: 18 } },
-                ...(props.bullets ?? []).map((text, index) => h('li', { key: `b${index}` }, String(text))),
+                { style: { margin: 0, paddingLeft: 18, display: 'flex', flexDirection: 'column', gap: 3 } },
+                ...bullets.map((text, index) => h('li', { key: `b${index}`, style: { lineHeight: 1.55 } }, String(text))),
               ),
         )
       }
       if (spec.widget === 'choice') {
         return h(
           'div',
-          { style: { display: 'flex', flexDirection: 'column', gap: 8, fontSize: 12 } },
-          h('div', {}, String(props.question ?? '')),
-          ...(props.actions ?? []).map((action, index) =>
-            h(
-              'div',
-              { key: index, style: { border: `1px solid ${C.border}`, borderRadius: 6, padding: '6px 8px' } },
-              h('div', {}, String(action.label ?? '')),
-              action.description ? h('div', { style: muted }, String(action.description)) : null,
+          { style: { display: 'flex', flexDirection: 'column', gap: 10, fontSize: 12 } },
+          h('div', { style: { color: C.text, lineHeight: '18px' } }, String(props.question ?? '')),
+          h(
+            'div',
+            { style: { display: 'flex', flexDirection: 'column', gap: 8 } },
+            ...(props.actions ?? []).map((action, index) =>
+              h(
+                'div',
+                {
+                  key: index,
+                  style: {
+                    border: `1px solid ${C.borderStrong}`,
+                    borderRadius: 8,
+                    padding: '8px 10px',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: 3,
+                    background: C.base,
+                  },
+                },
+                h('div', { style: { color: C.text, fontWeight: 600 } }, String(action.label ?? '')),
+                action.description ? h('div', { style: { ...muted, lineHeight: '16px' } }, String(action.description)) : null,
+              ),
             ),
           ),
-          h('div', { style: muted }, '选择在对话里说，这里不代劳。'),
+          h('div', { style: { ...muted, lineHeight: '16px' } }, '选择在对话里说，这里不代劳。'),
         )
       }
       if (spec.widget === 'media') {
         const url = String(props.url ?? '')
         return props.kind === 'image'
-          ? h('img', { src: url, alt: props.alt ?? '', style: { maxWidth: '100%', borderRadius: 6 } })
-          : h('a', { href: url, target: '_blank', rel: 'noreferrer', style: { fontSize: 12, color: C.brand } }, String(props.label ?? url))
+          ? h('img', { src: url, alt: props.alt ?? '', style: { maxWidth: '100%', maxHeight: 320, borderRadius: 8, display: 'block' } })
+          : h(
+              'a',
+              { href: url, target: '_blank', rel: 'noreferrer', style: { fontSize: 12, color: C.brand, textDecoration: 'none', overflowWrap: 'anywhere' } },
+              String(props.label ?? url),
+            )
       }
       if (spec.widget === 'layout') {
         const direction = props.direction ?? 'stack'
         const children = props.children ?? []
+        const columns = direction === 'row' ? Math.max(1, children.length) : 0
         return h(
           'div',
           {
             style:
               direction === 'row'
-                ? { display: 'flex', gap: 10, flexWrap: 'wrap' }
+                ? { display: 'grid', gridTemplateColumns: `repeat(${columns}, minmax(0, 1fr))`, gap: 14, alignItems: 'start' }
                 : direction === 'grid'
-                  ? { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 10 }
-                  : { display: 'flex', flexDirection: 'column', gap: 10 },
+                  ? { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 14, alignItems: 'start' }
+                  : { display: 'flex', flexDirection: 'column', gap: 14 },
           },
           ...children.map((child, index) =>
-            h('div', { key: index, style: { flex: direction === 'row' ? '1 1 220px' : undefined } }, renderWidget(child)),
+            h(
+              'div',
+              { key: index, style: { minWidth: 0, display: 'flex', flexDirection: 'column', gap: 6 } },
+              child.title ? h('div', { style: { fontSize: 11, fontWeight: 600, color: C.muted, letterSpacing: 0.2 } }, child.title) : null,
+              renderWidget(child),
+            ),
           ),
         )
       }
