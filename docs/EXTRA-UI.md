@@ -143,8 +143,7 @@ spec（数据 + 意图） → IR → 投影选择（数据形状 + 能力清单�
 
 - `ink_view show` 连放三份 spec（表格 / 时间线 / 泳道图），`ink_view list` 读回正常；
 - 「视图」页签渲染通过（截图：[extra-view-live.png](screenshots/extra-view-live.png)、[extra-view-live-2.png](screenshots/extra-view-live-2.png)）；
-- 观察：`graph` 目前是“按 lane 分列 + 边表”的轻量渲染，不是 SVG 关系图——复杂图仍走 archify 的 HTML 逃逸档，这条边界要守住；
-- 待做：`choice` 的点击回传（走 session command）、`dataset` 的折线/环形图型、把「流水」「所见」也换成同一套渲染器。
+- 待做：`choice` 的点击回传（走 session command）、把「流水」「所见」也换成同一套渲染器。
 
 ### 9.2 内联进对话流（2026-11-08）
 
@@ -179,3 +178,15 @@ spec（数据 + 意图） → IR → 投影选择（数据形状 + 能力清单�
 
 七种形式一轮走完（2026-11-09 21:56，都在对话正文里）：dataset 表格、graph 分列+边表、timeline、text、choice、media 链接、layout(row 组合) —— [extra-forms-all.png](screenshots/extra-forms-all.png)。
 粗糙处两条：`graph` 的边只是下面的小字表；`choice` 现在还是只读的两行，没有按钮样子。
+
+### 9.4 真图表化（2026-11-09 晚）
+
+上一版被指「错位、不直观、没有真正图表化」。改了三件事：
+
+- `graph` 换成 SVG：节点按 lane 分列，边画成带箭头的曲线；前向边走字段间隙的横线，回边从盒子底部偏侧绕过整列、走图底再回来；边名不再堆在图上，收成图下一行小字图例。同列节点竖直相连。
+- `dataset` 的 `chart` 分成三种：`bar`（HTML 柱，数值在上、标签在下，宽度自适应）、`line`（SVG 折线 + 点 + 数值）、`donut`（SVG 环 + 右侧色块图例）。
+- `timeline` 改成竖向轨道：时间列定宽右对齐，轨道一条线加圆点，最后一项高亮；`choice` 的选项改成单列卡片；`dataset` 表格首列定宽、`tableLayout: fixed`；`layout` 的 row 用等宽 grid。
+
+验证走了离线预览台（`.dsh/harness/`，同一份 renderWidget 抽出来在无 React 环境里渲染），比每次重启快得多；然后页面刷新即生效——`rev` 是内容指纹，换代码刷新就拿到新包，不必重启服务。
+实机截图：[extra-charts-live.png](screenshots/extra-charts-live.png)。
+仍粗糙：卡片上仍挂着那条 fallback（应当只在渲染不了时出现）；一轮里多张卡堆叠的问题（B-1）没动。
