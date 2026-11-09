@@ -176,3 +176,6 @@ spec（数据 + 意图） → IR → 投影选择（数据形状 + 能力清单�
 
 实机验证（2026-11-09 21:51，重载后）：卡片独立成行，`data-chat-flow-kind="miopiik-widget"`、无 `data-turn-process-member` —— [inline-widget-body.png](screenshots/inline-widget-body.png)。
 结构上它不会再被折叠：过程组只收 `isAtOrOutside(node,'process')` 为假的节点，而 `groupTree: 'turn'` 的深度是 2，判真。
+
+七种形式一轮走完（2026-11-09 21:56，都在对话正文里）：dataset 表格、graph 分列+边表、timeline、text、choice、media 链接、layout(row 组合) —— [extra-forms-all.png](screenshots/extra-forms-all.png)。
+粗糙处两条：`graph` 的边只是下面的小字表；`choice` 现在还是只读的两行，没有按钮样子。
