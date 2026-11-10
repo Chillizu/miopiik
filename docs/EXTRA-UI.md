@@ -219,3 +219,8 @@ spec（数据 + 意图） → IR → 投影选择（数据形状 + 能力清单�
 - 做法：手写 SVG（或 archify 的 standalone HTML）→ 无头 chromium 光栅化成 PNG → 落盘 → 正文用 `![](路径)` 引用，按原生图内嵌；
 - 理由：IR 的可控性来自“只有七个形状”；允许自由布局就等于把可控性交给评审。低频场景不值得为它维护一条 Host 起浏览器的链路（超时、资源、环境依赖）；
 - 代价：位图，字选不中、不随主题、放大糊（必要时出 2x），不可交互。要交互就走 archify 的 HTML，放侧栏或当交付物。
+
+### 9.8 B-1 收口：一轮只留一张卡（2026-11-10）
+
+同一 turn 的多次 `ink_view` 现在合成一个 Chat 节点（`id = turn-<n>`，第一场 `start`、后续按 Uptade 合并），节点只渲染最后一份 spec，并在卡下注一行「这一轮另有 N 条在「视图」页」——早先的卡留在「视图」页快照里，不静默丢。
+证据：本轮实测只有 1 个 `miopiik-widget` 行、带「另有 1 条」角标 —— [extra-one-card-per-turn.png](screenshots/extra-one-card-per-turn.png)。
