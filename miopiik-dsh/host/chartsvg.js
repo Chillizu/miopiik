@@ -49,6 +49,17 @@ function titleBlock(title) {
   return `<text x="${PAD_L}" y="18" font-size="13" font-weight="600" class="fg" font-family="${attr(SANS)}">${escapeText(title)}</text>`
 }
 
+function sourceLine(props, height) {
+  const text = typeof props?.source === 'string' && props.source !== '' ? `来源：${props.source}` : ''
+  const note = typeof props?.note === 'string' && props.note !== '' ? props.note : ''
+  const merged = [text, note].filter((part) => part !== '').join('　')
+  if (merged === '') return { body: '', height: 0 }
+  return {
+    body: `<text class="mut" x="${PAD_L}" y="${height - 10}" font-size="10" font-family="${attr(SANS)}">${escapeText(merged)}</text>`,
+    height: 18,
+  }
+}
+
 function barChart(rows) {
   const values = rows.map((row) => Number(row[1]) || 0)
   const labels = rows.map((row) => String(row[0] ?? ''))
@@ -202,7 +213,8 @@ export function renderSpecSvg(spec) {
     else if (chart === 'line') body = lineChart(rows)
     else if (chart === 'donut') body = donutChart(rows)
     if (body === null) return null
-    return svg(W, H, `${title}${body}`, spec.title, spec.fallback)
+    const footer = sourceLine(props, H)
+    return svg(W, H + footer.height, `${title}${body}${footer.body}`, spec.title, spec.fallback)
   }
   if (spec.widget === 'graph') {
     const map = graphMap(props)

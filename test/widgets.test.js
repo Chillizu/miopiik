@@ -147,3 +147,53 @@ test('SVG 必须是合法 XML：属性值里不能有裸引号', async () => {
   assert.ok(svg.includes('font-family="ui-sans-serif, system-ui, -apple-system, Segoe UI, sans-serif"'), 'font-family 该是单层引号的纯文本')
   assert.ok(svg.includes('&quot;') || !svg.includes('x"y'), '正文文本里的引号要转义')
 })
+
+test('协议信封与预算：多余字段丢弃、超预算拒收、出处保留', () => {
+  const ok = validateWidget({
+    widget: 'dataset',
+    title: '带出处',
+    props: {
+      chart: true,
+      columns: [{ label: 'a' }],
+      rows: [['x', 1]],
+      source: 'git log',
+      note: '演示口径',
+      css: 'position:fixed', // 模型不该塞样式
+      className: 'hack',
+    },
+    fallback: '一句话',
+  })
+  assert.equal(ok.ok, true)
+  assert.equal(ok.spec.protocol, 'miopiik-ui/0.2')
+  assert.equal(ok.spec.props.source, 'git log')
+  assert.equal(ok.spec.props.note, '演示口径')
+  assert.equal(ok.spec.props.css, undefined, '未知字段要丢弃')
+  assert.equal(ok.spec.props.className, undefined)
+
+  const tooManyRows = validateWidget({
+    widget: 'dataset',
+    props: { columns: [{ label: 'a' }], rows: Array.from({ length: 201 }, () => ['x', 1]) },
+    fallback: 'f',
+  })
+  assert.equal(tooManyRows.ok, false)
+  assert.match(tooManyRows.errors.join(''), /200/)
+
+  const longTitle = validateWidget({ widget: 'text', title: 'x'.repeat(81), props: { paragraphs: ['a'] }, fallback: 'f' })
+  assert.equal(longTitle.ok, false)
+
+  const badKind = validateWidget({
+    widget: 'choice',
+    props: { question: 'q', actions: [{ label: 'a', kind: 'root' }] },
+    fallback: 'f',
+  })
+  assert.equal(badKind.ok, false)
+  assert.match(badKind.errors.join(''), /kind/)
+
+  const sensitive = validateWidget({
+    widget: 'choice',
+    props: { question: 'q', actions: [{ label: '删除', kind: 'sensitive' }, { label: '看看', kind: 'read' }] },
+    fallback: 'f',
+  })
+  assert.equal(sensitive.ok, true)
+  assert.equal(sensitive.spec.props.actions[0].kind, 'sensitive')
+})
