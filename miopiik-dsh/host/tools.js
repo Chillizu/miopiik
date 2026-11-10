@@ -743,8 +743,10 @@ export function registerTools(ctx, engines, operator, services = {}) {
         }
       },
     }),
+  )
 
-tool({
+  ctx.tools.register(
+    tool({
       name: 'ink_view',
       description:
         'Extra 展示层：把一份结构化的 view spec 放到 MiOpIIk 的「视图」页（不占对话、不占 L3）。一个 IR，五个投影：dataset / graph / timeline / text / choice / media，外加 layout 容器。spec 是数据不是像素：必须有 fallback 纯文本。',

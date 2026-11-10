@@ -40,3 +40,14 @@ test('拒绝列表里没有未注册的名字（防止拼错后静默无效）',
   const stale = INK_TOOL_NAMES.filter((name) => !registered.has(name))
   assert.deepEqual(stale, [], `这些名字在列表里但没注册：${stale.join(', ')}`)
 })
+
+
+test('真实注册一次：源码里出现的每个 ink_* 都真的注册上了（防止漏包装 register）', async () => {
+  const { registerTools } = await import('../miopiik-dsh/host/tools.js')
+  const names = []
+  const ctx = { tools: { register: (definition) => { names.push(definition.name) } } }
+  registerTools(ctx, new Map(), {}, {})
+  const expected = [...new Set([...toolsSource.matchAll(/name:\s*'(ink_[a-z_]+)'/gu)].map((match) => match[1]))]
+  const missing = expected.filter((name) => !names.includes(name))
+  assert.deepEqual(missing, [], `这些工具只在源码里，没有真的注册：${missing.join(', ')}`)
+})
