@@ -32,6 +32,22 @@ window.__ModuleLoader__.load({
     }
 
     const overlay = createStore({ open: false, tab: 'loops' })
+    // 正文内嵌的开关：不是配置项，而是注册/注销——关掉时 dispose，chat 自己的渲染器就回来了。
+    const inlineBody = createStore({ enabled: true })
+    let inlineBodyControl = { register: null, dispose: null }
+    function setInlineBody(enabled) {
+      inlineBody.set({ enabled })
+      if (enabled) {
+        if (inlineBodyControl.dispose === null && inlineBodyControl.register !== null) {
+          inlineBodyControl.dispose = inlineBodyControl.register()
+        }
+        return
+      }
+      if (inlineBodyControl.dispose !== null) {
+        inlineBodyControl.dispose()
+        inlineBodyControl.dispose = null
+      }
+    }
 
     // 右栏入口：tab 类型的 id 与控制器引用（按钮要用它 openTab）。
     const INK_TAB_ID = 'miopiik-dsh/ink'
@@ -1261,14 +1277,23 @@ window.__ModuleLoader__.load({
         )
       }
       if (spec.widget === 'media') {
-        const url = String(props.url ?? '')
-        return props.kind === 'image'
-          ? h('img', { src: url, alt: props.alt ?? '', style: { maxWidth: '100%', maxHeight: 320, borderRadius: 8, display: 'block' } })
-          : h(
-              'a',
-              { href: url, target: '_blank', rel: 'noreferrer', style: { fontSize: 12, color: C.brand, textDecoration: 'none', overflowWrap: 'anywhere' } },
-              String(props.label ?? url),
-            )
+        // 本地文件走 api/file（带会话鉴权），与 markdown 里的本地图同一套地址
+        const raw = String(props.url ?? props.path ?? '')
+        const url = typeof props.path === 'string' && props.path !== '' && typeof props.url !== 'string'
+          ? new URL(`api/file?path=${encodeURIComponent(props.path)}`, document.baseURI).href
+          : raw
+        if (props.kind === 'image' || typeof props.path === 'string') {
+          return h('img', {
+            src: url,
+            alt: props.alt ?? '',
+            style: { maxWidth: '100%', maxHeight: 340, borderRadius: 8, display: 'block', border: `1px solid ${C.border}` },
+          })
+        }
+        return h(
+          'a',
+          { href: url, target: '_blank', rel: 'noreferrer', style: { fontSize: 12, color: C.brand, textDecoration: 'none', overflowWrap: 'anywhere' } },
+          String(props.label ?? url),
+        )
       }
       if (spec.widget === 'layout') {
         const direction = props.direction ?? 'stack'
@@ -1294,19 +1319,30 @@ window.__ModuleLoader__.load({
           ),
         )
       }
-      return h('div', { style: muted }, '（不认识的展示类型）')
+      return null
     }
 
     // 一张卡：标题 + 投影 + 卡底 fallback。对话流节点与「视图」页共用同一套渲染。
+    // 预设样式：模型只能选名字。card=带框卡片；plain=无框；inset=浅底无边框；stat=大数字行。
+    function cardShell(preset, padded) {
+      if (preset === 'plain') return { border: 'none', background: 'transparent', padding: 0, borderRadius: 0 }
+      if (preset === 'inset') return { border: 'none', background: C.layer1, padding: padded ? '12px 14px' : '10px 12px', borderRadius: 10 }
+      return {
+        border: `1px solid ${C.border}`,
+        background: C.layer1,
+        padding: padded ? '12px 14px' : '10px 12px',
+        borderRadius: 10,
+      }
+    }
+
     function WidgetCard({ spec, padded }) {
+      const body = renderWidget(spec)
+      const failed = body === null
       return h(
         'div',
         {
           style: {
-            border: `1px solid ${C.border}`,
-            borderRadius: 10,
-            background: C.layer1,
-            padding: padded ? '12px 14px' : '10px 12px',
+            ...cardShell(spec.preset, padded),
             margin: padded ? 0 : '4px 0',
             display: 'flex',
             flexDirection: 'column',
@@ -1315,9 +1351,12 @@ window.__ModuleLoader__.load({
           },
         },
         spec.title ? h('div', { style: { fontSize: 12, fontWeight: 600 } }, spec.title) : null,
-        renderWidget(spec),
-        typeof spec.fallback === 'string' && spec.fallback !== ''
-          ? h('div', { style: { fontSize: 10, color: C.muted, borderTop: `1px dashed ${C.border}`, paddingTop: 6 } }, spec.fallback)
+        failed
+          ? h('div', { style: { fontSize: 12, color: C.text, whiteSpace: 'pre-wrap', lineHeight: '18px' } }, String(spec.fallback ?? ''))
+          : body,
+        // fallback 是降级出口，不是常驻说明：只有渲染不出来时才顶上
+        failed && spec.preset === 'card'
+          ? h('div', { style: { fontSize: 10, color: C.muted, borderTop: `1px dashed ${C.border}`, paddingTop: 6 } }, `降级：这份 spec 的 ${String(spec.widget)} 没能渲染`)
           : null,
       )
     }
@@ -2074,6 +2113,49 @@ window.__ModuleLoader__.load({
       )
     }
 
+    function InlineBodySwitch() {
+      const { enabled } = useStore(inlineBody)
+      return h(
+        'div',
+        {
+          style: {
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            gap: 12,
+            border: `1px solid ${C.border}`,
+            borderRadius: 10,
+            padding: '10px 12px',
+            fontSize: 12,
+          },
+        },
+        h(
+          'div',
+          { style: { display: 'flex', flexDirection: 'column', gap: 2, minWidth: 0 } },
+          h('span', null, t('settings.inlineBody')),
+          h('span', { style: { fontSize: 11, color: C.muted } }, t('settings.inlineBodyHint')),
+        ),
+        h(
+          'button',
+          {
+            type: 'button',
+            onClick: () => setInlineBody(!enabled),
+            style: {
+              flex: 'none',
+              border: `1px solid ${enabled ? C.brand : C.border}`,
+              background: enabled ? C.brand : 'transparent',
+              color: enabled ? '#fff' : C.muted,
+              borderRadius: 999,
+              padding: '3px 12px',
+              fontSize: 11,
+              cursor: 'pointer',
+            },
+          },
+          enabled ? t('settings.on') : t('settings.off'),
+        ),
+      )
+    }
+
     function SettingsSection() {
       return h(
         'div',
@@ -2084,6 +2166,7 @@ window.__ModuleLoader__.load({
           h('div', null, t('settings.intro')),
           h('div', { style: { marginTop: 6 } }, t('settings.where')),
         ),
+        h(InlineBodySwitch, {}),
         h(
           'div',
           { style: { display: 'flex', flexDirection: 'column', gap: 0, border: `1px solid ${C.border}`, borderRadius: 10, overflow: 'hidden' } },
@@ -2221,6 +2304,10 @@ window.__ModuleLoader__.load({
       'settings.intro': '后台参数配置。默认值通常无需修改；调整前请确认要改变的具体判断。',
       'settings.where': '修改方式：编辑 profile 的 cordis.patch.yml，在 miopiik-dsh 的 config 段写入覆盖字段，保存后热重载生效。',
       'settings.followSession': '跟随会话默认',
+      'settings.inlineBody': '正文内嵌卡片',
+      'settings.inlineBodyHint': '关掉就退回原生渲染：卡片只以独立行出现，正文不再被接管。',
+      'settings.on': '开',
+      'settings.off': '关',
       'settings.hotReload': '本页只读：以配置文件为唯一来源，避免界面与文件产生两份不一致的配置。',
     }
 
@@ -2331,6 +2418,10 @@ window.__ModuleLoader__.load({
       'settings.intro': 'Backstage parameters. Defaults usually need no change; confirm the judgement you intend to alter first.',
       'settings.where': 'To change: edit cordis.patch.yml in your profile, add the field under the miopiik-dsh config block, then save — hot reload applies it.',
       'settings.followSession': 'follow session',
+      'settings.inlineBody': 'Cards inside the body',
+      'settings.inlineBodyHint': 'Turn off to hand the message row back to native rendering; cards then only appear as their own rows.',
+      'settings.on': 'on',
+      'settings.off': 'off',
       'settings.hotReload': 'Read-only on purpose: the config file stays the single source, so the UI cannot disagree with it.',
     }
 
@@ -2380,10 +2471,11 @@ window.__ModuleLoader__.load({
           inner.effect(() => inner.uiConversation.events.register(widgetNodeDefinition), 'miopiik-dsh: widget node')
           inner.slots.inject('conversation.chat.node', () => {
             inner.slots.register({ name: 'conversation.chat.node', key: WIDGET_NODE_KIND, locale: NS }, WidgetNodeView)
-            if (primitives !== null) {
-              // 正文里能内嵌卡片：代价是接管这一行，消息本身的其余装饰由我们自己给。
+            if (primitives === null) return
+            // 正文内嵌 = 接管这一行；开关走注册/注销，不必重启。
+            inlineBodyControl.register = () =>
               inner.slots.register({ name: 'conversation.chat.node', key: 'assistant-step', priority: -1, locale: NS }, InlineBodyRow)
-            }
+            if (inlineBody.get().enabled) inlineBodyControl.dispose = inlineBodyControl.register()
           })
         })
 

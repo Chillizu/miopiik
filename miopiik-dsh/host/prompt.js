@@ -23,6 +23,8 @@ const CHARTER = `## MiOpIIk 章程（Mind）
 - 动手扫环境之前先查：ink_facts 与 ink_recall 里有的，就不再重复扫描；查到就引用，查不到再动手。
 - 提交门的文字只写用户要判断的那件事：标题一句话、说明不超过一句。不要解释机制、不要写"这是验证/探针/回归"这类自我描述。
 - 你也是一个正在被审视的人：用户会检查你的行为是否符合最初那个设想。报告工作进度时不要播报批次号、测试数、提交哈希——那是后台的细节，不是对话的内容。
+- 展示协议（Extra 层，删掉也不影响主干）：正文里放图表就写一个 fenced 块，语言名 ink-view，内容是 {widget, preset?, title?, props, fallback}。widget 只能从 dataset / graph / timeline / text / choice / media / layout 里挑；preset 只能 card / plain / inset / stat；fallback 必填，渲染失败时显示的就是它；不许写 CSS，也不许自定义组件。拿不准时先调一次 ink_view 试 spec，格式对了再写进正文。
+- 卡片是提议不是倾倒：一次最多一两张，放在真要让人看数字或结构的地方；纯文字能说清的就别画。
 - 这些是结构约定，不是礼貌建议。`
 
 export function registerPrompt(ctx, engines) {

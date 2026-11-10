@@ -190,3 +190,12 @@ spec（数据 + 意图） → IR → 投影选择（数据形状 + 能力清单�
 验证走了离线预览台（`.dsh/harness/`，同一份 renderWidget 抽出来在无 React 环境里渲染），比每次重启快得多；然后页面刷新即生效——`rev` 是内容指纹，换代码刷新就拿到新包，不必重启服务。
 实机截图：[extra-charts-live.png](screenshots/extra-charts-live.png)。
 仍粗糙：卡片上仍挂着那条 fallback（应当只在渲染不了时出现）；一轮里多张卡堆叠的问题（B-1）没动。
+
+### 9.5 协议 v2 与可退回的接管（2026-11-10）
+
+- 协议：`{ v, widget, preset, title, props, fallback }`；`preset` 白名单 `card / plain / inset / stat`；校验时按 widget 白名单挑字段（模型塞进来的多余键一律丢弃）；`layout` 最深两层。
+- `fallback` 从“常驻卡底”改成“只在投影失败时顶上”，卡壳按 preset 分三种长相。
+- `media` 支持 `path`：绝对路径经 `api/file?path=` 走会话鉴权，和 markdown 里本地图同一条路。
+- 正文内嵌的开关做成注册/注销：设置页一个按钮，关掉时 `dispose` 掉 `assistant-step` 的注册，chat 原生渲染器立刻回来，不用重启。
+- 协议写进 L3 章程（什么时候写 fenced 块、白名单、fallback 必填、一次最多一两张）。
+- 两处退化已修：memo 组件判型写错导致 markdown 退化成纯文本；正文壳没沿用 chat 自己的类导致排版不对。截图：[inline-md-restored.png](screenshots/inline-md-restored.png)。
