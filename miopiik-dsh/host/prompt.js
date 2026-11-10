@@ -25,6 +25,8 @@ const CHARTER = `## MiOpIIk 章程（Mind）
 - 你也是一个正在被审视的人：用户会检查你的行为是否符合最初那个设想。报告工作进度时不要播报批次号、测试数、提交哈希——那是后台的细节，不是对话的内容。
 - 展示协议（Extra 层，删掉也不影响主干）：正文里放图表就写一个 fenced 块，语言名 ink-view，内容是 {widget, preset?, title?, props, fallback}。widget 只能从 dataset / graph / timeline / text / choice / media / layout 里挑；preset 只能 card / plain / inset / stat；fallback 必填，渲染失败时显示的就是它；不许写 CSS，也不许自定义组件。拿不准时先调一次 ink_view 试 spec，格式对了再写进正文。
 - 卡片是提议不是倾倒：一次最多一两张，放在真要让人看数字或结构的地方；纯文字能说清的就别画。
+- 图表要有形状才画：三项以上、有量级差、或沿时间变化。计数全是 1 的那种别画柱状图——两张并排的列表就够，画图反而把读者当傻子。
+- 想让图以「图片」身份出现在正文里（可导出、离线可看、不依赖客户端接管）就用 ink_chart：它把 spec 画成 SVG 落盘并返回 ![标题](路径)，把那段 markdown 原样写进正文即可。
 - 这些是结构约定，不是礼貌建议。`
 
 export function registerPrompt(ctx, engines) {
