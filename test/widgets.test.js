@@ -99,3 +99,17 @@ test('渲染器：真图表与真连线，不是文字占位', async () => {
   // 边不再退化成一行文字表
   assert.ok(!source.includes('edge.from} → ${edge.to}${edge.label'), '边表不该回到纯文字')
 })
+
+test('正文内嵌：接管 assistant-step，把 fenced spec 换成卡片', async () => {
+  const source = await readFile(new URL('../miopiik-dsh/client.js', import.meta.url), 'utf8')
+  for (const needle of [
+    'function InlineBodyRow(',
+    'function splitInkFences(',
+    'const INK_FENCE =',
+    "key: 'assistant-step'",
+    'priority: -1',
+    "require('@deepseek-ai/dsh-client-ui-primitives')",
+  ]) {
+    assert.ok(source.includes(needle), `client.js 缺少：${needle}`)
+  }
+})

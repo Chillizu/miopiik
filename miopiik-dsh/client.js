@@ -1930,6 +1930,101 @@ window.__ModuleLoader__.load({
       ['conversationCompile', '对话编译（回合后产候选）', true],
     ]
 
+    // 正文内嵌：接管 assistant-step 这一行的渲染器（keyed 席位，同 key 即替换），
+    // 把正文里 ```ink-view {spec}``` 的代码块换成卡片，代码块本身不再显示。
+    let primitives = null
+    try {
+      primitives = require('@deepseek-ai/dsh-client-ui-primitives')
+    } catch {
+      primitives = null
+    }
+
+    const INK_FENCE = /```ink-view[ \t]*\r?\n([\s\S]*?)```/g
+
+    function readSpec(raw) {
+      try {
+        const spec = JSON.parse(String(raw).trim())
+        if (spec !== null && typeof spec === 'object' && typeof spec.widget === 'string') return spec
+      } catch {
+        return null
+      }
+      return null
+    }
+
+    // 一段正文切成「markdown 段 / 卡片段」，保序。
+    function splitInkFences(text) {
+      const source = String(text ?? '')
+      const parts = []
+      let last = 0
+      INK_FENCE.lastIndex = 0
+      let match = INK_FENCE.exec(source)
+      while (match !== null) {
+        const spec = readSpec(match[1])
+        if (spec === null) {
+          match = INK_FENCE.exec(source)
+          continue
+        }
+        if (match.index > last) parts.push({ type: 'md', text: source.slice(last, match.index) })
+        parts.push({ type: 'widget', spec })
+        last = match.index + match[0].length
+        match = INK_FENCE.exec(source)
+      }
+      if (last < source.length) parts.push({ type: 'md', text: source.slice(last) })
+      return parts.length === 0 ? [{ type: 'md', text: source }] : parts
+    }
+
+    function InlineBodyRow(props) {
+      const data = props?.node?.data ?? {}
+      const blocks = data.blocks ?? []
+      const groupPart = props?.groupPart
+      const streaming = data.status === 'running'
+      const MarkdownText = primitives !== null && typeof primitives.MarkdownText === 'function' ? primitives.MarkdownText : null
+      const tr = typeof props?.t === 'function' ? props.t : (key) => key
+      const labels = {
+        code: {
+          copyLabel: tr('copy'),
+          copiedLabel: tr('copied'),
+          toolbarLabels: { codeLabel: tr('codeBlock.title'), wrapLabel: tr('codeBlock.wrap'), unwrapLabel: tr('codeBlock.unwrap') },
+        },
+        footnotes: tr('markdown.footnotes'),
+      }
+      const rendered = []
+      blocks.forEach((block, index) => {
+        if (block === null || typeof block !== 'object') return
+        if (groupPart === 'reasoning' && block.kind !== 'reasoning') return
+        if (groupPart === 'response' && block.kind === 'reasoning') return
+        if (block.kind === 'text') {
+          const parts = splitInkFences(block.text)
+          rendered.push(
+            h(
+              'div',
+              { key: `t${index}`, style: { display: 'flex', flexDirection: 'column', gap: 10 } },
+              ...parts.map((part, partIndex) =>
+                part.type === 'widget'
+                  ? h(WidgetCard, { key: `w${partIndex}`, spec: part.spec })
+                  : MarkdownText !== null
+                    ? h(MarkdownText, { key: `m${partIndex}`, text: part.text, streaming, labels })
+                    : h('div', { key: `m${partIndex}`, style: { whiteSpace: 'pre-wrap', fontSize: 14, lineHeight: 1.7 } }, part.text),
+              ),
+            ),
+          )
+          return
+        }
+        if (block.kind === 'reasoning') {
+          if (String(block.text ?? '').trim() === '') return
+          rendered.push(
+            h(
+              'div',
+              { key: `r${index}`, style: { fontSize: 12, lineHeight: '18px', color: C.muted, whiteSpace: 'pre-wrap', borderLeft: `2px solid ${C.border}`, paddingLeft: 8 } },
+              String(block.text),
+            ),
+          )
+        }
+      })
+      if (rendered.length === 0) return null
+      return h('div', { style: { display: 'flex', flexDirection: 'column', gap: 10 } }, ...rendered)
+    }
+
     function SettingsSection() {
       return h(
         'div',
@@ -2197,6 +2292,7 @@ window.__ModuleLoader__.load({
         ctx.effect(() => ctx.locale.register(NS, { zh, en }), 'miopiik: dictionaries')
         t = ctx.locale.bind(NS)
 
+
         ctx.slots.inject('settings.section', () =>
           ctx.slots.register(
             {
@@ -2233,9 +2329,13 @@ window.__ModuleLoader__.load({
         // 嵌在会话正文里的展示：ink_view 的调用自己长成一行卡片（Turn 层，不进可折叠的过程组）。
         ctx.inject(['uiConversation'], (inner) => {
           inner.effect(() => inner.uiConversation.events.register(widgetNodeDefinition), 'miopiik-dsh: widget node')
-          inner.slots.inject('conversation.chat.node', () =>
-            inner.slots.register({ name: 'conversation.chat.node', key: WIDGET_NODE_KIND, locale: NS }, WidgetNodeView),
-          )
+          inner.slots.inject('conversation.chat.node', () => {
+            inner.slots.register({ name: 'conversation.chat.node', key: WIDGET_NODE_KIND, locale: NS }, WidgetNodeView)
+            if (primitives !== null) {
+              // 正文里能内嵌卡片：代价是接管这一行，消息本身的其余装饰由我们自己给。
+              inner.slots.register({ name: 'conversation.chat.node', key: 'assistant-step', priority: -1, locale: NS }, InlineBodyRow)
+            }
+          })
         })
 
         // 唯一入口：会话视图里的一个功能页（与「对话 / 轨迹」并列），图与各面板都在这一页里。
