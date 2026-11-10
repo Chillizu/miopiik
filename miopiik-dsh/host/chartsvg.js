@@ -25,7 +25,16 @@ const COLORS = {
   palette: ['#4176e6', '#2e9e5b', '#c98a1b', '#8b8d94', '#cf4444'],
 }
 
-const SANS = 'ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif'
+const SANS = 'ui-sans-serif, system-ui, -apple-system, Segoe UI, sans-serif'
+
+/** 属性值里不允许裸引号/尖括号，否则整份 SVG 就不是合法 XML。 */
+function attr(value) {
+  return String(value)
+    .replace(/&/gu, '&amp;')
+    .replace(/"/gu, '&quot;')
+    .replace(/</gu, '&lt;')
+    .replace(/>/gu, '&gt;')
+}
 
 function escapeText(value) {
   return String(value)
@@ -37,7 +46,7 @@ function escapeText(value) {
 
 function titleBlock(title) {
   if (typeof title !== 'string' || title.trim() === '') return ''
-  return `<text x="${PAD_L}" y="18" font-size="13" font-weight="600" fill="${COLORS.text}" font-family="${SANS}">${escapeText(title)}</text>`
+  return `<text x="${PAD_L}" y="18" font-size="13" font-weight="600" fill="${COLORS.text}" font-family="${attr(SANS)}">${escapeText(title)}</text>`
 }
 
 function barChart(rows) {
@@ -55,8 +64,8 @@ function barChart(rows) {
     const x = PAD_L + slot * index + (slot - barW) / 2
     const y = H - PAD_B - barH
     parts.push(`<rect x="${Math.round(x)}" y="${y}" width="${Math.round(barW)}" height="${barH}" rx="4" fill="${COLORS.brand}"/>`)
-    parts.push(`<text x="${Math.round(x + barW / 2)}" y="${y - 7}" font-size="12" fill="${COLORS.text}" font-family="${SANS}" text-anchor="middle">${escapeText(value)}</text>`)
-    parts.push(`<text x="${Math.round(x + barW / 2)}" y="${H - PAD_B + 18}" font-size="11" fill="${COLORS.muted}" font-family="${SANS}" text-anchor="middle">${escapeText(labels[index])}</text>`)
+    parts.push(`<text x="${Math.round(x + barW / 2)}" y="${y - 7}" font-size="12" fill="${COLORS.text}" font-family="${attr(SANS)}" text-anchor="middle">${escapeText(value)}</text>`)
+    parts.push(`<text x="${Math.round(x + barW / 2)}" y="${H - PAD_B + 18}" font-size="11" fill="${COLORS.muted}" font-family="${attr(SANS)}" text-anchor="middle">${escapeText(labels[index])}</text>`)
   })
   return parts.join('')
 }
@@ -79,8 +88,8 @@ function lineChart(rows) {
   )
   points.forEach((point, index) => {
     parts.push(`<circle cx="${Math.round(point.x)}" cy="${Math.round(point.y)}" r="3.5" fill="${COLORS.brand}"/>`)
-    parts.push(`<text x="${Math.round(point.x)}" y="${Math.round(point.y) - 9}" font-size="11" fill="${COLORS.text}" font-family="${SANS}" text-anchor="middle">${escapeText(values[index])}</text>`)
-    parts.push(`<text x="${Math.round(point.x)}" y="${H - PAD_B + 18}" font-size="11" fill="${COLORS.muted}" font-family="${SANS}" text-anchor="middle">${escapeText(labels[index])}</text>`)
+    parts.push(`<text x="${Math.round(point.x)}" y="${Math.round(point.y) - 9}" font-size="11" fill="${COLORS.text}" font-family="${attr(SANS)}" text-anchor="middle">${escapeText(values[index])}</text>`)
+    parts.push(`<text x="${Math.round(point.x)}" y="${H - PAD_B + 18}" font-size="11" fill="${COLORS.muted}" font-family="${attr(SANS)}" text-anchor="middle">${escapeText(labels[index])}</text>`)
   })
   return parts.join('')
 }
@@ -106,8 +115,8 @@ function donutChart(rows) {
   labels.forEach((label, index) => {
     const y = PAD_T + 46 + index * 30
     parts.push(`<rect x="${300}" y="${y - 11}" width="11" height="11" rx="2" fill="${COLORS.palette[index % COLORS.palette.length]}"/>`)
-    parts.push(`<text x="${320}" y="${y}" font-size="12" fill="${COLORS.text}" font-family="${SANS}">${escapeText(label)}</text>`)
-    parts.push(`<text x="${W - PAD_R}" y="${y}" font-size="12" fill="${COLORS.muted}" font-family="${SANS}" text-anchor="end">${escapeText(values[index])}</text>`)
+    parts.push(`<text x="${320}" y="${y}" font-size="12" fill="${COLORS.text}" font-family="${attr(SANS)}">${escapeText(label)}</text>`)
+    parts.push(`<text x="${W - PAD_R}" y="${y}" font-size="12" fill="${COLORS.muted}" font-family="${attr(SANS)}" text-anchor="end">${escapeText(values[index])}</text>`)
   })
   return parts.join('')
 }
@@ -175,7 +184,7 @@ function graphMap(props) {
     const spot = position.get(String(node.id ?? node.label ?? ''))
     if (spot === undefined) return
     parts.push(`<rect x="${Math.round(spot.x)}" y="${Math.round(spot.y)}" width="${nodeW}" height="${nodeH}" rx="8" fill="${COLORS.base}" stroke="${COLORS.border}" stroke-width="1"/>`)
-    parts.push(`<text x="${Math.round(spot.x + nodeW / 2)}" y="${Math.round(spot.y + nodeH / 2 + 4)}" font-size="11" fill="${COLORS.text}" font-family="${SANS}" text-anchor="middle">${escapeText(node.label ?? node.id ?? '')}</text>`)
+    parts.push(`<text x="${Math.round(spot.x + nodeW / 2)}" y="${Math.round(spot.y + nodeH / 2 + 4)}" font-size="11" fill="${COLORS.text}" font-family="${attr(SANS)}" text-anchor="middle">${escapeText(node.label ?? node.id ?? '')}</text>`)
   })
   return { body: parts.join(''), width, height: height + below }
 }

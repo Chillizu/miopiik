@@ -131,3 +131,18 @@ test('图表当图发：ink_chart 画 SVG 落盘，正文用原生 markdown 图�
   assert.ok(tools.includes("name: 'ink_chart'"))
   assert.ok(tools.includes('renderSpecSvg'))
 })
+
+test('SVG 必须是合法 XML：属性值里不能有裸引号', async () => {
+  const { renderSpecSvg } = await import('../miopiik-dsh/host/chartsvg.js')
+  const svg = renderSpecSvg({
+    widget: 'dataset',
+    title: '引号"测试',
+    props: { chart: true, columns: [{ label: 'a' }, { label: 'b' }], rows: [['x"y', 2]] },
+    fallback: 'x',
+  })
+  // 属性值内的裸双引号会让整份 SVG 解析失败（浏览器里表现为图片加载不出来）
+  const attrs = [...svg.matchAll(/="([^"]*)"/gu)].map((match) => match[1])
+  assert.ok(!attrs.some((value) => /[<>]/u.test(value)), '属性里不该出现尖括号')
+  assert.ok(!/font-family="[^"]*"[^"]*"/u.test(svg), 'font-family 里不该层层引号')
+  assert.ok(svg.includes('&quot;') || !svg.includes('x"y'), '正文文本里的引号要转义')
+})
