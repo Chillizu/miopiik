@@ -224,3 +224,25 @@ spec（数据 + 意图） → IR → 投影选择（数据形状 + 能力清单�
 
 同一 turn 的多次 `ink_view` 现在合成一个 Chat 节点（`id = turn-<n>`，第一场 `start`、后续按 Uptade 合并），节点只渲染最后一份 spec，并在卡下注一行「这一轮另有 N 条在「视图」页」——早先的卡留在「视图」页快照里，不静默丢。
 证据：本轮实测只有 1 个 `miopiik-widget` 行、带「另有 1 条」角标 —— [extra-one-card-per-turn.png](screenshots/extra-one-card-per-turn.png)。
+
+## 10. 与《Harness WebUI：Intelligent UI 风格交互系统技术参考手册》对齐（2026-11-10）
+
+用户给了一份独立实现参考（基于 OpenAI 公开说明整理，非官方协议）。逐条对照，采纳与不采纳都写清楚：
+
+| 手册要点 | 我们的处理 | 理由 |
+|---|---|---|
+| §2 五种回答模式（A 纯文本 / B 静态 UI / C 客户端交互 / D Agent 驱动 / E 嵌入式应用） | 做 A 与 B；C 留到下一版；D/E 不做 | 我们的边界是「展示」，动作执行归 Operator 与 session command |
+| §3 完整组件目录（文本/语义/布局/数据/导航/操作/表单/图表…几十种） | 只做 7 形状 + 容器 + 4 个预设样式 | 形状越少越可控；缺的先走 `ink_chart` 画像或手工 SVG |
+| §3.1 组件约定（type/propsSchema/childrenPolicy/eventSchema/a11y/fallback/version） | 协议带 `protocol`/`v`；Host 侧按 widget 白名单挑字段；fallback 必填；SVG 带 title/desc | 我们是 JSON spec 而非节点树，但要的约束一条不少 |
+| §4 逻辑架构（Model → Orchestrator → Gateway → Parser/Validator → Store → Registry → Renderer → Action Bridge） | 对应：模型写 fence → Host 校验（`validateWidget`）→ Chat 节点 → 客户端 `renderWidget`；Action Bridge v1 不接线 | 我们借用宿主 DSH 的传输与节点体系，不自建 Gateway/Store |
+| §5 声明协议 `harness-ui/0.1`（surface 信封、revision、稳定 id、表达式与绑定） | 不引入节点树与表达式；只补 `protocol: 'miopiik-ui/0.2'` 与预算、出处字段 | 节点树+绑定=自造 DIL，收益不抵维护成本 |
+| §6 流式与增量编译（按 revision 原子补丁） | 不做 | 卡片在工具事件提交时整张出现，正文由 chat 自己流式；补丁层没有存在必要 |
+| §7 状态四分（视图/草稿/任务/业务） | 我们只有「业务数据 → 快照」；视图状态由 React 局部持有 | 与 DSH 的会话状态天然吻合 |
+| §8 Action Registry（L0–L3） | `choice` 动作带 `kind` 并渲染徽标；不执行 | v1 只读原则；真要执行必须走 Operator 的权限与审计 |
+| §11 安全边界（白名单、禁 JS/HTML、URL 清理、预算、审计） | 采纳：字段白名单、预算、媒体协议限制、不注入 HTML | 卡片是模型输出，必须当不可信数据 |
+| §12 无障碍与响应式 | 采纳：aria、SVG title/desc、fallback 即文字摘要 | 顺带解决「图不能被读屏理解」 |
+| §14 P0（10–15 组件 + JSON Schema + 降级 + 三个演示） | 已超 P0 的演示面，组件数刻意更少 | 少而稳 |
+| §16 Dual-Surface + Trusted Catalog + Action Bridge | 采纳前两项；Action Bridge 留空 | 见 SPEC §12 |
+| MCP Apps / iframe 沙箱（官方 `Add UI to your MCP server`） | 不做 | 第三方富 UI 在 DSH 里没有承载位；复杂图走手工画像 |
+
+官方资料（我们只引用，不复制）：OpenAI Developers「Add UI to your MCP server」（MCP Apps：`_meta.ui.resourceUri` + `ui/*` JSON-RPC 桥 + iframe 隔离 + CSP 声明 + 数据/渲染工具解耦）；OpenAI Help Center「Intelligent UI in ChatGPT」（本机 403，未直读）。

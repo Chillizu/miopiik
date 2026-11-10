@@ -888,7 +888,7 @@ window.__ModuleLoader__.load({
     }
 
     // SVG 画布：viewBox 固定、宽度自适应；文字按 viewBox 里的坐标排，缩放时整体等比。
-    function svgCanvas(width, height, children) {
+    function svgCanvas(width, height, children, label) {
       return h(
         'svg',
         {
@@ -896,6 +896,8 @@ window.__ModuleLoader__.load({
           width,
           height,
           preserveAspectRatio: 'xMidYMid meet',
+          role: 'img',
+          'aria-label': label === undefined || label === '' ? undefined : label,
           style: { display: 'block', maxWidth: '100%', height: 'auto', margin: '0 auto', overflow: 'visible' },
         },
         ...children,
@@ -1268,7 +1270,27 @@ window.__ModuleLoader__.load({
                     background: C.base,
                   },
                 },
-                h('div', { style: { color: C.text, fontWeight: 600 } }, String(action.label ?? '')),
+                h(
+                  'div',
+                  { style: { display: 'flex', alignItems: 'center', gap: 6, color: C.text, fontWeight: 600 } },
+                  h('span', null, String(action.label ?? '')),
+                  action.kind !== undefined && action.kind !== 'local'
+                    ? h(
+                        'span',
+                        {
+                          style: {
+                            fontSize: 10,
+                            fontWeight: 500,
+                            color: action.kind === 'sensitive' ? C.error : C.muted,
+                            border: `1px solid ${action.kind === 'sensitive' ? C.error : C.border}`,
+                            borderRadius: 4,
+                            padding: '0 4px',
+                          },
+                        },
+                        action.kind === 'sensitive' ? '需确认' : '需授权',
+                      )
+                    : null,
+                ),
                 action.description ? h('div', { style: { ...muted, lineHeight: '16px' } }, String(action.description)) : null,
               ),
             ),
@@ -1341,6 +1363,8 @@ window.__ModuleLoader__.load({
       return h(
         'div',
         {
+          role: 'group',
+          'aria-label': typeof spec.title === 'string' && spec.title !== '' ? spec.title : spec.fallback,
           style: {
             ...cardShell(spec.preset, padded),
             margin: padded ? 0 : '4px 0',
@@ -1359,6 +1383,15 @@ window.__ModuleLoader__.load({
         // fallback 是降级出口，不是常驻说明：只有渲染不出来时才顶上
         failed && spec.preset === 'card'
           ? h('div', { style: { fontSize: 10, color: C.muted, borderTop: `1px dashed ${C.border}`, paddingTop: 6 } }, `降级：这份 spec 的 ${String(spec.widget)} 没能渲染`)
+          : null,
+        // 数据出处与备注：手册要求「图表有单位和来源」，不能把演示数据当实时
+        spec.props?.source || spec.props?.note
+          ? h(
+              'div',
+              { style: { fontSize: 10, color: C.muted, lineHeight: '15px', borderTop: `1px dashed ${C.border}`, paddingTop: 6 } },
+              spec.props?.source ? h('span', null, `来源：${String(spec.props.source)}　`) : null,
+              spec.props?.note ? h('span', null, String(spec.props.note)) : null,
+            )
           : null,
       )
     }

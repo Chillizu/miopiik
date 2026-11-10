@@ -20,6 +20,24 @@ export const WIDGET_KINDS = Object.freeze([
 /** 预设样式：模型只能挑名字，不能写样式。 */
 export const WIDGET_PRESETS = Object.freeze(['card', 'plain', 'inset', 'stat'])
 
+/** 协议标识：声明式 UI 的信封版本（与手册 §5 的 surface 信封同义，只是字段更少）。 */
+export const UI_PROTOCOL = 'miopiik-ui/0.2'
+
+/** 动作分级（手册 §8）：本地、只读、写入、敏感。v1 只渲染，不执行。 */
+export const ACTION_KINDS = Object.freeze(['local', 'read', 'write', 'sensitive'])
+
+/** 预算：拒绝过大的节点树，避免一次渲染把页面拖死（手册 §11.8）。 */
+export const LIMITS = Object.freeze({
+  title: 80,
+  fallback: 300,
+  textField: 4000,
+  rows: 200,
+  nodes: 60,
+  edges: 120,
+  actions: 2,
+  children: 6,
+})
+
 /** 嵌套上限：layout 里再套 layout 只允许一层（深度 ≤ 2）。 */
 export const MAX_LAYOUT_DEPTH = 2
 
@@ -29,13 +47,20 @@ function validateProps(widget, props) {
     if (!Array.isArray(props?.columns) || props.columns.length === 0) errors.push('dataset 需要 columns')
     if (!Array.isArray(props?.rows)) errors.push('dataset 需要 rows')
     else if (!props.rows.every((row) => Array.isArray(row))) errors.push('dataset 的 rows 必须是二维数组')
+    else if (props.rows.length > LIMITS.rows) errors.push(`dataset 最多 ${LIMITS.rows} 行`)
+    else if (props.rows.some((row) => row.some((cell) => typeof cell === 'string' && cell.length > LIMITS.textField))) {
+      errors.push(`单元格不超过 ${LIMITS.textField} 字`)
+    }
   }
   if (widget === 'graph') {
     if (!Array.isArray(props?.nodes) || props.nodes.length === 0) errors.push('graph 需要 nodes')
+    else if (props.nodes.length > LIMITS.nodes) errors.push(`graph 最多 ${LIMITS.nodes} 个节点`)
     if (props?.edges !== undefined && !Array.isArray(props.edges)) errors.push('graph 的 edges 必须是数组')
+    else if (Array.isArray(props?.edges) && props.edges.length > LIMITS.edges) errors.push(`graph 最多 ${LIMITS.edges} 条边`)
   }
   if (widget === 'timeline') {
     if (!Array.isArray(props?.items) || props.items.length === 0) errors.push('timeline 需要 items')
+    else if (props.items.length > 24) errors.push('timeline 最多 24 项')
     else if (!props.items.every((item) => item !== null && typeof item === 'object' && 'label' in item)) {
       errors.push('timeline 的每一项需要 label')
     }
@@ -47,7 +72,17 @@ function validateProps(widget, props) {
   if (widget === 'choice') {
     if (typeof props?.question !== 'string' || props.question.trim() === '') errors.push('choice 需要 question')
     if (!Array.isArray(props?.actions) || props.actions.length === 0) errors.push('choice 需要 actions')
-    else if (props.actions.length > 2) errors.push('choice 最多两个动作')
+    else if (props.actions.length > LIMITS.actions) errors.push(`choice 最多 ${LIMITS.actions} 个动作`)
+    else {
+      for (const action of props.actions) {
+        if (action === null || typeof action !== 'object' || typeof action.label !== 'string' || action.label.trim() === '') {
+          errors.push('choice 的每个动作需要 label')
+        }
+        if (action?.kind !== undefined && !ACTION_KINDS.includes(action.kind)) {
+          errors.push(`choice 动作的 kind 只能是 ${ACTION_KINDS.join('/')}`)
+        }
+      }
+    }
   }
   if (widget === 'media') {
     const hasUrl = typeof props?.url === 'string' && /^https?:\/\//u.test(props.url)
@@ -76,6 +111,18 @@ function pickProps(widget, props) {
   }[widget] ?? []
   const picked = {}
   for (const key of keep) if (props[key] !== undefined) picked[key] = props[key]
+  for (const extra of ['unit', 'source', 'note']) {
+    if (typeof props[extra] === 'string' && props[extra].trim() !== '') picked[extra] = props[extra].slice(0, 160)
+  }
+  if (widget === 'choice' && Array.isArray(picked.actions)) {
+    picked.actions = picked.actions.map((action) => {
+      if (action === null || typeof action !== 'object') return action
+      const next = { label: String(action.label ?? '').slice(0, 80), kind: action.kind ?? 'local' }
+      if (typeof action.description === 'string') next.description = action.description.slice(0, 200)
+      if (typeof action.actionId === 'string' && action.actionId !== '') next.actionId = action.actionId.slice(0, 60)
+      return next
+    })
+  }
   if (widget === 'layout' && Array.isArray(picked.children)) {
     picked.children = picked.children.map((child) => {
       const checked = validateWidget(child)
@@ -100,14 +147,18 @@ export function validateWidget(input, depth = 1) {
   }
   const fallback = typeof input.fallback === 'string' ? input.fallback.trim() : ''
   if (fallback === '') return { ok: false, errors: ['fallback 必填：它是导出与降级的唯一出口'], available: WIDGET_KINDS }
+  if (fallback.length > LIMITS.fallback) return { ok: false, errors: [`fallback 不超过 ${LIMITS.fallback} 字`], available: WIDGET_KINDS }
+  const title = typeof input.title === 'string' ? input.title.trim() : ''
+  if (title.length > LIMITS.title) return { ok: false, errors: [`title 不超过 ${LIMITS.title} 字`], available: WIDGET_KINDS }
   const props = pickProps(widget, input.props ?? {})
   const errors = validateProps(widget, props)
   if (errors.length > 0) return { ok: false, errors, available: WIDGET_KINDS }
   const spec = {
+    protocol: UI_PROTOCOL,
     v: 2,
     widget,
     preset,
-    title: typeof input.title === 'string' ? input.title : '',
+    title,
     props,
     fallback,
   }

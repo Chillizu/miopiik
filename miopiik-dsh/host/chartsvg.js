@@ -202,12 +202,12 @@ export function renderSpecSvg(spec) {
     else if (chart === 'line') body = lineChart(rows)
     else if (chart === 'donut') body = donutChart(rows)
     if (body === null) return null
-    return svg(W, H, `${title}${body}`)
+    return svg(W, H, `${title}${body}`, spec.title, spec.fallback)
   }
   if (spec.widget === 'graph') {
     const map = graphMap(props)
     const width = Math.max(map.width, 320)
-    return svg(width, Math.max(map.height + 8, 180), `${map.body}`)
+    return svg(width, Math.max(map.height + 8, 180), `${map.body}`, spec.title, spec.fallback)
   }
   return null
 }
@@ -231,9 +231,13 @@ const STYLE = `<style>
   }
 </style>`
 
-function svg(width, height, body) {
+function svg(width, height, body, title, summary) {
+  const titleTag = typeof title === 'string' && title.trim() !== '' ? `<title>${escapeText(title)}</title>` : ''
+  const descTag = typeof summary === 'string' && summary.trim() !== '' ? `<desc>${escapeText(summary)}</desc>` : ''
   return [
     `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${width} ${height}" width="${width}" height="${height}" role="img">`,
+    titleTag,
+    descTag,
     STYLE,
     `<rect class="bg" x="0" y="0" width="${width}" height="${height}" rx="10"/>`,
     body,
