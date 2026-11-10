@@ -113,3 +113,21 @@ test('正文内嵌：接管 assistant-step，把 fenced spec 换成卡片', asyn
     assert.ok(source.includes(needle), `client.js 缺少：${needle}`)
   }
 })
+
+test('图表当图发：ink_chart 画 SVG 落盘，正文用原生 markdown 图引用', async () => {
+  const { renderSpecSvg } = await import('../miopiik-dsh/host/chartsvg.js')
+  const bar = renderSpecSvg({
+    widget: 'dataset',
+    title: '示例',
+    props: { chart: true, columns: [{ label: '项' }, { label: '值' }], rows: [['a', 1], ['b', 3]] },
+    fallback: '示例',
+  })
+  assert.ok(bar.startsWith('<svg'))
+  assert.match(bar, /<rect[^>]*fill="#4176e6"/)
+  assert.ok(renderSpecSvg({ widget: 'dataset', props: { columns: [], rows: [] }, fallback: 'x' }) === null, '没 chart 的不该画')
+  const graph = renderSpecSvg({ widget: 'graph', props: { nodes: [{ id: 'a', label: 'A', lane: 'L' }], edges: [] }, fallback: 'x' })
+  assert.ok(graph.startsWith('<svg'))
+  const tools = await readFile(new URL('../miopiik-dsh/host/tools.js', import.meta.url), 'utf8')
+  assert.ok(tools.includes("name: 'ink_chart'"))
+  assert.ok(tools.includes('renderSpecSvg'))
+})

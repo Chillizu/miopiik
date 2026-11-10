@@ -2037,6 +2037,18 @@ window.__ModuleLoader__.load({
       // memo/forwardRef 组件是对象不是函数，这里只判空；否则会退化成纯文本（** 与链接都不渲染）
       const MarkdownText = primitives !== null && primitives.MarkdownText != null ? primitives.MarkdownText : null
       const tr = typeof props?.t === 'function' ? props.t : (key) => key
+      // 本地图（含 ink_chart 画出来的 SVG）走 api/file 鉴权路由；与 chat 的 pathImages 同一套
+      const pathImages = {
+        resolve: (value) => {
+          try {
+            const path = decodeURIComponent(String(value).split(/[?#]/u)[0] ?? '')
+            if (!path.startsWith('/')) return undefined
+            return new URL(`api/file?path=${encodeURIComponent(path)}`, document.baseURI).href
+          } catch {
+            return undefined
+          }
+        },
+      }
       const labels = {
         code: {
           copyLabel: tr('copy'),
@@ -2060,7 +2072,7 @@ window.__ModuleLoader__.load({
                 part.type === 'widget'
                   ? h(WidgetCard, { key: `w${partIndex}`, spec: part.spec })
                   : MarkdownText !== null
-                    ? h(MarkdownText, { key: `m${partIndex}`, text: part.text, streaming, labels })
+                    ? h(MarkdownText, { key: `m${partIndex}`, text: part.text, streaming, labels, pathImages })
                     : h('div', { key: `m${partIndex}`, style: { whiteSpace: 'pre-wrap', fontSize: 14, lineHeight: 1.7 } }, part.text),
               ),
             ),

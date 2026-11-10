@@ -9,7 +9,10 @@
  */
 
 import { LOOP_TYPES } from './loops.js'
+import { mkdir, writeFile } from 'node:fs/promises'
+import { join } from 'node:path'
 import { WIDGET_KINDS, layoutDepth, validateWidget } from './widgets.js'
+import { renderSpecSvg } from './chartsvg.js'
 
 const RESULT_SCHEMA = { type: 'object', additionalProperties: true }
 
@@ -701,6 +704,47 @@ export function registerTools(ctx, engines, operator, services = {}) {
 
   ctx.tools.register(
     tool({
+      name: 'ink_chart',
+      description:
+        '把一份 spec 画成 SVG 文件，返回可直接写进正文的 markdown 图片：DSH 原生就把本地图当一等公民（api/file 鉴权路由），于是图表以图片身份内嵌，不依赖客户端接管。支持 dataset 的 bar/line/donut 与 graph。',
+      parameters: {
+        type: 'object',
+        properties: {
+          spec: {
+            type: 'object',
+            description: 'view spec：与 ink_view 同一份 IR。dataset 需 columns/rows 且 chart=bar|line|donut；graph 需 nodes/edges。fallback 必填。',
+          },
+        },
+        required: ['spec'],
+        additionalProperties: false,
+      },
+      async execute(args, exec) {
+        const engine = engineFor(exec)
+        const checked = validateWidget(args.spec)
+        if (!checked.ok) {
+          throw new Error(`${checked.errors.join('；')}。可用：${(checked.available ?? WIDGET_KINDS).join(' / ')}`)
+        }
+        const svg = renderSpecSvg(checked.spec)
+        if (svg === null) {
+          throw new Error('这份 spec 画不成图：dataset 需要 chart=bar|line|donut；graph 需要 nodes')
+        }
+        const sessionDir = engine.store.dir
+        const chartsDir = join(sessionDir, 'charts')
+        await mkdir(chartsDir, { recursive: true })
+        const stamp = Date.now().toString(36)
+        const path = join(chartsDir, `chart-${stamp}.svg`)
+        await writeFile(path, svg, 'utf8')
+        const title = typeof checked.spec.title === 'string' && checked.spec.title !== '' ? checked.spec.title : '图表'
+        return {
+          path,
+          bytes: Buffer.byteLength(svg, 'utf8'),
+          markdown: `![${title}](${path})`,
+          hint: '把 markdown 原样写进正文即可，DSH 会按本地图渲染；不需要 fenced 块，也不需要客户端接管。',
+        }
+      },
+    }),
+
+tool({
       name: 'ink_view',
       description:
         'Extra 展示层：把一份结构化的 view spec 放到 MiOpIIk 的「视图」页（不占对话、不占 L3）。一个 IR，五个投影：dataset / graph / timeline / text / choice / media，外加 layout 容器。spec 是数据不是像素：必须有 fallback 纯文本。',
