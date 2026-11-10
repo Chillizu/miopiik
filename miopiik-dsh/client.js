@@ -1941,6 +1941,23 @@ window.__ModuleLoader__.load({
 
     const INK_FENCE = /```ink-view[ \t]*\r?\n([\s\S]*?)```/g
 
+    // chat 自己注入的正文壳（字号/行高/段间距）；接管时原样借用，无 fence 的消息观感才不变。
+    function chatShellClasses() {
+      try {
+        const text = [...document.querySelectorAll('style[data-plugin="@deepseek-ai/dsh-client-ui-chat"]')]
+          .map((node) => node.textContent || '')
+          .join('')
+        const root = /\.([A-Za-z0-9_]+_root)\{font-size:var\(--dsh-content-font-size/.exec(text)
+        const body = /\.([A-Za-z0-9_]+_body)\{flex-direction:column;gap:16px/.exec(text)
+        if (root !== null && body !== null) return { root: root[1], body: body[1] }
+      } catch {
+        return null
+      }
+      return null
+    }
+
+    let chatShell = null
+
     function readSpec(raw) {
       try {
         const spec = JSON.parse(String(raw).trim())
@@ -1978,7 +1995,8 @@ window.__ModuleLoader__.load({
       const blocks = data.blocks ?? []
       const groupPart = props?.groupPart
       const streaming = data.status === 'running'
-      const MarkdownText = primitives !== null && typeof primitives.MarkdownText === 'function' ? primitives.MarkdownText : null
+      // memo/forwardRef 组件是对象不是函数，这里只判空；否则会退化成纯文本（** 与链接都不渲染）
+      const MarkdownText = primitives !== null && primitives.MarkdownText != null ? primitives.MarkdownText : null
       const tr = typeof props?.t === 'function' ? props.t : (key) => key
       const labels = {
         code: {
@@ -2044,7 +2062,16 @@ window.__ModuleLoader__.load({
         }
       })
       if (rendered.length === 0) return null
-      return h('div', { style: { display: 'flex', flexDirection: 'column', gap: 10 } }, ...rendered)
+      if (chatShell === null) chatShell = chatShellClasses()
+      if (chatShell !== null) {
+        return h('div', { className: chatShell.root }, h('div', { className: chatShell.body }, ...rendered))
+      }
+      // 拿不到 chat 的壳就自己给等价的排版，别退化成一坨行内文字
+      return h(
+        'div',
+        { style: { display: 'flex', flexDirection: 'column', fontSize: 14, lineHeight: '24px', color: C.text } },
+        h('div', { style: { display: 'flex', flexDirection: 'column', gap: 16 } }, ...rendered),
+      )
     }
 
     function SettingsSection() {
