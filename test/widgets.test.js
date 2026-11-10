@@ -123,7 +123,8 @@ test('图表当图发：ink_chart 画 SVG 落盘，正文用原生 markdown 图�
     fallback: '示例',
   })
   assert.ok(bar.startsWith('<svg'))
-  assert.match(bar, /<rect[^>]*fill="#4176e6"/)
+  assert.match(bar, /class="bar"/, '柱子走 class，让深色模式能接管')
+  assert.ok(bar.includes('prefers-color-scheme: dark'), 'SVG 里要带深色配色')
   assert.ok(renderSpecSvg({ widget: 'dataset', props: { columns: [], rows: [] }, fallback: 'x' }) === null, '没 chart 的不该画')
   const graph = renderSpecSvg({ widget: 'graph', props: { nodes: [{ id: 'a', label: 'A', lane: 'L' }], edges: [] }, fallback: 'x' })
   assert.ok(graph.startsWith('<svg'))

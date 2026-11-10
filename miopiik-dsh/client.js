@@ -1330,8 +1330,8 @@ window.__ModuleLoader__.load({
       return {
         border: `1px solid ${C.border}`,
         background: C.layer1,
-        padding: padded ? '12px 14px' : '10px 12px',
-        borderRadius: 10,
+        padding: padded ? '14px 16px' : '12px 14px',
+        borderRadius: 12,
       }
     }
 
@@ -1346,11 +1346,13 @@ window.__ModuleLoader__.load({
             margin: padded ? 0 : '4px 0',
             display: 'flex',
             flexDirection: 'column',
-            gap: 8,
-            maxWidth: 720,
+            gap: 10,
+            width: '100%',
+            maxWidth: 760,
+            boxSizing: 'border-box',
           },
         },
-        spec.title ? h('div', { style: { fontSize: 12, fontWeight: 600 } }, spec.title) : null,
+        spec.title ? h('div', { style: { fontSize: 13, fontWeight: 600, lineHeight: '18px' } }, spec.title) : null,
         failed
           ? h('div', { style: { fontSize: 12, color: C.text, whiteSpace: 'pre-wrap', lineHeight: '18px' } }, String(spec.fallback ?? ''))
           : body,
@@ -1379,39 +1381,59 @@ window.__ModuleLoader__.load({
       return { id: String(data.callId), spec: parsed.spec }
     }
 
+    // 一轮只留最后一张：同一 turn 的多次 ink_view 合成一个节点，后者覆盖前者；
+    // 早先那些留在「视图」页快照里，节点上只记个数，不把正文堆成一堵墙。
     const widgetNodeDefinition = {
       kind: WIDGET_NODE_KIND,
       target: 'chat',
       match: (event) => {
         const hit = readInkViewSpec(event)
-        return hit === null ? null : { id: hit.id, role: 'start' }
+        if (hit === null) return null
+        const turn = event?.data?.turn
+        const id = turn === undefined || turn === null ? hit.id : `turn-${turn}`
+        return { id, role: 'start' }
       },
       start: (_context, match) => {
         const hit = readInkViewSpec(match.event)
         if (hit === null) throw new Error('miopiik-widget start requires an ink_view tool/call')
-        return { seq: match.event.seq, spec: hit.spec }
+        return { seq: match.event.seq, specs: [hit.spec] }
       },
-      update: (context) => context.state,
+      update: (context, match) => {
+        const hit = readInkViewSpec(match.event)
+        if (hit === null) return context.state
+        return { seq: match.event.seq, specs: [...context.state.specs, hit.spec] }
+      },
       buildViewNode: (context) => {
         if (context.state === undefined) return null
+        const specs = context.state.specs ?? []
+        if (specs.length === 0) return null
         return {
           key: context.key,
           kind: WIDGET_NODE_KIND,
           id: context.id,
           target: 'chat',
-          anchorSeq: context.state.seq + 0.2, // 与工具行同一次调用，排它后面一点点：卡片落在调用处，不是另起一行到末尾
+          anchorSeq: context.state.seq + 0.2, // 与工具行同一次调用，排它后面一点点：卡片落在调用处
           location: context.start?.location ?? { kind: 'unresolved' },
           visibility: 'visible',
           groupTree: 'turn',
-          data: { spec: context.state.spec },
+          data: { spec: specs[specs.length - 1], total: specs.length },
         }
       },
     }
 
     function WidgetNodeView(props) {
-      const spec = props?.node?.data?.spec
+      const data = props?.node?.data ?? {}
+      const spec = data.spec
       if (spec === null || typeof spec !== 'object') return null
-      return h('div', { style: { padding: '2px 0' } }, h(WidgetCard, { spec }))
+      const extra = Number.isFinite(data.total) && data.total > 1 ? data.total - 1 : 0
+      return h(
+        'div',
+        { style: { padding: '2px 0' } },
+        h(WidgetCard, { spec }),
+        extra > 0
+          ? h('div', { style: { fontSize: 11, color: C.muted, paddingLeft: 2 } }, `这一轮另有 ${extra} 条在「视图」页`)
+          : null,
+      )
     }
 
     function ContextPane({ snapshot }) {
