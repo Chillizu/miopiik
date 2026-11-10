@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 720 358" width="720" height="358" role="img"><title>测试条数</title><desc>测试条数从 137 涨到 144。</desc><style>
+  .bg{fill:#ffffff}
+  .fg{fill:#1b1b1b}
+  .mut{fill:#77787c}
+  .ln{stroke:#e3e3e6}
+  .bar{fill:#4176e6}
+  .c0{fill:#4176e6}.c1{fill:#2e9e5b}.c2{fill:#c98a1b}.c3{fill:#8b8d94}.c4{fill:#cf4444}
+  .t0{stroke:#4176e6}.t1{stroke:#2e9e5b}.t2{stroke:#c98a1b}.t3{stroke:#8b8d94}.t4{stroke:#cf4444}
+  @media (prefers-color-scheme: dark){
+    .bg{fill:#1f2023}
+    .fg{fill:#f2f2f3}
+    .mut{fill:#9a9ca3}
+    .ln{stroke:#33353a}
+    .bar{fill:#5b8bf0}
+    .c0{fill:#5b8bf0}.c1{fill:#4fbf80}.c2{fill:#e0ad55}.c3{fill:#9a9ca3}.c4{fill:#e57272}
+    .t0{stroke:#5b8bf0}.t1{stroke:#4fbf80}.t2{stroke:#e0ad55}.t3{stroke:#9a9ca3}.t4{stroke:#e57272}
+  }
+</style><rect class="bg" x="0" y="0" width="720" height="358" rx="10"/><text x="48" y="18" font-size="13" font-weight="600" class="fg" font-family="ui-sans-serif, system-ui, -apple-system, Segoe UI, sans-serif">测试条数</text><line x1="48" y1="292" x2="696" y2="292" class="ln" stroke-width="1"/><polyline points="48,64 210,62 372,59 534,55 696,52" fill="none" class="t0" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><circle cx="48" cy="64" r="3.5" class="bar"/><text x="48" y="55" font-size="11" class="fg" font-family="ui-sans-serif, system-ui, -apple-system, Segoe UI, sans-serif" text-anchor="middle">137</text><text x="48" y="310" font-size="11" class="mut" font-family="ui-sans-serif, system-ui, -apple-system, Segoe UI, sans-serif" text-anchor="middle">Extra 接入</text><circle cx="210" cy="62" r="3.5" class="bar"/><text x="210" y="53" font-size="11" class="fg" font-family="ui-sans-serif, system-ui, -apple-system, Segoe UI, sans-serif" text-anchor="middle">138</text><text x="210" y="310" font-size="11" class="mut" font-family="ui-sans-serif, system-ui, -apple-system, Segoe UI, sans-serif" text-anchor="middle">节点接管</text><circle cx="372" cy="59" r="3.5" class="bar"/><text x="372" y="50" font-size="11" class="fg" font-family="ui-sans-serif, system-ui, -apple-system, Segoe UI, sans-serif" text-anchor="middle">140</text><text x="372" y="310" font-size="11" class="mut" font-family="ui-sans-serif, system-ui, -apple-system, Segoe UI, sans-serif" text-anchor="middle">正文内嵌</text><circle cx="534" cy="55" r="3.5" class="bar"/><text x="534" y="46" font-size="11" class="fg" font-family="ui-sans-serif, system-ui, -apple-system, Segoe UI, sans-serif" text-anchor="middle">142</text><text x="534" y="310" font-size="11" class="mut" font-family="ui-sans-serif, system-ui, -apple-system, Segoe UI, sans-serif" text-anchor="middle">图表判断</text><circle cx="696" cy="52" r="3.5" class="bar"/><text x="696" y="43" font-size="11" class="fg" font-family="ui-sans-serif, system-ui, -apple-system, Segoe UI, sans-serif" text-anchor="middle">144</text><text x="696" y="310" font-size="11" class="mut" font-family="ui-sans-serif, system-ui, -apple-system, Segoe UI, sans-serif" text-anchor="middle">协议对齐</text><text class="mut" x="48" y="330" font-size="10" font-family="ui-sans-serif, system-ui, -apple-system, Segoe UI, sans-serif">来源：node --test　每加一处约束就补一条</text></svg>

@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 360 254" width="360" height="254" role="img"><title>一 IR 四落点</title><desc>一个 IR 四个落点：正文内嵌、独立行、视图页、画像。</desc><style>
+  .bg{fill:#ffffff}
+  .fg{fill:#1b1b1b}
+  .mut{fill:#77787c}
+  .ln{stroke:#e3e3e6}
+  .bar{fill:#4176e6}
+  .c0{fill:#4176e6}.c1{fill:#2e9e5b}.c2{fill:#c98a1b}.c3{fill:#8b8d94}.c4{fill:#cf4444}
+  .t0{stroke:#4176e6}.t1{stroke:#2e9e5b}.t2{stroke:#c98a1b}.t3{stroke:#8b8d94}.t4{stroke:#cf4444}
+  @media (prefers-color-scheme: dark){
+    .bg{fill:#1f2023}
+    .fg{fill:#f2f2f3}
+    .mut{fill:#9a9ca3}
+    .ln{stroke:#33353a}
+    .bar{fill:#5b8bf0}
+    .c0{fill:#5b8bf0}.c1{fill:#4fbf80}.c2{fill:#e0ad55}.c3{fill:#9a9ca3}.c4{fill:#e57272}
+    .t0{stroke:#5b8bf0}.t1{stroke:#4fbf80}.t2{stroke:#e0ad55}.t3{stroke:#9a9ca3}.t4{stroke:#e57272}
+  }
+</style><rect class="bg" x="0" y="0" width="360" height="254" rx="10"/><path d="M148,123 C176.8,123 183.2,36 212,36" fill="none" class="t3" stroke-width="1.2"/><path d="M148,123 C176.8,123 183.2,94 212,94" fill="none" class="t3" stroke-width="1.2"/><path d="M148,123 C176.8,123 183.2,152 212,152" fill="none" class="t3" stroke-width="1.2"/><path d="M148,123 C176.8,123 183.2,210 212,210" fill="none" class="t3" stroke-width="1.2"/><rect x="16" y="103" width="132" height="40" rx="8" fill="#ffffff" class="ln" stroke-width="1"/><text x="82" y="127" font-size="11" class="fg" font-family="ui-sans-serif, system-ui, -apple-system, Segoe UI, sans-serif" text-anchor="middle">view spec</text><rect x="212" y="16" width="132" height="40" rx="8" fill="#ffffff" class="ln" stroke-width="1"/><text x="278" y="40" font-size="11" class="fg" font-family="ui-sans-serif, system-ui, -apple-system, Segoe UI, sans-serif" text-anchor="middle">正文卡片</text><rect x="212" y="74" width="132" height="40" rx="8" fill="#ffffff" class="ln" stroke-width="1"/><text x="278" y="98" font-size="11" class="fg" font-family="ui-sans-serif, system-ui, -apple-system, Segoe UI, sans-serif" text-anchor="middle">独立行</text><rect x="212" y="132" width="132" height="40" rx="8" fill="#ffffff" class="ln" stroke-width="1"/><text x="278" y="156" font-size="11" class="fg" font-family="ui-sans-serif, system-ui, -apple-system, Segoe UI, sans-serif" text-anchor="middle">视图页</text><rect x="212" y="190" width="132" height="40" rx="8" fill="#ffffff" class="ln" stroke-width="1"/><text x="278" y="214" font-size="11" class="fg" font-family="ui-sans-serif, system-ui, -apple-system, Segoe UI, sans-serif" text-anchor="middle">画像</text></svg>
