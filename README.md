@@ -1,5 +1,7 @@
 # MiOpIIk
 
+<img src="docs/images/icon.png" width="96" alt="MiOpIIk icon">
+
 [![](https://img.shields.io/badge/powered_by-dsh-4D6BFE?style=flat-square&logo=deepseek&logoColor=white)](https://github.com/deepseek-ai/deepseek-harness)
 
 **Mind · Ink · Operator** —— 让持续对话与异步行动相互独立、又能自然协作的 Agent 架构。
