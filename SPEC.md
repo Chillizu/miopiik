@@ -501,10 +501,18 @@ L3 之外，Mind 还能从 L3 末尾看到一行鱼骨：「B-1 定位验证：�
 
 > 定位：附加层。删掉它，MiOpIIk 照样成立；它不写两份日志、不改闸门、不占 L3 预算、不改开环/事实的数据形状。
 
+- **两个表面**（对齐《Harness WebUI 技术参考手册》§16 的 Dual-Surface）：**对话表面** = 正文里的一两张卡（能内嵌、跟着主题）；**工作区表面** = 「视图」页的只读快照。对话仍是主体，不把对话变成仪表盘。
+- **可信目录**：模型只能挑已注册的形状与预设样式（Level A 原生组合 / Level B 受限 JSON 形状）；不做 Level C 的任意 SVG 事件，也不做 Level D 的第三方应用容器。
+- **动作分级**：`choice` 的动作带 `kind`（local / read / write / sensitive），对应手册 §8 的 L0–L3；v1 只渲染、不执行，卡片不冒充已经发生的操作。
+
 - **一个 IR，五个投影**：`dataset`（表格/条形，columns+rows）、`graph`（节点+边，按 lane 分列）、`timeline`（时间序列）、`text`（段落/列表）、`choice`（≤2 个动作）、`media`（图片/链接），外加 `layout` 容器（stack/row/grid，嵌套 ≤2 层）。
 - **spec 是数据，不是像素**：落盘的是 `{widget, title?, props, fallback}`；渲染器负责长相，样式只用设计 token，spec 内不允许出现 CSS。
 - **协议 v2**：`{ v, widget, preset, title, props, fallback }`。`preset` 只能从 `card / plain / inset / stat` 里挑——模型只挑名字，不写样式；多余字段在校验时丢弃；`layout` 最深两层。
-- **硬规则**：`fallback` 必填（导出与降级的唯一出口），且**只在渲染失败时**顶上，不常驻卡底；未知 widget / preset 报错并列出可用清单，不静默降级；一张卡只放一个决定；只读——一切交互都回到对话或 session command。
+- **硬规则**：`fallback` 必填（≤300 字；导出与降级的唯一出口），且**只在渲染失败时**顶上，不常驻卡底；未知 widget / preset 报错并列出可用清单，不静默降级；一张卡只放一个决定；只读——一切交互都回到对话或 session command。
+- **预算**：`title` ≤80 字、`dataset` ≤200 行、`graph` ≤60 节点/120 边、`timeline` ≤24 项、`layout` ≤6 子项且最深两层、单元格 ≤4000 字；超预算就拒收，不截断后假装渲染成功。
+- **数据要有出处**：`props.source` / `props.note` 画进卡底（画像写进 SVG 的 `<title>`/`<desc>`），避免演示数据冒充实时。
+- **安全边界**：模型输出按不可信数据处理——只认白名单字段（多余键在 Host 侧丢弃）、不执行任意 JS/HTML/CSS、媒体只接受 http(s) 或工作区绝对路径。
+- **无障碍**：卡片带 `role=group` 与 `aria-label`（标题或 fallback），SVG 图带 `role=img` + `<title>`/`<desc>`，降级文案就是文字摘要。
 - **图片**：`media` 支持 `url`（http(s)）与 `path`（绝对路径，走带会话鉴权的 `api/file` 路由），与正文 markdown 里的本地图同一套地址。
 - **开关**：正文内嵌不是配置项，是注册/注销——设置页一开关，关掉时 `dispose` 掉 `assistant-step` 的接管，原生渲染立刻回来。
 - **入口**：`ink_view` 工具（show / list / clear）。**卡片长在对话正文里**：注册一个 `target: 'chat'` 的 Conversation Definition，认 `ink_view` 的 `tool/call` 事件，在 **Turn 层**（`groupTree: 'turn'`）产出一个节点，由 `conversation.chat.node` 槽位渲染——卡片站在调用处，不进可折叠的「过程」组；同时进 MiOpIIk 页的「视图」页签；快照只带最近 3 条。
