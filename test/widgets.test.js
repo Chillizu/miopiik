@@ -143,6 +143,6 @@ test('SVG 必须是合法 XML：属性值里不能有裸引号', async () => {
   // 属性值内的裸双引号会让整份 SVG 解析失败（浏览器里表现为图片加载不出来）
   const attrs = [...svg.matchAll(/="([^"]*)"/gu)].map((match) => match[1])
   assert.ok(!attrs.some((value) => /[<>]/u.test(value)), '属性里不该出现尖括号')
-  assert.ok(!/font-family="[^"]*"[^"]*"/u.test(svg), 'font-family 里不该层层引号')
+  assert.ok(svg.includes('font-family="ui-sans-serif, system-ui, -apple-system, Segoe UI, sans-serif"'), 'font-family 该是单层引号的纯文本')
   assert.ok(svg.includes('&quot;') || !svg.includes('x"y'), '正文文本里的引号要转义')
 })
