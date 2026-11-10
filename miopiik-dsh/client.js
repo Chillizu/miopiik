@@ -2010,6 +2010,28 @@ window.__ModuleLoader__.load({
           )
           return
         }
+        if (block.kind === 'image') {
+          // 图片块原本走 chat 的 message.images 席位；接管后要自己转回去，否则正文里的图会消失
+          const group = [block]
+          while (index + group.length < blocks.length && blocks[index + group.length]?.kind === 'image') {
+            group.push(blocks[index + group.length])
+          }
+          const renderSlot = props?.renderSlot
+          if (typeof renderSlot === 'function') {
+            rendered.push(
+              h(
+                'div',
+                { key: `i${index}` },
+                renderSlot('conversation.chat.message.images', {
+                  images: group.map((item) => ({ attachment: item.attachment })),
+                  loadImage: props.loadImage,
+                  align: 'start',
+                }),
+              ),
+            )
+          }
+          return
+        }
         if (block.kind === 'reasoning') {
           if (String(block.text ?? '').trim() === '') return
           rendered.push(
