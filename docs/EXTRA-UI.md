@@ -199,3 +199,15 @@ spec（数据 + 意图） → IR → 投影选择（数据形状 + 能力清单�
 - 正文内嵌的开关做成注册/注销：设置页一个按钮，关掉时 `dispose` 掉 `assistant-step` 的注册，chat 原生渲染器立刻回来，不用重启。
 - 协议写进 L3 章程（什么时候写 fenced 块、白名单、fallback 必填、一次最多一两张）。
 - 两处退化已修：memo 组件判型写错导致 markdown 退化成纯文本；正文壳没沿用 chat 自己的类导致排版不对。截图：[inline-md-restored.png](screenshots/inline-md-restored.png)。
+
+### 9.6 图表当图发（2026-11-10）
+
+用户提的路子：像图片一样内嵌图表。查了 DSH 的本地图链路——markdown 图片目的地 → `api/file?path=` → 带 `image/svg+xml`，`<img>` 能加载。于是图表不必依赖客户端接管：
+
+- 新工具 `ink_chart`：同一份 spec 在 Host 侧画成 SVG（`host/chartsvg.js`，支持 dataset 的 bar/line/donut 与 graph），落到 `<session>/charts/chart-<stamp>.svg`，返回 `![标题](绝对路径)`；
+- 模型把那段 markdown 写进正文即可，得到**原生图**（可导出、离线可看、不随前端漂移）；
+- 客户端命中本地图靠 `pathImages`：接管后的正文里也传了同一个解析器，所以 markdown 图片照常。
+
+踩坑：`font-family` 里写了 `"Segoe UI"`，属性值中的裸引号让整份 SVG 不是合法 XML——浏览器里表现是「图片加载不出来」，而 `api/file` 仍返回 200。修法是属性值统一转义，测试里钉死这一条。
+
+分工：静态图用 `ink_chart`；要交互、要跟主题 token 的才走 fenced 接管。
