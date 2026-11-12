@@ -1,0 +1,153 @@
+#!/usr/bin/env node
+/**
+ * 生成"Markdown 受信嵌入"实验分支：把已安装的 ui-chat 客户端包复制到本仓库，
+ * 只在 AssistantMarkdown 的 text 分支插入一个受控挂钩，其余保持与上游逐字节一致。
+ *
+ *   node tools/fork-chat-embeds.mjs          # 生成/更新分支
+ *   node tools/fork-chat-embeds.mjs --check  # 只校验分支是否与当前上游一致（CI 用）
+ *
+ * 注意：不修改系统安装目录，不参与运行中服务；启用需在 profile 配置里把 ui-chat
+ * 指向本目录并重启 DSH（见 docs/UPSTREAM-MARKDOWN-EMBED.md）。
+ */
+import { execFileSync } from 'node:child_process'
+import { cpSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { createRequire } from 'node:module'
+import { dirname, join, resolve } from 'node:path'
+import { fileURLToPath } from 'node:url'
+
+const root = resolve(dirname(fileURLToPath(import.meta.url)), '..')
+const forkDir = join(root, 'miopiik-dsh', 'upstream', 'dsh-client-ui-chat-embeds')
+const patchPath = join(root, 'docs', 'upstream', 'chat-markdown-embeds.patch')
+
+const require = createRequire('/home/chillizu/.dsh/profiles/web/')
+const upstreamDir = dirname(require.resolve('@deepseek-ai/dsh-client-ui-chat/package.json'))
+
+const MARK_BEGIN = '\t\t// >>> miopiik:markdown-embeds (fork patch; see docs/UPSTREAM-MARKDOWN-EMBED.md)'
+const MARK_END = '\t\t// <<< miopiik:markdown-embeds'
+
+const HELPER = `${MARK_BEGIN}
+		// 受信嵌入挂钩：没有注册表或开关未打开时返回 null，行为与上游完全一致。
+		function miopiikSegments(text, streaming) {
+			try {
+				if (typeof localStorage !== "undefined" && localStorage.getItem("miopiik.markdownEmbeds") !== "1") return null;
+				const registry = globalThis.__miopiikMarkdownEmbeds;
+				if (registry === undefined || typeof registry.segments !== "function") return null;
+				const parts = registry.segments(text, { streaming });
+				return Array.isArray(parts) ? parts : null;
+			} catch {
+				return null;
+			}
+		}
+		function MiopiikEmbedSegment({ part, streaming, labels, mentions, pathImages, t }) {
+			const registry = globalThis.__miopiikMarkdownEmbeds;
+			try {
+				if (part.kind === "block") {
+					const node = registry.renderBlock(part.raw, { t });
+					return node ?? (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.MarkdownText, { text: part.raw, streaming, labels, fileMentions: mentions, pathImages });
+				}
+				if (part.kind === "inline") return registry.renderInline(part.node, { t });
+			} catch (error) {
+				// 局部降级：嵌入渲染失败只影响这一段，交回纯文本
+				return (0, react_jsx_runtime.jsx)("span", { "data-miopiik-embed-fallback": String(error && error.message || error) }, part.raw ?? "");
+			}
+			return null;
+		}
+${MARK_END}`
+
+const PATCHED_TEXT_CASE = `\t\t\t\t\tcase "text": {
+						const segments = miopiikSegments(block.text, streaming);
+						if (segments === null) {
+							rendered.push((0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.MarkdownText, {
+								text: block.text,
+								streaming,
+								labels,
+								fileMentions: mentions,
+								pathImages
+							}, i));
+							break;
+						}
+						segments.forEach((part, partIndex) => {
+							if (part.kind === "text") {
+								rendered.push((0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.MarkdownText, {
+									text: part.text,
+									streaming,
+									labels,
+									fileMentions: mentions,
+									pathImages
+								}, i + ":" + partIndex));
+								return;
+							}
+							rendered.push((0, react_jsx_runtime.jsx)(MiopiikEmbedSegment, {
+								part,
+								streaming,
+								labels,
+								mentions,
+								pathImages,
+								t
+							}, i + ":" + partIndex));
+						});
+						break;
+					}`
+
+/** 用锚点定位 AssistantMarkdown 里的 text 分支，避免依赖具体缩进/换行。 */
+function locateTextCase(source) {
+  const fnIndex = source.indexOf('const AssistantMarkdown = (0, react.memo)(function AssistantMarkdown(')
+  if (fnIndex < 0) throw new Error('找不到 AssistantMarkdown 定义位置')
+  const caseIndex = source.indexOf('case "text":', fnIndex)
+  if (caseIndex < 0) throw new Error('找不到 AssistantMarkdown 的 text 分支')
+  const breakIndex = source.indexOf('break;', caseIndex)
+  if (breakIndex < 0) throw new Error('找不到 text 分支的 break')
+  return { fnIndex, start: caseIndex, end: breakIndex + 'break;'.length }
+}
+
+function readUpstream() {
+  return readFileSync(join(upstreamDir, 'lib', 'client.js'), 'utf8')
+}
+
+function patchSource(source) {
+  if (source.includes(MARK_BEGIN)) return { source, alreadyPatched: true }
+  const { fnIndex, start, end } = locateTextCase(source)
+  let next = source.slice(0, start) + PATCHED_TEXT_CASE.trim() + source.slice(end)
+  const anchorAt = next.indexOf('const AssistantMarkdown = (0, react.memo)(function AssistantMarkdown(')
+  if (anchorAt < 0) throw new Error('找不到 AssistantMarkdown 定义位置')
+  next = next.slice(0, anchorAt) + HELPER + '\n' + next.slice(anchorAt)
+  void fnIndex
+  return { source: next, alreadyPatched: false }
+}
+
+function build() {
+  const upstream = readUpstream()
+  const { source: patched, alreadyPatched } = patchSource(upstream)
+  rmSync(forkDir, { recursive: true, force: true })
+  mkdirSync(forkDir, { recursive: true })
+  cpSync(upstreamDir, forkDir, { recursive: true })
+  writeFileSync(join(forkDir, 'lib', 'client.js'), patched, 'utf8')
+  // 语法自检（浏览器侧是普通 CommonJS 包装，node --check 可验语法）
+  execFileSync(process.execPath, ['--check', join(forkDir, 'lib', 'client.js')], { stdio: 'pipe' })
+
+  // diff 在有差异时退出码为 1，属正常，不能被当成失败
+  let diff = ''
+  try {
+    diff = execFileSync('diff', ['-u', join(upstreamDir, 'lib', 'client.js'), join(forkDir, 'lib', 'client.js')], { encoding: 'utf8' })
+  } catch (error) {
+    diff = String(error.stdout ?? '')
+  }
+  mkdirSync(dirname(patchPath), { recursive: true })
+  writeFileSync(patchPath, diff, 'utf8')
+  return { alreadyPatched, patchBytes: diff.length, patchPath }
+}
+
+if (process.argv.includes('--check')) {
+  const upstream = readUpstream()
+  const { source } = patchSource(upstream)
+  const current = existsSync(join(forkDir, 'lib', 'client.js')) ? readFileSync(join(forkDir, 'lib', 'client.js'), 'utf8') : ''
+  if (current !== source) {
+    console.error('分支与上游/补丁不一致，请运行 node tools/fork-chat-embeds.mjs')
+    process.exitCode = 1
+  } else {
+    console.log('分支一致')
+  }
+} else {
+  const result = build()
+  console.log(JSON.stringify({ ...result, forkDir, upstreamDir }, null, 2))
+}

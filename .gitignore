@@ -4,3 +4,6 @@ node_modules/
 .playwright-mcp/
 *.log
 .DS_Store
+
+# 上游 fork 是生成物（node tools/fork-chat-embeds.mjs 重建），不入库
+miopiik-dsh/upstream/dsh-client-ui-chat-embeds/

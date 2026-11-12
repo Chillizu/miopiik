@@ -1039,6 +1039,86 @@ window.__ModuleLoader__.load({
     })()
     // <<< miopiik:miopiik-ml
 
+    // >>> miopiik:markdown-segments (generated; edit miopiik-dsh/shared/markdown-segments.js)
+    const MARKDOWN_SEGMENTS = (() => {
+      /**
+       * Markdown 正文切分：把"受信 token"从普通 Markdown 里切出来，其余原样交给 MarkdownText。
+       *
+       * 只认两种受控标记，绝不把任意 HTML 当组件：
+       *   - 块级：```iui 围栏（Miopiik ML 或 JSON AST）
+       *   - 行内：{{badge:success:已实现}} / {{icon:check}} / {{code:iapi}}
+       *
+       * 设计约束：
+       *   - 只做切分，不做 HTML/JS 解析；未知或格式不正确的 token 原样留在文本里；
+       *   - 切分点只在标记边界，跨标记的 Markdown 结构（如跨越 token 的加粗）会各自渲染——已记录为限制；
+       *   - 返回顺序即渲染顺序，保证"同一行文字混排"。
+       */
+      
+      const INLINE_TOKEN = /\{\{(badge|icon|code):([^{}\n]{1,120}?)\}\}/gu
+      const BLOCK_FENCE = /```iui[ \t]*\r?\n([\s\S]*?)```/gu
+      
+      function readInline(kind, payload) {
+        if (kind === 'icon') {
+          const name = payload.trim()
+          return { type: 'icon', props: { name, label: name } }
+        }
+        if (kind === 'code') return { type: 'code', props: { text: payload } }
+        // badge: tone:文本；tone 省略时按 neutral
+        const match = /^(neutral|success|warning|danger):([\s\S]+)$/u.exec(payload.trim())
+        if (match !== null) return { type: 'badge', props: { tone: match[1], text: match[2].trim() } }
+        return { type: 'badge', props: { tone: 'neutral', text: payload.trim() } }
+      }
+      
+      /**
+       * @param text 模型输出的正文
+       * @returns {Array<{kind:'text', text:string} | {kind:'block', raw:string} | {kind:'inline', node:object}>}
+       */
+      function splitTrustedMarkdown(text) {
+        const source = String(text ?? '')
+        const parts = []
+        const pushText = (value) => {
+          if (value !== '') parts.push({ kind: 'text', text: value })
+        }
+        let cursor = 0
+        // 先切块级围栏，再在每段普通文本里切行内 token
+        BLOCK_FENCE.lastIndex = 0
+        let fence = BLOCK_FENCE.exec(source)
+        while (fence !== null) {
+          pushTrustedInline(source.slice(cursor, fence.index), pushText, parts)
+          parts.push({ kind: 'block', raw: fence[1] })
+          cursor = fence.index + fence[0].length
+          fence = BLOCK_FENCE.exec(source)
+        }
+        pushTrustedInline(source.slice(cursor), pushText, parts)
+        return parts.length === 0 ? [{ kind: 'text', text: source }] : parts
+      }
+      
+      function pushTrustedInline(text, pushText, parts) {
+        if (text === '') return
+        INLINE_TOKEN.lastIndex = 0
+        let cursor = 0
+        let match = INLINE_TOKEN.exec(text)
+        while (match !== null) {
+          pushText(text.slice(cursor, match.index))
+          parts.push({ kind: 'inline', node: readInline(match[1], match[2]) })
+          cursor = match.index + match[0].length
+          match = INLINE_TOKEN.exec(text)
+        }
+        pushText(text.slice(cursor))
+      }
+      
+      /** 是否含任何受信标记（用于快速路径：没有标记时行为与原生完全一致）。 */
+      function hasTrustedMarkup(text) {
+        const source = String(text ?? '')
+        BLOCK_FENCE.lastIndex = 0
+        if (BLOCK_FENCE.test(source)) return true
+        INLINE_TOKEN.lastIndex = 0
+        return INLINE_TOKEN.test(source)
+      }
+      return { INLINE_TOKEN, BLOCK_FENCE, splitTrustedMarkdown, hasTrustedMarkup }
+    })()
+    // <<< miopiik:markdown-segments
+
     function createStore(initial) {
       let state = initial
       const listeners = new Set()
@@ -2245,6 +2325,44 @@ window.__ModuleLoader__.load({
         ),
         h(IuiSheet, { sample: resolveSample(sample), format: ML_SAMPLES[sample] !== undefined ? 'ml' : sample === 'json' ? 'json' : 'ast' }),
       )
+    }
+
+    // 行内原语渲染（Markdown 受信嵌入用）：与 IuiSheet 的 paragraph 子渲染保持一致
+    function renderInlinePrimitive(node) {
+      const props = node?.props ?? {}
+      if (node?.type === 'text') return h('span', null, String(props.text ?? ''))
+      if (node?.type === 'badge') {
+        const tone = {
+          neutral: ['rgba(127,127,127,0.14)', C.text],
+          success: ['rgba(46,160,67,0.16)', '#2ea043'],
+          warning: ['rgba(210,153,34,0.18)', '#b08800'],
+          danger: ['rgba(218,54,51,0.16)', '#d1242f'],
+        }[props.tone] ?? ['rgba(127,127,127,0.14)', C.text]
+        return h('span', { 'data-iui-badge': String(props.tone ?? 'neutral'), style: { display: 'inline-block', padding: '0 6px', borderRadius: 999, fontSize: 11, lineHeight: '18px', background: tone[0], color: tone[1] } }, String(props.text ?? ''))
+      }
+      if (node?.type === 'icon') return h('span', { 'data-iui-icon': String(props.name ?? ''), role: 'img', 'aria-label': String(props.label ?? props.name ?? '') }, { check: '✓', alert: '!', dot: '•', 'arrow-right': '→', spark: '✳' }[props.name] ?? '•')
+      if (node?.type === 'code') return h('code', { style: { fontFamily: 'ui-monospace, monospace', fontSize: 12, background: 'rgba(127,127,127,0.14)', borderRadius: 4, padding: '0 4px' } }, String(props.text ?? ''))
+      if (node?.type === 'link') return h('a', { href: String(props.href ?? ''), target: '_blank', rel: 'noreferrer noopener', style: { color: C.brand, textDecoration: 'underline' } }, String(props.text ?? ''))
+      if (node?.type === 'emphasis') return h(props.strong === false ? 'em' : 'strong', null, String(props.text ?? ''))
+      return h('span', null, '')
+    }
+
+    // 受信 Markdown 嵌入注册表：只有已打补丁的客户端（upstream fork）会读取它。
+    // 未启用 fork 时这里只是一块不会被调用的数据，原生渲染路径完全不变。
+    try {
+      globalThis.__miopiikMarkdownEmbeds = {
+        segments: (text) => {
+          const parts = MARKDOWN_SEGMENTS.splitTrustedMarkdown(text)
+          return parts.map((part) => (part.kind === 'block' ? { kind: 'block', raw: part.raw } : part.kind === 'inline' ? { kind: 'inline', node: part.node } : part))
+        },
+        renderInline: (node) => renderInlinePrimitive(node),
+        renderBlock: (raw) => {
+          const parsed = readIuiFence(raw)
+          return parsed.ok ? h(IuiSheet, { sample: parsed.doc, format: parsed.format, degraded: parsed.degraded }) : null
+        },
+      }
+    } catch {
+      // 注册失败不影响任何原生渲染
     }
 
     // 实验性 IUI：紧凑 DSL 预览（默认关闭，只在「视图」页跑，不碰 assistant-step）

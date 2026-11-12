@@ -1,6 +1,6 @@
 # 上游提案：Markdown 受信嵌入扩展点（草案 v1）
 
-> 状态：提案，未实现。作者：MiOpIIk Extra 层（ChromeChat 独立复核）。
+> 状态：**接口已在本机实验分支落地**（未启用、默认关闭），上游 PR 尚未提交。作者：MiOpIIk Extra 层。
 > 目标：让插件把**受信任的嵌入组件**放进 DSH 原生 Markdown 流里，而**不替换 assistant-step**。
 > 非目标：不改 Markdown 解析器语义、不执行模型提供的 HTML/JS/CSS、不改日志契约。
 
@@ -90,3 +90,53 @@ ctx.markdownEmbeds.register(registration): () => void   // 返回 disposer
 - 正文接管**默认关闭**，且只作为实验开关；关闭时普通消息 100% 走原生。
 - 不宣称"原生内嵌已完成"；IUI 的正式入口仍是独立节点/视图页。
 - 行内混排（badge/link/code）先在我们的 IUI 容器内实现，等 B 阶段再进原生 Markdown。
+
+## 6. 本机实验分支（已实现，未启用）
+
+### 6.1 真实依赖树结论（2026-11-12 核对）
+
+| 项 | 事实 |
+|---|---|
+| `profiles/web/node_modules/@deepseek-ai/dsh-client-ui-chat` | 符号链接到全局安装：`…/dsh/node_modules/@deepseek-ai/dsh-client-ui-chat`，v0.2.1-rc.5，**只有 `lib/`（打包产物）+ `lib/types` + `locale`，没有 `src/`** |
+| `dsh-client-ui-primitives` | 同一 profile 下的链接指向不存在的 `/opt/deepseek-harness/...`（已失配）；运行时由前端 bundle 提供，磁盘上**没有可修改的源码** |
+| DSH Web 前端 | `/assets/index-*.js` 是预构建产物；chat 客户端插件以独立 `client.js` 由服务端加载 |
+| 结论 | **无上游源码可构建**。因此不做"盲改全局包"，改为"本地 fork 客户端插件 + profile 级替换"，可审计、可回滚 |
+
+### 6.2 已交付内容
+
+1. `tools/fork-chat-embeds.mjs`：把已安装的 `dsh-client-ui-chat` 复制到 `miopiik-dsh/upstream/dsh-client-ui-chat-embeds/`（生成物、不入库），
+   只在 `AssistantMarkdown` 的 `case "text"` 分支插入一个挂钩，**其余与上游逐字节相同**；生成后 `node --check` 自检，并输出差异到
+   `docs/upstream/chat-markdown-embeds.patch`（约 80 行，供上游评审）。
+2. `shared/markdown-segments.js`：受信切分器（块级 ```iui 围栏 + 行内 `{{badge:success:文本}}` / `{{icon:check}}` / `{{code:x}}`），
+   纯函数、可单测；未闭合/非法 token 原样保留。
+3. MiOpIIk 客户端注册 `globalThis.__miopiikMarkdownEmbeds`（`segments` / `renderInline` / `renderBlock`），复用它自己的
+   `IuiSheet` 与 `validateAst`；**不注册就不生效**。
+
+### 6.3 关键性质
+
+- **原生所有权不变**：`AssistantMarkdown`、`ReasoningRow`（折叠/摘要/流式/a11y）、图片、附件、复制、断点回放仍由 DSH 自己的组件负责；
+  我们只替换 `text` 块里被受信 token 标记的片段。
+- **默认关闭**：fork 挂钩先检查 `localStorage['miopiik.markdownEmbeds'] === '1'`；未开启时直接返回 `null`，走与上游完全相同的路径。
+- **局部降级**：`segments` 返回 `null`、注册表缺失、`renderBlock/renderInline` 抛错，都只影响该片段（`data-miopiik-embed-fallback` 文本兜底）。
+
+### 6.4 启用步骤（需重启，由 ChatGPT preflight）
+
+```bash
+# 1) 生成 fork（幂等；生成物已被 .gitignore 忽略）
+node tools/fork-chat-embeds.mjs
+# 2) 备份并替换 profile 里的链接（只改 profile，不动全局安装）
+cd ~/.dsh/profiles/web/node_modules/@deepseek-ai
+mv dsh-client-ui-chat dsh-client-ui-chat.bak
+ln -s /home/data/Projects/Mio/MiOpIIk/miopiik-dsh/upstream/dsh-client-ui-chat-embeds dsh-client-ui-chat
+# 3) 重启 dsh-web（ChatGPT 执行），然后浏览器里：
+localStorage.setItem('miopiik.markdownEmbeds', '1'); location.reload()
+```
+
+**回滚**：`mv dsh-client-ui-chat.bak dsh-client-ui-chat`（并重启）；或仅把 `markdownEmbeds` 置 0 即刻停止接管。
+
+### 6.5 尚未完成 / 风险
+
+- 未在真实 3080 验证（需重启；本轮不自行重启）。
+- fork 与上游版本耦合：升级 DSH 后若 `AssistantMarkdown` 结构变化，生成脚本会**直接报错**而不是产出错误补丁。
+- 行内 token 若跨越 Markdown 结构（如 `**加粗 {{badge:x}} 继续**`），两侧文本会被分别渲染，加粗会在 token 处断开——这是切分式嵌入的已知限制，改用 remark 插件可彻底解决（上游 PR 方向）。
+- 流式期间未闭合 token 按普通文本显示，闭合后一次性 materialize。

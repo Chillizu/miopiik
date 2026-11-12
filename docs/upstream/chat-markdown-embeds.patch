@@ -1,0 +1,88 @@
+--- /home/chillizu/.npm-global/lib/node_modules/@deepseek-ai/dsh/node_modules/@deepseek-ai/dsh-client-ui-chat/lib/client.js	2026-11-03 20:13:23.600859953 +0800
++++ /home/data/Projects/Mio/MiOpIIk/miopiik-dsh/upstream/dsh-client-ui-chat-embeds/lib/client.js	2026-11-12 21:58:12.940742862 +0800
+@@ -6287,7 +6287,35 @@
+ 			return fileMediaUrl(base, path);
+ 		}
+ 		/** Renders non-blank reasoning blocks as independent disclosures alongside the response. */
+-		const AssistantMarkdown = (0, react.memo)(function AssistantMarkdown({ blocks, streaming, interrupted, loadImage, groupPart, useDisclosure, reasoningHidden = false, usePresentation, revealProcess, mentions, renderSlot, useGroupAction, t }) {
++				// >>> miopiik:markdown-embeds (fork patch; see docs/UPSTREAM-MARKDOWN-EMBED.md)
++		// 受信嵌入挂钩：没有注册表或开关未打开时返回 null，行为与上游完全一致。
++		function miopiikSegments(text, streaming) {
++			try {
++				if (typeof localStorage !== "undefined" && localStorage.getItem("miopiik.markdownEmbeds") !== "1") return null;
++				const registry = globalThis.__miopiikMarkdownEmbeds;
++				if (registry === undefined || typeof registry.segments !== "function") return null;
++				const parts = registry.segments(text, { streaming });
++				return Array.isArray(parts) ? parts : null;
++			} catch {
++				return null;
++			}
++		}
++		function MiopiikEmbedSegment({ part, streaming, labels, mentions, pathImages, t }) {
++			const registry = globalThis.__miopiikMarkdownEmbeds;
++			try {
++				if (part.kind === "block") {
++					const node = registry.renderBlock(part.raw, { t });
++					return node ?? (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.MarkdownText, { text: part.raw, streaming, labels, fileMentions: mentions, pathImages });
++				}
++				if (part.kind === "inline") return registry.renderInline(part.node, { t });
++			} catch (error) {
++				// 局部降级：嵌入渲染失败只影响这一段，交回纯文本
++				return (0, react_jsx_runtime.jsx)("span", { "data-miopiik-embed-fallback": String(error && error.message || error) }, part.raw ?? "");
++			}
++			return null;
++		}
++		// <<< miopiik:markdown-embeds
++const AssistantMarkdown = (0, react.memo)(function AssistantMarkdown({ blocks, streaming, interrupted, loadImage, groupPart, useDisclosure, reasoningHidden = false, usePresentation, revealProcess, mentions, renderSlot, useGroupAction, t }) {
+ 			const labels = (0, react.useMemo)(() => markdownLabels(t), [t]);
+ 			const pathImages = (0, react.useMemo)(() => {
+ 				return { resolve: (value) => localPathMediaUrl(document.baseURI, value) };
+@@ -6301,15 +6329,40 @@
+ 				if (groupPart === "reasoning" && block.kind !== "reasoning") continue;
+ 				if (groupPart === "response" && block.kind === "reasoning") continue;
+ 				switch (block.kind) {
+-					case "text":
+-						rendered.push((0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.MarkdownText, {
+-							text: block.text,
+-							streaming,
+-							labels,
+-							fileMentions: mentions,
+-							pathImages
+-						}, i));
++					case "text": {
++						const segments = miopiikSegments(block.text, streaming);
++						if (segments === null) {
++							rendered.push((0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.MarkdownText, {
++								text: block.text,
++								streaming,
++								labels,
++								fileMentions: mentions,
++								pathImages
++							}, i));
++							break;
++						}
++						segments.forEach((part, partIndex) => {
++							if (part.kind === "text") {
++								rendered.push((0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.MarkdownText, {
++									text: part.text,
++									streaming,
++									labels,
++									fileMentions: mentions,
++									pathImages
++								}, i + ":" + partIndex));
++								return;
++							}
++							rendered.push((0, react_jsx_runtime.jsx)(MiopiikEmbedSegment, {
++								part,
++								streaming,
++								labels,
++								mentions,
++								pathImages,
++								t
++							}, i + ":" + partIndex));
++						});
+ 						break;
++					}
+ 					case "reasoning":
+ 						if (block.text.trim() === "") break;
+ 						rendered.push((0, react_jsx_runtime.jsx)(ProcessReasoning, {
