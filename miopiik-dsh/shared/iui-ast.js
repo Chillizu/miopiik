@@ -22,7 +22,7 @@ export const REGISTRY = Object.freeze({
 
 export const LIMITS = Object.freeze({ nodes: 120, depth: 4, series: 60, options: 6, text: 2000 })
 
-const BIND = /^\$(state|data)\.([A-Za-z0-9_]+)$/u
+const BIND = /^\$(state|data)\.([A-Za-z0-9_]+(?:\.[A-Za-z0-9_]+)*)$/u
 
 function isRecord(value) {
   return value !== null && typeof value === 'object' && !Array.isArray(value)
@@ -39,8 +39,13 @@ export function readBinding(value) {
 export function resolveValue(value, scope) {
   const binding = readBinding(value)
   if (binding.scope === undefined) return binding.literal
-  const source = scope[binding.scope] ?? {}
-  return source[binding.key]
+  // 只按点号取属性，不求值、不调用函数
+  let cursor = scope[binding.scope]
+  for (const part of binding.key.split('.')) {
+    if (cursor === null || typeof cursor !== 'object') return undefined
+    cursor = cursor[part]
+  }
+  return cursor
 }
 
 /**
