@@ -15,6 +15,9 @@ export const REGISTRY = Object.freeze({
   metric: { props: { label: 'string', value: 'value', unit: 'string?', note: 'string?' }, children: false },
   row: { props: { gap: 'number?' }, children: true },
   column: { props: { gap: 'number?' }, children: true },
+  card: { props: { title: 'string?', gap: 'number?' }, children: true },
+  grid: { props: { columns: 'number?', gap: 'number?' }, children: true },
+  table: { props: { columns: 'value', rows: 'value', caption: 'string?' }, children: false },
   chart: { props: { kind: 'string', series: 'value', source: 'string?' }, children: false },
   segmented: { props: { label: 'string?', options: 'value', bind: 'string' }, children: false },
   divider: { props: {}, children: false },
@@ -95,6 +98,18 @@ export function validateAst(input) {
     }
     if (node.type === 'text' && typeof props.text === 'string' && props.text.length > LIMITS.text) {
       return failNode(node, path, `text 超过 ${LIMITS.text} 字`)
+    }
+    if (node.type === 'table') {
+      if (!Array.isArray(props.columns) || props.columns.length === 0) return failNode(node, path, 'table 需要 columns 数组')
+      if (!Array.isArray(props.rows)) return failNode(node, path, 'table 需要 rows 二维数组')
+      if (props.rows.length > 200) return failNode(node, path, 'table 最多 200 行')
+      if (props.rows.some((row) => !Array.isArray(row))) return failNode(node, path, 'table 的 rows 必须是二维数组')
+    }
+    if (node.type === 'grid' && props.columns !== undefined) {
+      const columns = props.columns
+      if (typeof columns !== 'number' || !Number.isInteger(columns) || columns < 1 || columns > 6) {
+        return failNode(node, path, 'grid.columns 需要 1–6 的整数')
+      }
     }
     const children = []
     if (spec.children && Array.isArray(node.children)) {

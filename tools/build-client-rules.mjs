@@ -14,6 +14,7 @@ const sharedPath = join(root, 'miopiik-dsh', 'shared', 'spec-rules.js')
 const blocksPath = join(root, 'miopiik-dsh', 'shared', 'assistant-blocks.js')
 const dslPath = join(root, 'miopiik-dsh', 'shared', 'ui-dsl.js')
 const astPath = join(root, 'miopiik-dsh', 'shared', 'iui-ast.js')
+const mlPath = join(root, 'miopiik-dsh', 'shared', 'miopiik-ml.js')
 const clientPath = join(root, 'miopiik-dsh', 'client.js')
 
 export const BEGIN = '    // >>> miopiik:spec-rules (generated; edit miopiik-dsh/shared/spec-rules.js)'
@@ -58,6 +59,19 @@ export function buildAstBlock() {
   ].join('\n')
 }
 
+export function buildMlBlock() {
+  const source = readFileSync(mlPath, 'utf8')
+  const body = source.replace(/^export\s+(const|function|let)\s/gmu, '$1 ').trim()
+  return [
+    '    // >>> miopiik:miopiik-ml (generated; edit miopiik-dsh/shared/miopiik-ml.js)',
+    '    const MIOPIIK_ML = (() => {',
+    body.replace(/^/gmu, '      '),
+    '      return { ML_VERSION, ML_TAGS, parseMiopiikMl }',
+    '    })()',
+    '    // <<< miopiik:miopiik-ml',
+  ].join('\n')
+}
+
 export function buildBlock() {
   const source = readFileSync(sharedPath, 'utf8')
   const body = source
@@ -81,6 +95,7 @@ export function syncCheck() {
     ['    // >>> miopiik:assistant-blocks (generated; edit miopiik-dsh/shared/assistant-blocks.js)', '    // <<< miopiik:assistant-blocks', buildBlocksBlock()],
     ['    // >>> miopiik:ui-dsl (generated; edit miopiik-dsh/shared/ui-dsl.js)', '    // <<< miopiik:ui-dsl', buildDslBlock()],
     ['    // >>> miopiik:iui-ast (generated; edit miopiik-dsh/shared/iui-ast.js)', '    // <<< miopiik:iui-ast', buildAstBlock()],
+    ['    // >>> miopiik:miopiik-ml (generated; edit miopiik-dsh/shared/miopiik-ml.js)', '    // <<< miopiik:miopiik-ml', buildMlBlock()],
   ]
   for (const [begin, end, expected] of pairs) {
     const start = client.indexOf(begin)
@@ -98,6 +113,7 @@ export function writeBlock() {
     ['    // >>> miopiik:assistant-blocks (generated; edit miopiik-dsh/shared/assistant-blocks.js)', '    // <<< miopiik:assistant-blocks', buildBlocksBlock()],
     ['    // >>> miopiik:ui-dsl (generated; edit miopiik-dsh/shared/ui-dsl.js)', '    // <<< miopiik:ui-dsl', buildDslBlock()],
     ['    // >>> miopiik:iui-ast (generated; edit miopiik-dsh/shared/iui-ast.js)', '    // <<< miopiik:iui-ast', buildAstBlock()],
+    ['    // >>> miopiik:miopiik-ml (generated; edit miopiik-dsh/shared/miopiik-ml.js)', '    // <<< miopiik:miopiik-ml', buildMlBlock()],
   ]
   let next = client
   for (const [begin, end, block] of pairs) {

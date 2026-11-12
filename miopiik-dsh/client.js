@@ -523,6 +523,9 @@ window.__ModuleLoader__.load({
         metric: { props: { label: 'string', value: 'value', unit: 'string?', note: 'string?' }, children: false },
         row: { props: { gap: 'number?' }, children: true },
         column: { props: { gap: 'number?' }, children: true },
+        card: { props: { title: 'string?', gap: 'number?' }, children: true },
+        grid: { props: { columns: 'number?', gap: 'number?' }, children: true },
+        table: { props: { columns: 'value', rows: 'value', caption: 'string?' }, children: false },
         chart: { props: { kind: 'string', series: 'value', source: 'string?' }, children: false },
         segmented: { props: { label: 'string?', options: 'value', bind: 'string' }, children: false },
         divider: { props: {}, children: false },
@@ -604,6 +607,18 @@ window.__ModuleLoader__.load({
           if (node.type === 'text' && typeof props.text === 'string' && props.text.length > LIMITS.text) {
             return failNode(node, path, `text 超过 ${LIMITS.text} 字`)
           }
+          if (node.type === 'table') {
+            if (!Array.isArray(props.columns) || props.columns.length === 0) return failNode(node, path, 'table 需要 columns 数组')
+            if (!Array.isArray(props.rows)) return failNode(node, path, 'table 需要 rows 二维数组')
+            if (props.rows.length > 200) return failNode(node, path, 'table 最多 200 行')
+            if (props.rows.some((row) => !Array.isArray(row))) return failNode(node, path, 'table 的 rows 必须是二维数组')
+          }
+          if (node.type === 'grid' && props.columns !== undefined) {
+            const columns = props.columns
+            if (typeof columns !== 'number' || !Number.isInteger(columns) || columns < 1 || columns > 6) {
+              return failNode(node, path, 'grid.columns 需要 1–6 的整数')
+            }
+          }
           const children = []
           if (spec.children && Array.isArray(node.children)) {
             for (const [index, child] of node.children.entries()) {
@@ -637,6 +652,321 @@ window.__ModuleLoader__.load({
       return { IUI_VERSION, REGISTRY, LIMITS, readBinding, resolveValue, validateAst, degradeToText }
     })()
     // <<< miopiik:iui-ast
+
+    // >>> miopiik:miopiik-ml (generated; edit miopiik-dsh/shared/miopiik-ml.js)
+    const MIOPIIK_ML = (() => {
+      /**
+       * miopiik-ml v1 —— 面向模型的声明式表达层（实验）。
+       *
+       * 三层分工：
+       *   1) 本文件：模型可读的标签式声明 → 解析成**原始 AST 文档**（不校验预算/属性语义）；
+       *   2) shared/iui-ast.js 的 validateAst：唯一校验器（白名单、绑定、预算、局部降级）；
+       *   3) client 渲染器：只渲染通过校验的 AST。
+       *
+       * 语法（示意）：
+       *   <ui title="周活跃" fallback="近7天活跃 45 次">
+       *     <state>{"range":{"current":45}}</state>
+       *     <column gap="10">
+       *       <text>切换范围只改本地状态。</text>
+       *       <row gap="12">
+       *         <metric label="当前" value="$state.range.current" unit="次"/>
+       *         <metric label="上一" value="$state.range.prev" unit="次"/>
+       *       </row>
+       *       <segmented label="范围" bind="$state.range" options='[{"label":"近7天","value":{}}]'/>
+       *       <chart kind="bar" series="$state.range.series" source="示例"/>
+       *     </column>
+       *   </ui>
+       *
+       * 安全：标签白名单内才编译；属性只解析字面量/JSON/绑定，不执行任何代码；
+       * 未知标签、未闭合标签只降级**各自子树**为文本，兄弟与父级保留。
+       */
+      
+      const ML_VERSION = 'miop/1'
+      
+      /** 标签 → AST 组件类型（映射表，不是第二套校验器）。 */
+      const ML_TAGS = Object.freeze({
+        ui: 'root',
+        state: 'state',
+        text: 'text',
+        metric: 'metric',
+        row: 'row',
+        column: 'column',
+        grid: 'grid',
+        card: 'card',
+        table: 'table',
+        chart: 'chart',
+        segmented: 'segmented',
+        divider: 'divider',
+      })
+      
+      const CONTAINERS = Object.freeze({ row: true, column: true, grid: true, card: true })
+      const VOID_TAGS = Object.freeze({ metric: true, divider: true, chart: true, segmented: true, table: true })
+      
+      function decodeEntities(text) {
+        return String(text)
+          .replace(/&lt;/gu, '<')
+          .replace(/&gt;/gu, '>')
+          .replace(/&quot;/gu, '"')
+          .replace(/&#39;/gu, "'")
+          .replace(/&amp;/gu, '&')
+      }
+      
+      function isSpace(ch) {
+        return ch === ' ' || ch === '\t' || ch === '\n' || ch === '\r'
+      }
+      
+      /** 从 index 处的 '<' 解析一个标签；失败返回 null。 */
+      function readTag(source, index) {
+        let i = index + 1
+        let closing = false
+        if (source[i] === '/') {
+          closing = true
+          i += 1
+        }
+        const nameStart = i
+        while (i < source.length && /[A-Za-z0-9_-]/u.test(source[i])) i += 1
+        const name = source.slice(nameStart, i)
+        if (name === '') return null
+        const attrs = {}
+        let selfClosing = false
+        let closed = false
+        while (i < source.length) {
+          const ch = source[i]
+          if (ch === '>') {
+            i += 1
+            closed = true
+            break
+          }
+          if (ch === '/') {
+            selfClosing = true
+            i += 1
+            continue
+          }
+          if (isSpace(ch)) {
+            i += 1
+            continue
+          }
+          const keyStart = i
+          while (i < source.length && !isSpace(source[i]) && source[i] !== '=' && source[i] !== '>' && source[i] !== '/') i += 1
+          const key = source.slice(keyStart, i)
+          if (key === '') {
+            i += 1
+            continue
+          }
+          let j = i
+          while (j < source.length && isSpace(source[j])) j += 1
+          if (source[j] !== '=') {
+            attrs[key] = true
+            i = j
+            continue
+          }
+          j += 1
+          while (j < source.length && isSpace(source[j])) j += 1
+          const quote = source[j]
+          if (quote === '"' || quote === "'") {
+            const valueStart = j + 1
+            let k = valueStart
+            while (k < source.length && source[k] !== quote) k += 1
+            attrs[key] = decodeEntities(source.slice(valueStart, k))
+            i = k + 1
+          } else {
+            let k = j
+            while (k < source.length && !isSpace(source[k]) && source[k] !== '>') k += 1
+            attrs[key] = decodeEntities(source.slice(j, k))
+            i = k
+          }
+        }
+        return { name, closing, attrs, selfClosing, closed, end: i }
+      }
+      
+      function parseDocument(source) {
+        const text = String(source ?? '')
+        const root = { name: '#root', attrs: {}, children: [], unclosed: false }
+        const stack = [root]
+        let cursor = 0
+        let index = 0
+        const pushText = (raw) => {
+          if (raw.trim() === '') return
+          stack[stack.length - 1].children.push({ name: '#text', text: decodeEntities(raw) })
+        }
+        while (index < text.length) {
+          const lt = text.indexOf('<', index)
+          if (lt < 0) break
+          const next = text[lt + 1] ?? ''
+          if (!/[A-Za-z/]/u.test(next)) {
+            index = lt + 1
+            continue
+          }
+          const tag = readTag(text, lt)
+          if (tag === null) {
+            index = lt + 1
+            continue
+          }
+          pushText(text.slice(cursor, lt))
+          cursor = tag.end
+          index = tag.end
+          if (tag.closing) {
+            // 容错：向上找到最近同名开放元素；找不到就忽略这个闭合标签
+            for (let depth = stack.length - 1; depth >= 1; depth -= 1) {
+              if (stack[depth].name === tag.name) {
+                stack.length = depth
+                break
+              }
+            }
+            continue
+          }
+          const element = { name: tag.name, attrs: tag.attrs, children: [], unclosed: false }
+          stack[stack.length - 1].children.push(element)
+          if (tag.selfClosing || VOID_TAGS[tag.name] === true) continue
+          stack.push(element)
+        }
+        pushText(text.slice(cursor))
+        // 未闭合：把打开的元素标记为 unclosed（编译时降级该子树），已读到的文本保留
+        for (let depth = 1; depth < stack.length; depth += 1) stack[depth].unclosed = true
+        return root
+      }
+      
+      /** 元素内的纯文本（用于半截/降级时保留已写出的内容）。 */
+      function textOf(element) {
+        if (element.name === '#text') return String(element.text ?? '')
+        return element.children.map(textOf).join(' ').replace(/\s+/gu, ' ').trim()
+      }
+      
+      /** 属性值：$state.* 保留绑定；JSON 字面量解析；数字转 number；其余按字符串。 */
+      function readValue(raw) {
+        if (typeof raw !== 'string') return raw
+        const text = raw.trim()
+        if (text.startsWith('$')) return text
+        if (text.startsWith('[') || text.startsWith('{')) {
+          try {
+            return JSON.parse(text)
+          } catch {
+            return text
+          }
+        }
+        if (text === 'true') return true
+        if (text === 'false') return false
+        if (text === 'null') return null
+        if (/^-?\d+(?:\.\d+)?$/u.test(text)) return Number(text)
+        return text
+      }
+      
+      function readProps(attrs, keys) {
+        const props = {}
+        for (const key of keys) {
+          if (attrs[key] !== undefined) props[key] = readValue(attrs[key])
+        }
+        return props
+      }
+      
+      const TEXT_PROPS = Object.freeze({ text: ['text'], metric: ['label', 'value', 'unit', 'note'], chart: ['kind', 'series', 'source', 'title'], segmented: ['label', 'bind', 'options'], table: ['columns', 'rows', 'caption'], card: ['title'], grid: ['columns', 'gap'], row: ['gap'], column: ['gap'] })
+      
+      /**
+       * 解析 miopiik-ml 源码。
+       * @returns {{ok:true, doc, degraded:string[]} | {ok:false, errors:string[], degraded:string[]}}
+       */
+      function parseMiopiikMl(source) {
+        const root = parseDocument(source)
+        const degraded = []
+        const ui = root.children.find((node) => node.name === 'ui')
+        if (ui === undefined) {
+          return { ok: false, errors: ['缺少 <ui> 根标签'], degraded }
+        }
+        if (ui.unclosed) degraded.push('<ui> 没有闭合')
+      
+        let state = {}
+        const children = []
+        for (const child of ui.children) {
+          if (child.name === '#text') {
+            const raw = String(child.text ?? '').trim()
+            if (raw !== '') children.push({ kind: 'degraded', text: raw })
+            continue
+          }
+          if (child.name === 'state') {
+            const raw = child.children.map((node) => (node.name === '#text' ? node.text : '')).join('').trim()
+            if (raw === '') continue
+            try {
+              const parsed = JSON.parse(raw)
+              if (parsed !== null && typeof parsed === 'object' && !Array.isArray(parsed)) state = { ...state, ...parsed }
+              else degraded.push('<state> 需要 JSON 对象')
+            } catch {
+              degraded.push('<state> 不是合法 JSON')
+            }
+            continue
+          }
+          children.push(child)
+        }
+      
+        const compile = (element) => {
+          if (element.name === '#text') return { kind: 'degraded', text: decodeEntities(String(element.text ?? '')) }
+          const type = ML_TAGS[element.name]
+          const fallbackText = typeof element.attrs.fallback === 'string' ? element.attrs.fallback : ''
+          const innerText = textOf(element)
+          const degrade = (reason) => {
+            degraded.push(`<${element.name}> ${reason}`)
+            // 未闭合：保留已写出的文本；未知/非法标签：只给提示，绝不回显内容（避免把脚本源码摆到界面上）
+            const text = fallbackText !== '' ? fallbackText : element.unclosed && innerText !== '' ? innerText : `（此段无法渲染：${reason}）`
+            return { kind: 'degraded', text }
+          }
+          if (type === undefined || type === 'root' || type === 'state') return degrade('未知标签')
+          if (element.unclosed) return degrade('没有闭合')
+          if (element.name === 'text') {
+            const text = typeof element.attrs.text === 'string' ? element.attrs.text : innerText
+            return text === '' ? degrade('没有内容') : { kind: 'node', node: { id: typeof element.attrs.id === 'string' && element.attrs.id !== '' ? element.attrs.id : 'ml-text', type: 'text', props: { text }, children: [] } }
+          }
+          if (CONTAINERS[element.name] === true) {
+            const nodes = element.children.map((child) => compile(child))
+            // 降级片段作为 text 节点保留在父布局里（局部降级，不整段丢弃）
+            const children = nodes.map((item, index) =>
+              item.kind === 'node' ? item.node : { id: `ml-degraded-${index}`, type: 'text', props: { text: item.text }, children: [] },
+            )
+            if (children.length === 0) return degrade('容器内没有可渲染内容')
+            return {
+              kind: 'node',
+              node: {
+                id: typeof element.attrs.id === 'string' && element.attrs.id !== '' ? element.attrs.id : `ml-${element.name}`,
+                type,
+                props: readProps(element.attrs, TEXT_PROPS[element.name] ?? []),
+                children,
+              },
+            }
+          }
+          if (element.children.length > 0) return degrade('该标签不接受子内容')
+          return { kind: 'node', node: { id: typeof element.attrs.id === 'string' && element.attrs.id !== '' ? element.attrs.id : `ml-${element.name}`, type, props: readProps(element.attrs, TEXT_PROPS[element.name] ?? []), children: [] } }
+        }
+      
+        const compiled = children.map((child) => compile(child))
+        const mapped = compiled.map((item, index) =>
+          item.kind === 'node' ? item.node : { id: `ml-top-${index}`, type: 'text', props: { text: item.text }, children: [] },
+        )
+        let rootNode = null
+        if (mapped.length === 1) rootNode = mapped[0]
+        else if (mapped.length > 1) rootNode = { id: 'ml-root', type: 'column', props: { gap: 10 }, children: mapped }
+        if (rootNode === null) return { ok: false, errors: ['<ui> 里没有可渲染内容'], degraded }
+      
+        // 稳定 key：同类型节点按出现顺序编号，回放与状态不漂移
+        let counter = 0
+        const assignIds = (node) => {
+          counter += 1
+          const id = `${node.id}#${counter}`
+          return { ...node, id, children: node.children.map(assignIds) }
+        }
+        const withIds = assignIds(rootNode)
+      
+        return {
+          ok: true,
+          degraded,
+          doc: {
+            title: typeof ui.attrs.title === 'string' ? ui.attrs.title : '',
+            fallback: typeof ui.attrs.fallback === 'string' ? ui.attrs.fallback : '',
+            state,
+            root: withIds,
+          },
+        }
+      }
+      return { ML_VERSION, ML_TAGS, parseMiopiikMl }
+    })()
+    // <<< miopiik:miopiik-ml
 
     function createStore(initial) {
       let state = initial
@@ -1598,16 +1928,17 @@ window.__ModuleLoader__.load({
       }
     })()
 
-    function IuiSheet({ sample }) {
+    function IuiSheet({ sample, format, degraded }) {
       const checked = IUI_AST.validateAst(sample)
       const [state, setState] = React.useState(checked.ok ? checked.ast.state : {})
       React.useEffect(() => {
         if (checked.ok) setState(checked.ast.state)
       }, [sample])
+      const degradedCount = (Array.isArray(degraded) ? degraded.length : 0) + (checked.ok ? checked.degraded : 0)
       if (!checked.ok) {
         return h(
           'div',
-          { 'data-iui-output': 'invalid', style: { display: 'flex', flexDirection: 'column', gap: 4, fontSize: 12, lineHeight: '18px' } },
+          { 'data-iui-output': 'invalid', 'data-iui-format': format ?? 'json', style: { display: 'flex', flexDirection: 'column', gap: 4, fontSize: 12, lineHeight: '18px' } },
           h('div', { style: { color: C.muted } }, '这份 AST 不合法，已整段降级：'),
           h('div', null, checked.fallback || checked.errors[0]),
         )
@@ -1664,6 +1995,67 @@ window.__ModuleLoader__.load({
             ),
           )
         }
+        if (item.type === 'card') {
+          const kids = item.children.map((child, index) => node(child, `${key}-${index}`))
+          return h(
+            'div',
+            { key, 'data-iui-container': 'card', style: { display: 'flex', flexDirection: 'column', gap: Number(props.gap ?? 8), border: `1px solid ${C.border}`, borderRadius: 10, padding: 12 } },
+            props.title ? h('div', { style: { fontSize: 12, fontWeight: 600, color: C.text } }, String(props.title)) : null,
+            ...kids,
+          )
+        }
+        if (item.type === 'grid') {
+          return h(
+            'div',
+            {
+              key,
+              'data-iui-container': 'grid',
+              style: {
+                display: 'grid',
+                gridTemplateColumns: props.columns ? `repeat(${Number(props.columns)}, minmax(0, 1fr))` : 'repeat(auto-fit, minmax(140px, 1fr))',
+                gap: Number(props.gap ?? 10),
+              },
+            },
+            ...item.children.map((child, index) => node(child, `${key}-${index}`)),
+          )
+        }
+        if (item.type === 'table') {
+          const columns = Array.isArray(props.columns) ? props.columns : []
+          const rows = Array.isArray(props.rows) ? props.rows : []
+          return h(
+            'div',
+            { key, 'data-iui-table': String(rows.length), style: { overflowX: 'auto' } },
+            h(
+              'table',
+              { style: { width: '100%', borderCollapse: 'collapse', fontSize: 12, color: C.text } },
+              h(
+                'thead',
+                null,
+                h(
+                  'tr',
+                  null,
+                  ...columns.map((column, index) =>
+                    h('th', { key: `h${index}`, style: { textAlign: 'left', padding: '6px 8px', borderBottom: `1px solid ${C.border}`, color: C.muted, fontWeight: 500 } }, String(column)),
+                  ),
+                ),
+              ),
+              h(
+                'tbody',
+                null,
+                ...rows.map((row, rowIndex) =>
+                  h(
+                    'tr',
+                    { key: `r${rowIndex}` },
+                    ...columns.map((_, cellIndex) =>
+                      h('td', { key: `c${cellIndex}`, style: { padding: '6px 8px', borderBottom: `1px solid ${C.border}` } }, String(Array.isArray(row) ? (row[cellIndex] ?? '') : '')),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+            props.caption ? h('div', { style: { fontSize: 10, color: C.muted, paddingTop: 4 } }, String(props.caption)) : null,
+          )
+        }
         if (item.type === 'row' || item.type === 'column') {
           const isRow = item.type === 'row'
           return h(
@@ -1691,7 +2083,7 @@ window.__ModuleLoader__.load({
       }
       return h(
         'div',
-        { 'data-iui-output': 'ok', style: { display: 'flex', flexDirection: 'column', gap: 10, border: `1px solid ${C.border}`, borderRadius: 12, padding: 12 } },
+        { 'data-iui-output': 'ok', 'data-iui-format': format ?? 'json', 'data-iui-degraded': String(degradedCount), style: { display: 'flex', flexDirection: 'column', gap: 10, border: `1px solid ${C.border}`, borderRadius: 12, padding: 12 } },
         ast.title ? h('div', { style: { fontSize: 13, fontWeight: 600 } }, ast.title) : null,
         node(ast.root, 'root'),
       )
@@ -1699,11 +2091,22 @@ window.__ModuleLoader__.load({
 
     function IuiPreview({ sample, onSample }) {
       const buttons = [
+        ['mlInteractive', t('iui.sampleMlInteractive')],
+        ['mlCompare', t('iui.sampleMlCompare')],
+        ['mlPartial', t('iui.sampleMlPartial')],
         ['interactive', t('iui.sampleInteractive')],
         ['compare', t('iui.sampleCompare')],
         ['broken', t('iui.sampleBroken')],
         ['json', t('iui.sampleFromJson')],
       ]
+      const resolveSample = (key) => {
+        if (key === 'json') return readIuiFence(IUI_SAMPLE_JSON).doc ?? IUI_SAMPLES.broken
+        if (ML_SAMPLES[key] !== undefined) {
+          const parsed = MIOPIIK_ML.parseMiopiikMl(ML_SAMPLES[key])
+          return parsed.ok ? parsed.doc : IUI_SAMPLES.broken
+        }
+        return IUI_SAMPLES[key]
+      }
       return h(
         'div',
         { 'data-iui-preview': '1', style: { display: 'flex', flexDirection: 'column', gap: 10, marginTop: 16, borderTop: `1px dashed ${C.border}`, paddingTop: 14 } },
@@ -1714,7 +2117,7 @@ window.__ModuleLoader__.load({
           { style: { display: 'flex', gap: 8, flexWrap: 'wrap' } },
           ...buttons.map(([key, label]) => h('button', { key, type: 'button', onClick: () => onSample(key), style: styles.action }, label)),
         ),
-        h(IuiSheet, { sample: sample === 'json' ? readIuiFence(IUI_SAMPLE_JSON) ?? IUI_SAMPLES.broken : IUI_SAMPLES[sample] }),
+        h(IuiSheet, { sample: resolveSample(sample), format: ML_SAMPLES[sample] !== undefined ? 'ml' : sample === 'json' ? 'json' : 'ast' }),
       )
     }
 
@@ -3028,14 +3431,59 @@ chart bar
     const IUI_FENCE = /```iui[ \t]*\r?\n([\s\S]*?)```/g
     const IUI_SAMPLE_JSON = JSON.stringify(IUI_SAMPLES.interactive, null, 2)
 
+    // 模型面向表达（miopiik-ml）的样例：与 AST/JSON 结果等价，用于对比生成成本
+    const ML_SAMPLES = {
+      mlInteractive: `<ui title="周活跃概览" fallback="近7天活跃 45 次，上一区间 31 次">
+  <state>{"range":{"series":[["一",12],["二",18],["三",15]],"current":45,"prev":31}}</state>
+  <column gap="10">
+    <text>切换时间范围只改本地状态，不会再请求模型。</text>
+    <row gap="12">
+      <metric label="当前区间" value="$state.range.current" unit="次"/>
+      <metric label="上一区间" value="$state.range.prev" unit="次"/>
+    </row>
+    <segmented label="范围" bind="$state.range" options='[{"label":"近7天","value":{"series":[["一",12],["二",18],["三",15]],"current":45,"prev":31}},{"label":"近30天","value":{"series":[["第1周",40],["第2周",61]],"current":101,"prev":88}}]'/>
+    <chart kind="bar" series="$state.range.series" source="示例数据"/>
+  </column>
+</ui>`,
+      mlCompare: `<ui title="两种口径对比" fallback="主分支 12 次，含 PR 分支 18 次">
+  <grid columns="2" gap="12">
+    <card title="主分支">
+      <metric label="提交" value="12" unit="次"/>
+      <text>只统计 main，口径更窄。</text>
+    </card>
+    <card title="含 PR 分支">
+      <metric label="提交" value="18" unit="次"/>
+      <text>包含 feature 分支，口径更宽。</text>
+    </card>
+  </grid>
+  <table columns='["项目","数值"]' rows='[["测试数",171],["失败",0]]' caption="表格也是同一套原语组合"/>
+</ui>`,
+      mlPartial: `<ui title="局部降级" fallback="坏节点会降级为文本，其余照常">
+  <column gap="8">
+    <text>下面那个未知标签只影响它自己。</text>
+    <qrcode value="x"/>
+    <metric label="仍然可见" value="1" unit="个"/>
+  </column>
+</ui>`,
+    }
+
+    // 一个 fence 两种输入：{...} 视为规范 AST（调试/兼容），其余按 miopiik-ml 解析。
     function readIuiFence(raw) {
-      try {
-        const parsed = JSON.parse(String(raw).trim())
-        if (parsed === null || typeof parsed !== 'object') return null
-        return parsed
-      } catch {
-        return null
+      const text = String(raw ?? '').trim()
+      if (text === '') return { ok: false, errors: ['空内容'], format: 'ml' }
+      if (text.startsWith('{')) {
+        try {
+          const parsed = JSON.parse(text)
+          if (parsed !== null && typeof parsed === 'object') return { ok: true, doc: parsed, format: 'json', degraded: [] }
+          return { ok: false, errors: ['AST 必须是对象'], format: 'json' }
+        } catch {
+          return { ok: false, errors: ['不是合法 JSON'], format: 'json' }
+        }
       }
+      const parsed = MIOPIIK_ML.parseMiopiikMl(text)
+      return parsed.ok
+        ? { ok: true, doc: parsed.doc, format: 'ml', degraded: parsed.degraded }
+        : { ok: false, errors: parsed.errors, format: 'ml', degraded: parsed.degraded }
     }
 
     // 正文壳：只用 DSH 的公开 theme token（--dsh-content-* / --dsw-alias-*），
@@ -3075,14 +3523,14 @@ chart bar
       IUI_FENCE.lastIndex = 0
       let iui = IUI_FENCE.exec(source)
       while (iui !== null) {
-        const ast = readIuiFence(iui[1])
+        const parsed = readIuiFence(iui[1])
         if (iui.index > last) {
           // 前面的普通文本先按老规则（可能含 ink-view）递归切一遍
           const inner = splitInkFencesLegacy(source.slice(last, iui.index))
           parts.push(...inner)
         }
-        if (ast === null) parts.push({ type: 'invalid', text: '（这段 iui 不是合法 JSON，已降级）', reason: 'json' })
-        else parts.push({ type: 'iui', ast })
+        if (parsed.ok) parts.push({ type: 'iui', ast: parsed.doc, format: parsed.format, degraded: parsed.degraded ?? [] })
+        else parts.push({ type: 'invalid', text: `（这段界面描述无法解析：${parsed.errors[0] ?? '未知原因'}）`, reason: parsed.errors[0] ?? 'parse' })
         last = iui.index + iui[0].length
         iui = IUI_FENCE.exec(source)
       }
@@ -3310,6 +3758,9 @@ chart bar
       'iui.sampleInteractive': '示例：指标 + 趋势 + 切换',
       'iui.sampleCompare': '示例：两列对比',
       'iui.sampleBroken': '示例：坏 AST 降级',
+      'iui.sampleMlInteractive': '示例 ML：指标+趋势+切换',
+      'iui.sampleMlCompare': '示例 ML：两列卡片+表格',
+      'iui.sampleMlPartial': '示例 ML：局部降级',
       'iui.sampleFromJson': '示例：模型写的 AST（JSON）',
       'dsl.title': '实验性 IUI（预览）',
       'dsl.on': '开',
@@ -3420,6 +3871,9 @@ chart bar
       'iui.sampleInteractive': 'Sample: metrics + trend + switch',
       'iui.sampleCompare': 'Sample: two-column compare',
       'iui.sampleBroken': 'Sample: broken AST',
+      'iui.sampleMlInteractive': 'ML sample: metrics + trend + switch',
+      'iui.sampleMlCompare': 'ML sample: two cards + table',
+      'iui.sampleMlPartial': 'ML sample: local degrade',
       'iui.sampleFromJson': 'Sample: model-authored AST (JSON)',
       'dsl.title': 'Experimental IUI (preview)',
       'dsl.on': 'on',
