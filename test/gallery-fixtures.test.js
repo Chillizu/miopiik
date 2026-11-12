@@ -2,8 +2,8 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 
-import { tableMatrix, validateAst } from '../miopiik-dsh/shared/iui-ast.js'
-import { parseMiopiikMl } from '../miopiik-dsh/shared/miopiik-ml.js'
+import { tableMatrix, validateAst } from '../miopiik-iui/shared/iui-ast.js'
+import { parseMiopiikMl } from '../miopiik-iui/shared/miopiik-ml.js'
 
 const read = (name) => readFileSync(new URL(`./fixtures/gallery/${name}.iui`, import.meta.url), 'utf8')
 

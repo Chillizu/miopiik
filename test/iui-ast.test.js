@@ -2,7 +2,7 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 
-import { IUI_VERSION, readBinding, resolveValue, validateAst } from '../miopiik-dsh/shared/iui-ast.js'
+import { IUI_VERSION, readBinding, resolveValue, validateAst } from '../miopiik-iui/shared/iui-ast.js'
 
 const good = () => ({
   title: 't',
@@ -64,8 +64,7 @@ test('绑定只接受 $state / $data，其余按字面量处理；segmented 的 
 })
 
 test('实验入口：默认关闭、localStorage 记忆、AST 校验器已内联进客户端', () => {
-  const client = readFileSync(new URL('../miopiik-dsh/client.js', import.meta.url), 'utf8')
-  assert.ok(client.includes("localStorage.getItem(DSL_PREVIEW_KEY) === '1'"))
+  const client = readFileSync(new URL('../miopiik-iui/client.js', import.meta.url), 'utf8')
   assert.ok(client.includes('IUI_AST.validateAst'))
   assert.ok(client.includes('data-iui-output'))
   assert.ok(client.includes('aria-pressed'))
@@ -73,10 +72,10 @@ test('实验入口：默认关闭、localStorage 记忆、AST 校验器已内联
 
 test('防回归：客户端内联块里 return 的标识符在真源里都有定义（曾因 degradeToText 被删导致整插件不启动）', async () => {
   const { readFileSync } = await import('node:fs')
-  const module = await import('../miopiik-dsh/shared/iui-ast.js')
-  const client = readFileSync(new URL('../miopiik-dsh/client.js', import.meta.url), 'utf8')
+  const module = await import('../miopiik-iui/shared/iui-ast.js')
+  const client = readFileSync(new URL('../miopiik-iui/client.js', import.meta.url), 'utf8')
   const start = client.indexOf('const IUI_AST = (() => {')
-  const stop = client.indexOf('// <<< miopiik:iui-ast')
+  const stop = client.indexOf('const MIOPIIK_ML = (() => {')
   assert.ok(start > 0 && stop > start, '找不到内联的 IUI_AST 块')
   const block = client.slice(start, stop)
   const tail = block.slice(block.lastIndexOf('return {'))

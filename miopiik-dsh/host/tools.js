@@ -11,8 +11,6 @@
 import { LOOP_TYPES } from './loops.js'
 import { mkdir, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
-import { WIDGET_KINDS, layoutDepth, validateWidget } from './widgets.js'
-import { renderSpecSvg } from './chartsvg.js'
 
 const RESULT_SCHEMA = { type: 'object', additionalProperties: true }
 
@@ -702,83 +700,5 @@ export function registerTools(ctx, engines, operator, services = {}) {
     }),
   )
 
-  ctx.tools.register(
-    tool({
-      name: 'ink_chart',
-      description:
-        '旧版图表导出工具：仅当用户明确要求持久 SVG 文件或可下载的静态图片时使用。普通聊天中的图表应直接输出 fenced iui 声明，无需调用此工具。支持旧 view spec 的 dataset 与 graph。',
-      parameters: {
-        type: 'object',
-        properties: {
-          spec: {
-            type: 'object',
-            description: 'view spec：与 ink_view 同一份 IR。dataset 需 columns/rows 且 chart=bar|line|donut；graph 需 nodes/edges。fallback 必填。',
-          },
-        },
-        required: ['spec'],
-        additionalProperties: false,
-      },
-      async execute(args, exec) {
-        const engine = engineFor(exec)
-        const checked = validateWidget(args.spec)
-        if (!checked.ok) {
-          throw new Error(`${checked.errors.join('；')}。可用：${(checked.available ?? WIDGET_KINDS).join(' / ')}`)
-        }
-        let svg = null
-        try {
-          svg = renderSpecSvg(checked.spec)
-        } catch (error) {
-          throw new Error(`画图失败（已隔离）：${error?.message ?? error}`)
-        }
-        if (svg === null) {
-          throw new Error('这份 spec 画不成图：dataset 需要 chart=bar|line|donut；graph 需要 nodes')
-        }
-        const sessionDir = engine.store.dir
-        const chartsDir = join(sessionDir, 'charts')
-        await mkdir(chartsDir, { recursive: true })
-        const stamp = Date.now().toString(36)
-        const path = join(chartsDir, `chart-${stamp}.svg`)
-        await writeFile(path, svg, 'utf8')
-        const title = typeof checked.spec.title === 'string' && checked.spec.title !== '' ? checked.spec.title : '图表'
-        return {
-          path,
-          bytes: Buffer.byteLength(svg, 'utf8'),
-          markdown: `![${title}](${path})`,
-          hint: '把 markdown 原样写进正文即可，DSH 会按本地图渲染；不需要 fenced 块，也不需要客户端接管。',
-        }
-      },
-    }),
-  )
 
-  ctx.tools.register(
-    tool({
-      name: 'ink_view',
-      description:
-        '旧版兼容工具：仅在用户明确要求向 MiOpIIk 侧栏「视图」页写入/列出/清理旧 Widget 时使用。普通聊天里的新 IUI 直接用 fenced iui 声明，不需工具调用，不要为演示 UI 调用本工具。旧 view spec 必须包含 fallback。',
-      parameters: {
-        type: 'object',
-        properties: {
-          action: { type: 'string', enum: ['show', 'list', 'clear'] },
-          spec: {
-            type: 'object',
-            description:
-              'view spec：{widget, title?, props, fallback}。widget=dataset（columns/rows，可选 chart）、graph（nodes/edges）、timeline（items）、text（paragraphs/bullets）、choice（question/actions≤2）、media（url）、layout（direction/children）。',
-          },
-        },
-        required: ['action'],
-        additionalProperties: false,
-      },
-      async execute(args, exec) {
-        const engine = engineFor(exec)
-        if (args.action === 'list') return { widgets: engine.listWidgets() }
-        if (args.action === 'clear') return engine.clearWidgets()
-        const checked = validateWidget(args.spec)
-        if (!checked.ok) {
-          throw new Error(`${checked.errors.join('；')}。可用：${(checked.available ?? WIDGET_KINDS).join(' / ')}`)
-        }
-        if (layoutDepth(checked.spec) > 2) throw new Error('layout 最多嵌套 2 层')
-        return engine.pushWidget(checked.spec)
-      },
-    }),
-  )
 }

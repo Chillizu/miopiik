@@ -61,13 +61,14 @@ MiOpIIk 的做法是把「对话、记账、干活」拆成三层，并且**只�
 
 | 路径 | 内容 |
 |---|---|
-| `miopiik-dsh/` | DSH 插件本体（Host 端账本、编译、派发、SVG 画像引擎 + Client 端面板与卡片渲染） |
+| `miopiik-dsh/` | MiOpIIk Agent：Ink 账本、Operator、编译与后台视图，不再提供 IUI 客户端注册或旧展示工具 |
+| `miopiik-iui/` | **独立 DSH IUI 插件**：声明式协议、React 渲染器、Markdown 扩展和打包工具 |
 | `test/` | 单元测试套件（`node --test test/`） |
 | `docs/` | 设计文档、实机验证记录、图文技术报告、架构示意图 |
 | `SPEC.md` | 架构规格单一真源（十二不变式、数据模型、折叠与治理机制） |
 | `tools/` | 维护与辅助脚本 |
 
-Extra 展示层的**设计与协议**归档在独立仓库 [`miopiik-extra`](https://github.com/Chillizu/miopiik-extra)；实现代码当前仍内联在本仓的 `miopiik-dsh/` 内，下一步会剥离成独立插件包。
+Extra 展示层的早期设计归档在 [`miopiik-extra`](https://github.com/Chillizu/miopiik-extra)；新的 **MiOpIIk IUI** 已提取到本仓 `miopiik-iui/`，可作为独立 DSH bundle 安装。旧 `ink_view`、`ink_chart` 已停止注册，历史账本不删除。安装与已知限制见 [IUI 插件说明](miopiik-iui/README.md)。
 
 ## 安装（DSH workspace bundle）
 

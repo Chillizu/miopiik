@@ -2606,23 +2606,7 @@ window.__ModuleLoader__.load({
       return h('span', null, '')
     }
 
-    // 受信 Markdown 嵌入注册表：只有已打补丁的客户端（upstream fork）会读取它。
-    // 未启用 fork 时这里只是一块不会被调用的数据，原生渲染路径完全不变。
-    try {
-      globalThis.__miopiikMarkdownEmbeds = {
-        segments: (text) => {
-          const parts = MARKDOWN_SEGMENTS.splitTrustedMarkdown(text)
-          return parts.map((part) => (part.kind === 'block' ? { kind: 'block', raw: part.raw } : part.kind === 'inline' ? { kind: 'inline', node: part.node } : part))
-        },
-        renderInline: (node) => renderInlinePrimitive(node),
-        renderBlock: (raw) => {
-          const parsed = readIuiFence(raw)
-          return parsed.ok ? h(IuiSheet, { sample: parsed.doc, format: parsed.format, degraded: parsed.degraded }) : null
-        },
-      }
-    } catch {
-      // 注册失败不影响任何原生渲染
-    }
+    // IUI registry is owned exclusively by the independent miopiik-iui plugin.
 
     // 实验性 IUI：紧凑 DSL 预览（默认关闭，只在「视图」页跑，不碰 assistant-step）
     const DSL_PREVIEW_KEY = 'miopiik.dslPreview'
@@ -4567,19 +4551,6 @@ chart bar
         })
         ctx.inject(['sidebarRight'], (inner) => {
           rightbar = inner.sidebarRight
-        })
-
-        // 嵌在会话正文里的展示：ink_view 的调用自己长成一行卡片（Turn 层，不进可折叠的过程组）。
-        ctx.inject(['uiConversation'], (inner) => {
-          inner.effect(() => inner.uiConversation.events.register(widgetNodeDefinition), 'miopiik-dsh: widget node')
-          inner.slots.inject('conversation.chat.node', () => {
-            inner.slots.register({ name: 'conversation.chat.node', key: WIDGET_NODE_KIND, locale: NS }, WidgetNodeView)
-            if (primitives === null) return
-            // 正文内嵌 = 接管这一行；开关走注册/注销，不必重启。
-            inlineBodyControl.register = () =>
-              inner.slots.register({ name: 'conversation.chat.node', key: 'assistant-step', priority: -1, locale: NS }, InlineBodyRow)
-            if (inlineBody.get().enabled) inlineBodyControl.dispose = inlineBodyControl.register()
-          })
         })
 
         // 唯一入口：会话视图里的一个功能页（与「对话 / 轨迹」并列），图与各面板都在这一页里。

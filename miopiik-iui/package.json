@@ -1,0 +1,40 @@
+{
+  "name": "miopiik-iui",
+  "version": "0.1.0-rc.1",
+  "private": true,
+  "type": "module",
+  "description": "MiOpIIk IUI — trusted native Markdown embeds for DeepSeek Harness",
+  "license": "MIT",
+  "main": "index.js",
+  "engines": {
+    "node": ">=23.6"
+  },
+  "exports": {
+    ".": "./index.js",
+    "./client": "./client.js",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "index.js",
+    "client.js",
+    "renderer.js",
+    "shared/",
+    "tools/",
+    "patches/",
+    "cordis.patch.yml",
+    "README.md",
+    "LICENSE"
+  ],
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web",
+      "immediately": true,
+      "inject": [
+        "@deepseek-ai/dsh-client-ui-conversation"
+      ]
+    }
+  }
+}

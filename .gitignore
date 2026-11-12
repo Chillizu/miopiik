@@ -7,3 +7,5 @@ node_modules/
 
 # 上游 fork 是生成物（node tools/fork-chat-embeds.mjs 重建），不入库
 miopiik-dsh/upstream/dsh-client-ui-chat-embeds/
+# Standalone IUI fork is generated from the installed DSH distribution, never ship it as package source.
+miopiik-iui/upstream/dsh-client-ui-chat-embeds/

@@ -1,8 +1,8 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
-import { chartMatrix, readBinding, validateAst } from '../miopiik-dsh/shared/iui-ast.js'
-import { parseMiopiikMl } from '../miopiik-dsh/shared/miopiik-ml.js'
+import { chartMatrix, readBinding, validateAst } from '../miopiik-iui/shared/iui-ast.js'
+import { parseMiopiikMl } from '../miopiik-iui/shared/miopiik-ml.js'
 
 const compile = (source) => {
   const parsed = parseMiopiikMl(source)
@@ -91,18 +91,18 @@ test('安全边界：恶意 state key、协议外链接、错误图表输入安�
 })
 
 test('模型常驻章程默认引导直接输出 IUI，不为演示而做工具探索', () => {
-  const prompt = readFileSync(new URL('../miopiik-dsh/host/prompt.js', import.meta.url), 'utf8')
-  assert.match(prompt, /IUI 围栏内容为安全的 miopiik-ml/u)
-  assert.match(prompt, /不能为了展示而查仓库/u)
-  assert.match(prompt, /新展示不要调用/u)
+  const prompt = readFileSync(new URL('../miopiik-iui/index.js', import.meta.url), 'utf8')
+  assert.match(prompt, /miopiik-ml/u)
+  assert.match(prompt, /不为展示查找源码/u)
+  assert.match(prompt, /不调用工具来画界面/u)
   assert.doesNotMatch(prompt, /展示协议（Extra 层，删掉也不影响主干）/u)
 })
 
 test('fork 的 inline/block 混排保留全宽布局，避免图表变窄', () => {
-  const fork = readFileSync(new URL('../miopiik-dsh/upstream/dsh-client-ui-chat-embeds/lib/client.js', import.meta.url), 'utf8')
+  const fork = readFileSync(new URL('../miopiik-iui/upstream/dsh-client-ui-chat-embeds/lib/client.js', import.meta.url), 'utf8')
   assert.match(fork, /data-miopiik-block-wrap/u)
   assert.match(fork, /flexBasis: "100%"/u)
-  const client = readFileSync(new URL('../miopiik-dsh/client.js', import.meta.url), 'utf8')
+  const client = readFileSync(new URL('../miopiik-iui/client.js', import.meta.url), 'utf8')
   assert.match(client, /IUI_AST.chartMatrix/u)
   assert.match(client, /resolve\(props.unit\)/u)
 })

@@ -1,8 +1,8 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 
-import { validateAst } from '../miopiik-dsh/shared/iui-ast.js'
-import { parseMiopiikMl } from '../miopiik-dsh/shared/miopiik-ml.js'
+import { validateAst } from '../miopiik-iui/shared/iui-ast.js'
+import { parseMiopiikMl } from '../miopiik-iui/shared/miopiik-ml.js'
 
 const ML = `<ui title="周活跃" fallback="近7天活跃45次">
   <state>{"range":{"current":45,"prev":31,"series":[["一",12]]}}</state>

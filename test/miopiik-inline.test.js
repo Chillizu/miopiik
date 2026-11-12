@@ -2,8 +2,8 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 
-import { validateAst } from '../miopiik-dsh/shared/iui-ast.js'
-import { parseMiopiikMl } from '../miopiik-dsh/shared/miopiik-ml.js'
+import { validateAst } from '../miopiik-iui/shared/iui-ast.js'
+import { parseMiopiikMl } from '../miopiik-iui/shared/miopiik-ml.js'
 
 const SRC = `<ui fallback="f">
   <column gap="8">
@@ -54,15 +54,10 @@ test('安全：paragraph 里塞块级组件、非法 tone、非 https 链接、�
   assert.equal(serialized.includes('javascript:'), false)
 })
 
-test('回归：正文接管仍默认关闭，且未注册 assistant-step 时不接管原生消息', () => {
-  const client = readFileSync(new URL('../miopiik-dsh/client.js', import.meta.url), 'utf8')
-  assert.match(client, /createStore\(\{ enabled: readInlinePref\(\) \}\)/u)
-  assert.match(client, /if \(inlineBody\.get\(\)\.enabled\) inlineBodyControl\.dispose = inlineBodyControl\.register\(\)/u)
-  assert.match(client, /localStorage\.getItem\(INLINE_KEY\) === '1'/u)
-})
-
-test('回归：正文切片里 iui 必须有自己的渲染分支（曾因缺失导致正文变空）', () => {
-  const client = readFileSync(new URL('../miopiik-dsh/client.js', import.meta.url), 'utf8')
-  assert.match(client, /part\.type === 'iui'\s*\n?\s*\?/u)
-  assert.match(client, /h\(IuiSheet, \{ key: `u\$\{partIndex\}`, sample: part\.ast/u)
+test('IUI 已从 MiOpIIk 主客户端抽离：独立插件拥有注册表，主客户端没有覆盖席位', () => {
+  const main = readFileSync(new URL('../miopiik-dsh/client.js', import.meta.url), 'utf8')
+  const standalone = readFileSync(new URL('../miopiik-iui/client.js', import.meta.url), 'utf8')
+  assert.doesNotMatch(main, /globalThis\.__miopiikMarkdownEmbeds\s*=/u)
+  assert.doesNotMatch(main, /key: 'assistant-step', priority/u)
+  assert.match(standalone, /globalThis\.__miopiikMarkdownEmbeds\s*=\s*registry/u)
 })

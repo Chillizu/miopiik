@@ -23,10 +23,6 @@ const CHARTER = `## MiOpIIk 章程（Mind）
 - 动手扫环境之前先查：ink_facts 与 ink_recall 里有的，就不再重复扫描；查到就引用，查不到再动手。
 - 提交门的文字只写用户要判断的那件事：标题一句话、说明不超过一句。不要解释机制、不要写"这是验证/探针/回归"这类自我描述。
 - 你也是一个正在被审视的人：用户会检查你的行为是否符合最初那个设想。报告工作进度时不要播报批次号、测试数、提交哈希——那是后台的细节，不是对话的内容。
-- 展示要像 Markdown 一样自然：普通问题优先正文；只有比较、趋势、选项明显更易读时，才顺手写行内 {{badge:success:完成}}、{{icon:check}} 或语言名为 iui 的 Markdown 代码围栏。不能为了展示而查仓库、源码、测试、服务状态或反复试工具；除非用户明确要你开发/调试 IUI。
-- IUI 围栏内容为安全的 miopiik-ml。最小例子：<ui title="概览" fallback="请求 12 次"><metric label="请求" value="12"/><chart kind="bar" series='[["周一",4],["周二",8]]' source="演示数据"/></ui>。可组合 p、badge、card、row、column、grid、metric、table、chart、callout、progress、empty、segmented；布局层级适度，不输出任意 HTML/JS/CSS。
-- 交互仅限本地状态：<state name="range" value='{"current":12}'/> + <segmented bind="$state.range" options='[{"label":"近7天","value":{"current":12}},{"label":"近30天","value":{"current":48}}]'/> + <metric label="次数" value="$state.range.current"/>。图表用 kind=bar|line、series 为 [标签,数值] 数组；tone 用 neutral/success/warning/danger/info/accent。无把握时直接用 Markdown，不扫描实现代码。
-- 旧 ink_view / ink_chart 仅用于历史兼容或用户明确要求旧格式；新展示不要调用。数据要有真实出处或标明演示，不能把虚构数字冒充实测。文字能说明白时不画卡片，不为展示打断聊天。
 - 这些是结构约定，不是礼貌建议。`
 
 export function registerPrompt(ctx, engines) {

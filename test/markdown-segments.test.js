@@ -1,7 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 
-import { hasTrustedMarkup, splitTrustedMarkdown } from '../miopiik-dsh/shared/markdown-segments.js'
+import { hasTrustedMarkup, splitTrustedMarkdown } from '../miopiik-iui/shared/markdown-segments.js'
 
 test('纯 Markdown 不切分：没有受信标记时与原生完全一致', () => {
   const md = '**加粗** 与 [链接](https://example.com) 还有 `代码`。'
@@ -45,9 +45,9 @@ test('中文与嵌套链接文本不被破坏；HTML 不被解析', () => {
 test('fork 补丁与当前上游对齐，且默认关闭（localStorage 开关未开时不激活）', async () => {
   const { execFileSync } = await import('node:child_process')
   const { readFileSync } = await import('node:fs')
-  const out = execFileSync(process.execPath, ['tools/fork-chat-embeds.mjs', '--check'], { encoding: 'utf8' })
+  const out = execFileSync(process.execPath, ['miopiik-iui/tools/fork-chat-embeds.mjs', '--check'], { encoding: 'utf8' })
   assert.match(out, /一致/u)
-  const forked = readFileSync(new URL('../miopiik-dsh/upstream/dsh-client-ui-chat-embeds/lib/client.js', import.meta.url), 'utf8')
+  const forked = readFileSync(new URL('../miopiik-iui/upstream/dsh-client-ui-chat-embeds/lib/client.js', import.meta.url), 'utf8')
   // 挂钩必须存在，且必须有默认关闭的开关与 try/catch 降级
   assert.match(forked, /__miopiikMarkdownEmbeds/u)
   assert.match(forked, /miopiik\.markdownEmbeds"\) !== "1"\) return null/u)
@@ -59,7 +59,7 @@ test('fork 补丁与当前上游对齐，且默认关闭（localStorage 开关�
 
 test('客户端只注册注册表，不在未打补丁的宿主里做任何替换', async () => {
   const { readFileSync } = await import('node:fs')
-  const client = readFileSync(new URL('../miopiik-dsh/client.js', import.meta.url), 'utf8')
+  const client = readFileSync(new URL('../miopiik-iui/client.js', import.meta.url), 'utf8')
   assert.match(client, /globalThis\.__miopiikMarkdownEmbeds/u)
   // 不再依赖 assistant-step 接管来渲染 iui：注册表与 IuiSheet 解耦
   assert.match(client, /renderBlock: \(raw\) =>/u)
