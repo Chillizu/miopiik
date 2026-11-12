@@ -57,6 +57,9 @@ try {
   const context = await browser.newContext({ viewport: { width: 1280, height: 900 } })
   const page = await openViewPage(context)
 
+  // 原生优先：接管默认关闭时，不应出现我们的正文接管标记（原生 Markdown/Reasoning 自渲染）
+  record('nativeOwnership', { ourInlineRows: await page.locator('[data-mi-blocks]').count() })
+
   const panel = page.locator('[data-dsl-preview]')
   record('defaultState', { state: await panel.getAttribute('data-dsl-preview') })
 
@@ -76,6 +79,16 @@ try {
     degraded: await output.getAttribute('data-iui-degraded'),
     metrics: await page.locator('[data-iui-metric]').evaluateAll((nodes) => nodes.map((n) => n.textContent.replace(/\s+/g, ' ').trim())),
   })
+  // 1b) 行内混排：文字与 badge 同一行
+  await page.getByRole('button', { name: /示例 ML：行内混排/ }).click()
+  await page.waitForTimeout(700)
+  record('mlInline', {
+    inlineRow: await page.locator('[data-iui-inline]').first().getAttribute('data-iui-inline'),
+    badges: await page.locator('[data-iui-badge]').evaluateAll((nodes) => nodes.map((n) => n.textContent.trim())),
+    safeLink: await page.locator('[data-iui-output] a[href^="https://"]').count(),
+    progressbar: await page.locator('[role="progressbar"]').count(),
+  })
+
   // 2) ML 组合样例：网格 + 卡片 + 表格
   await page.getByRole('button', { name: /示例 ML：两列卡片\+表格/ }).click()
   await page.waitForTimeout(800)
@@ -148,12 +161,17 @@ try {
 }
 
 const broken = evidence.steps.find((s) => s.name === 'brokenAst') ?? {}
+const inline = evidence.steps.find((s) => s.name === 'mlInline') ?? {}
+const native = evidence.steps.find((s) => s.name === 'nativeOwnership') ?? {}
 const partial = evidence.steps.find((s) => s.name === 'mlPartial') ?? {}
 const fail = evidence.errors.length > 0 ||
   evidence.steps.find((s) => s.name === 'interactiveAfterSwitch')?.changed !== true ||
   evidence.steps.find((s) => s.name === 'interactiveAfterSwitch')?.modelTurnsAdded !== 0 ||
   // 局部降级后父级仍然渲染（ok），坏节点自己变成文本
   broken.kind !== 'ok' || broken.text?.includes('无法渲染') !== true ||
-  partial.metricStillVisible !== true || partial.text?.includes('无法渲染') !== true
+  partial.metricStillVisible !== true || partial.text?.includes('无法渲染') !== true ||
+  // 默认关闭时正文归原生所有；行内混排必须真的在同一行
+  native.ourInlineRows !== 0 ||
+  (inline.badges ?? []).length < 2 || inline.progressbar !== 1 || inline.safeLink !== 1
 console.log(JSON.stringify({ ok: !fail, evidence }, null, 2))
 process.exitCode = fail ? 1 : 0
