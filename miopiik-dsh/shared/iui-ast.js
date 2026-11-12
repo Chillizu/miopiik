@@ -12,11 +12,11 @@ export const IUI_VERSION = 'iui/1'
 
 export const REGISTRY = Object.freeze({
   text: { props: { text: 'string' }, children: false },
-  metric: { props: { label: 'string', value: 'value', unit: 'string?', note: 'string?' }, children: false },
+  metric: { props: { label: 'string', value: 'value', unit: 'string?', note: 'string?', delta: 'string?', caption: 'string?', tone: 'string?' }, children: false },
   row: { props: { gap: 'number?' }, children: true },
   column: { props: { gap: 'number?' }, children: true },
-  card: { props: { title: 'string?', gap: 'number?' }, children: true },
-  grid: { props: { columns: 'number?', gap: 'number?' }, children: true },
+  card: { props: { title: 'string?', subtitle: 'string?', gap: 'number?', span: 'number?', align: 'string?' }, children: true },
+  grid: { props: { columns: 'number?', gap: 'number?', align: 'string?' }, children: true },
   table: { props: { columns: 'value', rows: 'value', caption: 'string?' }, children: false },
   // 行内原语：与文字同处一行，顺序即 AST 顺序（不是另开卡片）
   paragraph: { props: { gap: 'number?' }, children: true },
@@ -26,20 +26,20 @@ export const REGISTRY = Object.freeze({
   code: { props: { text: 'string' }, children: false },
   link: { props: { text: 'string', href: 'string' }, children: false },
   // 块级反馈原语
-  callout: { props: { tone: 'string?', title: 'string?', text: 'string' }, children: false },
-  progress: { props: { label: 'string?', value: 'number', max: 'number?' }, children: false },
-  empty: { props: { text: 'string' }, children: false },
+  callout: { props: { tone: 'string?', title: 'string?', text: 'string?' }, children: true },
+  progress: { props: { label: 'string?', value: 'number', max: 'number?', tone: 'string?' }, children: false },
+  empty: { props: { text: 'string?', title: 'string?', description: 'string?', icon: 'string?' }, children: false },
   chart: { props: { kind: 'string', series: 'value', source: 'string?' }, children: false },
   segmented: { props: { label: 'string?', options: 'value', bind: 'string' }, children: false },
-  divider: { props: {}, children: false },
+  divider: { props: { label: 'string?' }, children: false },
 })
 
 export const LIMITS = Object.freeze({ nodes: 120, depth: 4, series: 60, options: 6, text: 2000 })
 
 /** 行内原语：paragraph 只接受这些子节点，保证"同一行文字混排"的语义。 */
 export const INLINE_TYPES = Object.freeze(['text', 'badge', 'icon', 'emphasis', 'code', 'link'])
-export const TONES = Object.freeze(['neutral', 'success', 'warning', 'danger'])
-export const ICONS = Object.freeze(['check', 'alert', 'dot', 'arrow-right', 'spark'])
+export const TONES = Object.freeze(['neutral', 'success', 'warning', 'danger', 'info'])
+export const ICONS = Object.freeze(['check', 'alert', 'dot', 'arrow-right', 'spark', 'chart', 'layers', 'shield', 'clock', 'inbox', 'info'])
 
 const BIND = /^\$(state|data)\.([A-Za-z0-9_]+(?:\.[A-Za-z0-9_]+)*)$/u
 
@@ -117,9 +117,12 @@ export function validateAst(input) {
     }
     if (node.type === 'table') {
       if (!Array.isArray(props.columns) || props.columns.length === 0) return failNode(node, path, 'table 需要 columns 数组')
-      if (!Array.isArray(props.rows)) return failNode(node, path, 'table 需要 rows 二维数组')
+      if (!Array.isArray(props.rows)) return failNode(node, path, 'table 需要 rows 数组')
       if (props.rows.length > 200) return failNode(node, path, 'table 最多 200 行')
-      if (props.rows.some((row) => !Array.isArray(row))) return failNode(node, path, 'table 的 rows 必须是二维数组')
+      const columnsOk = props.columns.every((column) => typeof column === 'string' || (column !== null && typeof column === 'object' && typeof column.label === 'string'))
+      if (!columnsOk) return failNode(node, path, 'table.columns 需要字符串或 {key,label} 描述符')
+      const rowsOk = props.rows.every((row) => Array.isArray(row) || (row !== null && typeof row === 'object'))
+      if (!rowsOk) return failNode(node, path, 'table.rows 的每一项需要数组或对象')
     }
     if (node.type === 'paragraph') {
       const inlineKids = Array.isArray(node.children) ? node.children : []
@@ -132,12 +135,19 @@ export function validateAst(input) {
     if (node.type === 'callout' && props.tone !== undefined && !TONES.includes(props.tone)) {
       return failNode(node, path, `callout.tone 只能是 ${TONES.join('/')}`)
     }
+    for (const type of ['metric', 'progress']) {
+      if (node.type === type && props.tone !== undefined && !TONES.includes(props.tone)) {
+        return failNode(node, path, `${type}.tone 只能是 ${TONES.join('/')}`)
+      }
+    }
     if (node.type === 'icon' && !ICONS.includes(props.name)) {
-      return failNode(node, path, `icon 只允许白名单图标：${ICONS.join('/')}`)
+      // 未知图标名不整节点丢弃：降级为 dot，保留语义可选性（图标只是装饰）
+      props.name = 'dot'
     }
     if (node.type === 'link') {
       const href = typeof props.href === 'string' ? props.href : ''
-      if (!/^https:\/\/[^\s]+$/u.test(href)) return failNode(node, path, 'link 只接受 https 链接')
+      // 只接受 https 绝对地址或站内相对路径（以 / 开头）；javascript:/data: 等一律拒绝
+      if (!/^(https:\/\/[^\s]+|\/[^\s]*)$/u.test(href)) return failNode(node, path, 'link 只接受 https 或站内绝对路径')
     }
     if (node.type === 'progress') {
       if (typeof props.value !== 'number' || !Number.isFinite(props.value) || props.value < 0) {
@@ -177,6 +187,24 @@ export function validateAst(input) {
     degraded,
     ast: { version: IUI_VERSION, state, root, fallback: typeof input?.fallback === 'string' ? input.fallback : '', title: typeof input?.title === 'string' ? input.title : '' },
   }
+}
+
+/** 表格归一：列可为字符串或 {key,label}，行可为二维数组或对象；输出纯二维字符串表。 */
+export function tableMatrix(props) {
+  const rawColumns = Array.isArray(props?.columns) ? props.columns : []
+  const columns = rawColumns.map((column) => {
+    if (typeof column === 'string') return { key: null, label: column }
+    const key = typeof column?.key === 'string' ? column.key : null
+    return { key, label: String(column?.label ?? column?.key ?? '') }
+  })
+  const matrix = (Array.isArray(props?.rows) ? props.rows : []).map((row) => {
+    if (Array.isArray(row)) return columns.map((_, index) => row[index] ?? '')
+    return columns.map((column) => {
+      if (column.key !== null) return row?.[column.key] ?? ''
+      return row?.[column.label] ?? ''
+    })
+  })
+  return { columns: columns.map((column) => column.label), rows: matrix }
 }
 
 /** 局部降级：把一段文本包成合法的 text 节点（客户端/测试共用）。 */

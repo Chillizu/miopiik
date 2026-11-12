@@ -520,11 +520,11 @@ window.__ModuleLoader__.load({
       
       const REGISTRY = Object.freeze({
         text: { props: { text: 'string' }, children: false },
-        metric: { props: { label: 'string', value: 'value', unit: 'string?', note: 'string?' }, children: false },
+        metric: { props: { label: 'string', value: 'value', unit: 'string?', note: 'string?', delta: 'string?', caption: 'string?', tone: 'string?' }, children: false },
         row: { props: { gap: 'number?' }, children: true },
         column: { props: { gap: 'number?' }, children: true },
-        card: { props: { title: 'string?', gap: 'number?' }, children: true },
-        grid: { props: { columns: 'number?', gap: 'number?' }, children: true },
+        card: { props: { title: 'string?', subtitle: 'string?', gap: 'number?', span: 'number?', align: 'string?' }, children: true },
+        grid: { props: { columns: 'number?', gap: 'number?', align: 'string?' }, children: true },
         table: { props: { columns: 'value', rows: 'value', caption: 'string?' }, children: false },
         // 行内原语：与文字同处一行，顺序即 AST 顺序（不是另开卡片）
         paragraph: { props: { gap: 'number?' }, children: true },
@@ -534,20 +534,20 @@ window.__ModuleLoader__.load({
         code: { props: { text: 'string' }, children: false },
         link: { props: { text: 'string', href: 'string' }, children: false },
         // 块级反馈原语
-        callout: { props: { tone: 'string?', title: 'string?', text: 'string' }, children: false },
-        progress: { props: { label: 'string?', value: 'number', max: 'number?' }, children: false },
-        empty: { props: { text: 'string' }, children: false },
+        callout: { props: { tone: 'string?', title: 'string?', text: 'string?' }, children: true },
+        progress: { props: { label: 'string?', value: 'number', max: 'number?', tone: 'string?' }, children: false },
+        empty: { props: { text: 'string?', title: 'string?', description: 'string?', icon: 'string?' }, children: false },
         chart: { props: { kind: 'string', series: 'value', source: 'string?' }, children: false },
         segmented: { props: { label: 'string?', options: 'value', bind: 'string' }, children: false },
-        divider: { props: {}, children: false },
+        divider: { props: { label: 'string?' }, children: false },
       })
       
       const LIMITS = Object.freeze({ nodes: 120, depth: 4, series: 60, options: 6, text: 2000 })
       
       /** 行内原语：paragraph 只接受这些子节点，保证"同一行文字混排"的语义。 */
       const INLINE_TYPES = Object.freeze(['text', 'badge', 'icon', 'emphasis', 'code', 'link'])
-      const TONES = Object.freeze(['neutral', 'success', 'warning', 'danger'])
-      const ICONS = Object.freeze(['check', 'alert', 'dot', 'arrow-right', 'spark'])
+      const TONES = Object.freeze(['neutral', 'success', 'warning', 'danger', 'info'])
+      const ICONS = Object.freeze(['check', 'alert', 'dot', 'arrow-right', 'spark', 'chart', 'layers', 'shield', 'clock', 'inbox', 'info'])
       
       const BIND = /^\$(state|data)\.([A-Za-z0-9_]+(?:\.[A-Za-z0-9_]+)*)$/u
       
@@ -625,9 +625,12 @@ window.__ModuleLoader__.load({
           }
           if (node.type === 'table') {
             if (!Array.isArray(props.columns) || props.columns.length === 0) return failNode(node, path, 'table 需要 columns 数组')
-            if (!Array.isArray(props.rows)) return failNode(node, path, 'table 需要 rows 二维数组')
+            if (!Array.isArray(props.rows)) return failNode(node, path, 'table 需要 rows 数组')
             if (props.rows.length > 200) return failNode(node, path, 'table 最多 200 行')
-            if (props.rows.some((row) => !Array.isArray(row))) return failNode(node, path, 'table 的 rows 必须是二维数组')
+            const columnsOk = props.columns.every((column) => typeof column === 'string' || (column !== null && typeof column === 'object' && typeof column.label === 'string'))
+            if (!columnsOk) return failNode(node, path, 'table.columns 需要字符串或 {key,label} 描述符')
+            const rowsOk = props.rows.every((row) => Array.isArray(row) || (row !== null && typeof row === 'object'))
+            if (!rowsOk) return failNode(node, path, 'table.rows 的每一项需要数组或对象')
           }
           if (node.type === 'paragraph') {
             const inlineKids = Array.isArray(node.children) ? node.children : []
@@ -640,12 +643,19 @@ window.__ModuleLoader__.load({
           if (node.type === 'callout' && props.tone !== undefined && !TONES.includes(props.tone)) {
             return failNode(node, path, `callout.tone 只能是 ${TONES.join('/')}`)
           }
+          for (const type of ['metric', 'progress']) {
+            if (node.type === type && props.tone !== undefined && !TONES.includes(props.tone)) {
+              return failNode(node, path, `${type}.tone 只能是 ${TONES.join('/')}`)
+            }
+          }
           if (node.type === 'icon' && !ICONS.includes(props.name)) {
-            return failNode(node, path, `icon 只允许白名单图标：${ICONS.join('/')}`)
+            // 未知图标名不整节点丢弃：降级为 dot，保留语义可选性（图标只是装饰）
+            props.name = 'dot'
           }
           if (node.type === 'link') {
             const href = typeof props.href === 'string' ? props.href : ''
-            if (!/^https:\/\/[^\s]+$/u.test(href)) return failNode(node, path, 'link 只接受 https 链接')
+            // 只接受 https 绝对地址或站内相对路径（以 / 开头）；javascript:/data: 等一律拒绝
+            if (!/^(https:\/\/[^\s]+|\/[^\s]*)$/u.test(href)) return failNode(node, path, 'link 只接受 https 或站内绝对路径')
           }
           if (node.type === 'progress') {
             if (typeof props.value !== 'number' || !Number.isFinite(props.value) || props.value < 0) {
@@ -687,11 +697,29 @@ window.__ModuleLoader__.load({
         }
       }
       
+      /** 表格归一：列可为字符串或 {key,label}，行可为二维数组或对象；输出纯二维字符串表。 */
+      function tableMatrix(props) {
+        const rawColumns = Array.isArray(props?.columns) ? props.columns : []
+        const columns = rawColumns.map((column) => {
+          if (typeof column === 'string') return { key: null, label: column }
+          const key = typeof column?.key === 'string' ? column.key : null
+          return { key, label: String(column?.label ?? column?.key ?? '') }
+        })
+        const matrix = (Array.isArray(props?.rows) ? props.rows : []).map((row) => {
+          if (Array.isArray(row)) return columns.map((_, index) => row[index] ?? '')
+          return columns.map((column) => {
+            if (column.key !== null) return row?.[column.key] ?? ''
+            return row?.[column.label] ?? ''
+          })
+        })
+        return { columns: columns.map((column) => column.label), rows: matrix }
+      }
+      
       /** 局部降级：把一段文本包成合法的 text 节点（客户端/测试共用）。 */
       function degradeToText(text) {
         return { id: 'degraded', type: 'text', props: { text: String(text ?? '') }, children: [] }
       }
-      return { IUI_VERSION, REGISTRY, LIMITS, readBinding, resolveValue, validateAst, degradeToText }
+      return { IUI_VERSION, REGISTRY, LIMITS, INLINE_TYPES, TONES, ICONS, readBinding, resolveValue, validateAst, tableMatrix, degradeToText }
     })()
     // <<< miopiik:iui-ast
 
@@ -737,11 +765,14 @@ window.__ModuleLoader__.load({
         card: 'card',
         table: 'table',
         p: 'paragraph',
+        paragraph: 'paragraph',
         badge: 'badge',
         icon: 'icon',
         b: 'emphasis',
+        emphasis: 'emphasis',
         code: 'code',
         a: 'link',
+        link: 'link',
         callout: 'callout',
         progress: 'progress',
         empty: 'empty',
@@ -883,6 +914,24 @@ window.__ModuleLoader__.load({
         return element.children.map(textOf).join(' ').replace(/\s+/gu, ' ').trim()
       }
       
+      /** 语义间距/对齐：模型写 md/lg 比写像素自然；未知值原样保留交给校验器。 */
+      const GAP_TOKENS = Object.freeze({ none: 0, xs: 2, sm: 6, md: 12, lg: 20, xl: 28 })
+      
+      /** 受限属性正规化：只做**显式枚举**的改名与语义值转换，不做任意猜测。 */
+      function normalizeAttrs(element) {
+        const attrs = { ...element.attrs }
+        if (attrs.variant !== undefined && attrs.tone === undefined) {
+          attrs.tone = attrs.variant
+          delete attrs.variant
+        }
+        if (attrs.type !== undefined && attrs.kind === undefined && element.name === 'chart') {
+          attrs.kind = attrs.type
+          delete attrs.type
+        }
+        if (typeof attrs.gap === 'string' && GAP_TOKENS[attrs.gap] !== undefined) attrs.gap = GAP_TOKENS[attrs.gap]
+        return attrs
+      }
+      
       /** 属性值：$state.* 保留绑定；JSON 字面量解析；数字转 number；其余按字符串。 */
       function readValue(raw) {
         if (typeof raw !== 'string') return raw
@@ -910,7 +959,29 @@ window.__ModuleLoader__.load({
         return props
       }
       
-      const TEXT_PROPS = Object.freeze({ text: ['text'], p: ['gap'], badge: ['text', 'tone'], emphasis: ['text', 'strong'], code: ['text'], a: ['text', 'href'], icon: ['name', 'label'], callout: ['tone', 'title', 'text'], progress: ['label', 'value', 'max'], empty: ['text'], metric: ['label', 'value', 'unit', 'note'], chart: ['kind', 'series', 'source', 'title'], segmented: ['label', 'bind', 'options'], table: ['columns', 'rows', 'caption'], card: ['title'], grid: ['columns', 'gap'], row: ['gap'], column: ['gap'] })
+      const TEXT_PROPS = Object.freeze({
+        text: ['text'],
+        p: ['gap'],
+        paragraph: ['gap'],
+        badge: ['text', 'tone'],
+        emphasis: ['text', 'strong'],
+        code: ['text'],
+        a: ['text', 'href'],
+        link: ['text', 'href'],
+        icon: ['name', 'label'],
+        callout: ['tone', 'title', 'text'],
+        progress: ['label', 'value', 'max', 'tone'],
+        empty: ['text', 'title', 'description', 'icon'],
+        divider: ['label'],
+        metric: ['label', 'value', 'unit', 'note', 'delta', 'caption', 'tone'],
+        chart: ['kind', 'type', 'series', 'source', 'title'],
+        segmented: ['label', 'bind', 'options'],
+        table: ['columns', 'rows', 'caption'],
+        card: ['title', 'subtitle', 'gap', 'span', 'align'],
+        grid: ['columns', 'gap', 'align'],
+        row: ['gap', 'align'],
+        column: ['gap', 'align'],
+      })
       
       /**
        * 解析 miopiik-ml 源码。
@@ -934,6 +1005,21 @@ window.__ModuleLoader__.load({
             continue
           }
           if (child.name === 'state') {
+            // 形态一：<state name="range" value='{...}' />
+            if (typeof child.attrs.name === 'string' && child.attrs.name !== '') {
+              const rawValue = child.attrs.value
+              if (typeof rawValue === 'string' && rawValue.trim() !== '') {
+                try {
+                  state[child.attrs.name] = JSON.parse(rawValue)
+                } catch {
+                  degraded.push(`<state name="${child.attrs.name}"> 的 value 不是合法 JSON`)
+                }
+              } else {
+                degraded.push(`<state name="${child.attrs.name}"> 缺少 value`)
+              }
+              continue
+            }
+            // 形态二：<state>{...}</state>
             const raw = child.children.map((node) => (node.name === '#text' ? node.text : '')).join('').trim()
             if (raw === '') continue
             try {
@@ -951,7 +1037,8 @@ window.__ModuleLoader__.load({
         const compile = (element) => {
           if (element.name === '#text') return { kind: 'degraded', text: decodeEntities(String(element.text ?? '')) }
           const type = ML_TAGS[element.name]
-          const fallbackText = typeof element.attrs.fallback === 'string' ? element.attrs.fallback : ''
+          const attrs = normalizeAttrs(element)
+          const fallbackText = typeof attrs.fallback === 'string' ? attrs.fallback : ''
           const innerText = textOf(element)
           const degrade = (reason) => {
             degraded.push(`<${element.name}> ${reason}`)
@@ -961,11 +1048,17 @@ window.__ModuleLoader__.load({
           }
           if (type === undefined || type === 'root' || type === 'state') return degrade('未知标签')
           if (element.unclosed) return degrade('没有闭合')
-          const INLINE_LEAVES = { badge: 'text', emphasis: 'text', code: 'text', a: 'text', callout: 'text', progress: 'label', empty: 'text' }
+          const INLINE_LEAVES = { badge: 'text', emphasis: 'text', b: 'text', code: 'text', a: 'text', link: 'text', callout: 'text', progress: 'label', empty: 'text' }
           if (INLINE_LEAVES[element.name] !== undefined) {
             const key = INLINE_LEAVES[element.name]
-            const props = readProps(element.attrs, TEXT_PROPS[element.name] ?? [])
+            const props = readProps(attrs, TEXT_PROPS[element.name] ?? [])
             if (props[key] === undefined && innerText !== '') props[key] = innerText
+            // empty：text 可由 title/description 派生；三者都没有才降级
+            if (element.name === 'empty' && (props[key] === undefined || props[key] === '')) {
+              const fallback = props.title ?? props.description
+              if (fallback !== undefined && fallback !== '') props[key] = fallback
+              else return degrade('没有内容')
+            }
             if (props[key] === undefined || props[key] === '') return degrade('没有内容')
             return { kind: 'node', node: { id: typeof element.attrs.id === 'string' && element.attrs.id !== '' ? element.attrs.id : `ml-${element.name}`, type, props, children: [] } }
           }
@@ -973,7 +1066,21 @@ window.__ModuleLoader__.load({
             const text = typeof element.attrs.text === 'string' ? element.attrs.text : innerText
             return text === '' ? degrade('没有内容') : { kind: 'node', node: { id: typeof element.attrs.id === 'string' && element.attrs.id !== '' ? element.attrs.id : 'ml-text', type: 'text', props: { text }, children: [] } }
           }
-          if (element.name === 'p') {
+          if (element.name === 'callout' && element.children.some((child) => child.name !== '#text')) {
+            const children = element.children
+              .map((child) => {
+                if (child.name === '#text') {
+                  const text = String(child.text ?? '').trim()
+                  return text === '' ? null : { id: 'ml-callout-text', type: 'text', props: { text }, children: [] }
+                }
+                const item = compile(child)
+                return item.kind === 'node' ? item.node : { id: 'ml-callout-degraded', type: 'text', props: { text: item.text }, children: [] }
+              })
+              .filter(Boolean)
+            const props = readProps(attrs, TEXT_PROPS.callout)
+            return { kind: 'node', node: { id: typeof attrs.id === 'string' && attrs.id !== '' ? attrs.id : 'ml-callout', type: 'callout', props, children } }
+          }
+          if (element.name === 'p' || element.name === 'paragraph') {
             const children = element.children.map((child) => {
               if (child.name === '#text') {
                 const text = String(child.text ?? '')
@@ -983,7 +1090,7 @@ window.__ModuleLoader__.load({
               return item.kind === 'node' ? item.node : { id: 'ml-inline-degraded', type: 'text', props: { text: item.text }, children: [] }
             }).filter(Boolean)
             if (children.length === 0) return degrade('段落为空')
-            return { kind: 'node', node: { id: typeof element.attrs.id === 'string' && element.attrs.id !== '' ? element.attrs.id : 'ml-p', type: 'paragraph', props: readProps(element.attrs, ['gap']), children } }
+            return { kind: 'node', node: { id: typeof attrs.id === 'string' && attrs.id !== '' ? attrs.id : 'ml-p', type: 'paragraph', props: readProps(attrs, ['gap']), children } }
           }
           if (CONTAINERS[element.name] === true) {
             const nodes = element.children.map((child) => compile(child))
@@ -995,9 +1102,9 @@ window.__ModuleLoader__.load({
             return {
               kind: 'node',
               node: {
-                id: typeof element.attrs.id === 'string' && element.attrs.id !== '' ? element.attrs.id : `ml-${element.name}`,
+                id: typeof attrs.id === 'string' && attrs.id !== '' ? attrs.id : `ml-${element.name}`,
                 type,
-                props: readProps(element.attrs, TEXT_PROPS[element.name] ?? []),
+                props: readProps(attrs, TEXT_PROPS[element.name] ?? []),
                 children,
               },
             }
@@ -2081,10 +2188,19 @@ window.__ModuleLoader__.load({
 
     function IuiSheet({ sample, format, degraded }) {
       const checked = IUI_AST.validateAst(sample)
+      // 依赖必须是**内容**而不是对象引用：正文每次渲染都会产生新对象，用引用会导致状态被重置。
+      const sampleKey = React.useMemo(() => {
+        try {
+          return JSON.stringify(checked.ok ? { state: checked.ast.state, root: checked.ast.root } : sample)
+        } catch {
+          return String(sample)
+        }
+      }, [sample])
       const [state, setState] = React.useState(checked.ok ? checked.ast.state : {})
       React.useEffect(() => {
         if (checked.ok) setState(checked.ast.state)
-      }, [sample])
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+      }, [sampleKey])
       const degradedCount = (Array.isArray(degraded) ? degraded.length : 0) + (checked.ok ? checked.degraded : 0)
       if (!checked.ok) {
         return h(
@@ -2102,20 +2218,38 @@ window.__ModuleLoader__.load({
         if (item.type === 'text') {
           return h('div', { key, style: { fontSize: 12, lineHeight: '18px', color: C.text } }, String(resolve(props.text) ?? ''))
         }
-        if (item.type === 'divider') return h('hr', { key, style: { border: 'none', borderTop: `1px solid ${C.border}`, width: '100%' } })
+        if (item.type === 'divider') {
+          if (!props.label) return h('hr', { key, 'data-iui-divider': '1', style: { border: 'none', borderTop: `1px solid ${C.border}`, width: '100%' } })
+          return h(
+            'div',
+            { key, 'data-iui-divider': '1', style: { display: 'flex', alignItems: 'center', gap: 8, width: '100%' } },
+            h('span', { style: { fontSize: 11, color: C.muted, whiteSpace: 'nowrap' } }, String(props.label)),
+            h('span', { style: { flex: '1 1 auto', borderTop: `1px solid ${C.border}` } }),
+          )
+        }
         if (item.type === 'metric') {
+          const tone = TONE_COLORS[props.tone] ?? [null, C.muted]
+          const value = resolve(props.value)
+          const delta = resolve(props.delta)
           return h(
             'div',
             { key, 'data-iui-metric': String(props.label ?? ''), style: { display: 'flex', flexDirection: 'column', gap: 2, minWidth: 0, flex: '1 1 0' } },
             h('div', { style: { fontSize: 11, color: C.muted } }, String(props.label ?? '')),
-            h('div', { style: { fontSize: 20, fontWeight: 600, fontVariantNumeric: 'tabular-nums' } }, `${String(resolve(props.value) ?? '—')}${props.unit ? String(props.unit) : ''}`),
-            props.note ? h('div', { style: { fontSize: 10, color: C.muted } }, String(props.note)) : null,
+            h('div', { style: { fontSize: 20, fontWeight: 600, fontVariantNumeric: 'tabular-nums', color: props.tone ? tone[1] : C.text } }, `${value === undefined || value === null ? '—' : String(value)}${props.unit ? String(props.unit) : ''}`),
+            delta !== undefined && delta !== null && String(delta) !== ''
+              ? h('div', { 'data-iui-delta': String(delta), style: { fontSize: 11, color: String(delta).startsWith('-') ? '#d1242f' : '#2ea043' } }, String(delta))
+              : null,
+            (() => {
+              const caption = resolve(props.caption ?? props.note)
+              return caption === undefined || caption === null || String(caption) === '' ? null : h('div', { style: { fontSize: 10, color: C.muted } }, String(caption))
+            })(),
           )
         }
         if (item.type === 'segmented') {
           const binding = IUI_AST.readBinding(props.bind)
-          const current = binding.scope === 'state' ? state[binding.key] : undefined
+          const current = binding.scope === 'state' ? readStatePath(state, binding.key) : undefined
           const options = Array.isArray(props.options) ? props.options : []
+          const selectedIndex = options.findIndex((option) => sameValue(option?.value, current))
           return h(
             'div',
             { key, style: { display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' } },
@@ -2126,15 +2260,15 @@ window.__ModuleLoader__.load({
                 {
                   key: `${key}-${index}`,
                   type: 'button',
-                  'aria-pressed': current === option.value,
+                  'aria-pressed': index === selectedIndex,
                   onClick: () => {
                     if (binding.scope !== 'state') return
-                    setState((prev) => ({ ...prev, [binding.key]: option.value }))
+                    setState((prev) => writeStatePath(prev, binding.key, option.value))
                   },
                   style: {
-                    border: `1px solid ${current === option.value ? C.brand : C.border}`,
-                    background: current === option.value ? C.brand : 'transparent',
-                    color: current === option.value ? '#fff' : C.muted,
+                    border: `1px solid ${index === selectedIndex ? C.brand : C.border}`,
+                    background: index === selectedIndex ? C.brand : 'transparent',
+                    color: index === selectedIndex ? '#fff' : C.muted,
                     borderRadius: 999,
                     padding: '2px 10px',
                     fontSize: 11,
@@ -2178,12 +2312,14 @@ window.__ModuleLoader__.load({
         }
         if (item.type === 'callout') {
           const tone = String(props.tone ?? 'neutral')
-          const color = tone === 'warning' ? '#b08800' : tone === 'danger' ? '#d1242f' : tone === 'success' ? '#2ea043' : C.muted
+          const color = (TONE_COLORS[tone] ?? TONE_COLORS.neutral)[1]
+          const kids = item.children.map((child, index) => node(child, `${key}-${index}`))
           return h(
             'div',
-            { key, 'data-iui-callout': tone, style: { display: 'flex', flexDirection: 'column', gap: 4, borderLeft: `3px solid ${color}`, background: 'rgba(127,127,127,0.07)', borderRadius: 6, padding: '8px 10px' } },
+            { key, 'data-iui-callout': tone, style: { display: 'flex', flexDirection: 'column', gap: 6, borderLeft: `3px solid ${color}`, background: 'rgba(127,127,127,0.07)', borderRadius: 6, padding: '8px 10px' } },
             props.title ? h('div', { style: { fontSize: 12, fontWeight: 600, color } }, String(props.title)) : null,
-            h('div', { style: { fontSize: 12, lineHeight: '18px', color: C.text } }, String(props.text ?? '')),
+            String(props.text ?? '') !== '' ? h('div', { style: { fontSize: 12, lineHeight: '18px', color: C.text } }, String(props.text)) : null,
+            ...kids,
           )
         }
         if (item.type === 'progress') {
@@ -2194,18 +2330,42 @@ window.__ModuleLoader__.load({
             { key, style: { display: 'flex', flexDirection: 'column', gap: 4 } },
             props.label ? h('div', { style: { fontSize: 11, color: C.muted } }, String(props.label)) : null,
             h('div', { role: 'progressbar', 'aria-valuenow': String(Math.round(ratio * 100)), 'aria-valuemin': '0', 'aria-valuemax': '100', style: { height: 6, borderRadius: 999, background: 'rgba(127,127,127,0.18)', overflow: 'hidden' } },
-              h('div', { style: { width: `${ratio * 100}%`, height: '100%', background: C.brand } })),
+              h('div', { style: { width: `${ratio * 100}%`, height: '100%', background: (TONE_COLORS[props.tone] ?? [null, C.brand])[1] } })),
           )
         }
         if (item.type === 'empty') {
-          return h('div', { key, 'data-iui-empty': '1', style: { fontSize: 12, color: C.muted, textAlign: 'center', padding: '12px 0' } }, String(props.text ?? ''))
+          const glyph = { check: '✓', alert: '!', dot: '•', 'arrow-right': '→', spark: '✳', chart: '▤', layers: '▦', shield: '⛨', clock: '◷', inbox: '▣', info: 'ℹ' }
+          return h(
+            'div',
+            { key, 'data-iui-empty': '1', style: { display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4, textAlign: 'center', padding: '14px 0', color: C.muted } },
+            props.icon ? h('div', { style: { fontSize: 18, lineHeight: '22px' } }, glyph[props.icon] ?? '•') : null,
+            props.title ? h('div', { style: { fontSize: 12, fontWeight: 600, color: C.text } }, String(props.title)) : null,
+            String(props.description ?? props.text ?? '') !== ''
+              ? h('div', { style: { fontSize: 11, lineHeight: '17px', maxWidth: 320 } }, String(props.description ?? props.text ?? ''))
+              : null,
+          )
         }
         if (item.type === 'card') {
           const kids = item.children.map((child, index) => node(child, `${key}-${index}`))
+          const span = Number(props.span ?? 1)
           return h(
             'div',
-            { key, 'data-iui-container': 'card', style: { display: 'flex', flexDirection: 'column', gap: Number(props.gap ?? 8), border: `1px solid ${C.border}`, borderRadius: 10, padding: 12 } },
+            {
+              key,
+              'data-iui-container': 'card',
+              style: {
+                display: 'flex',
+                flexDirection: 'column',
+                gap: Number(props.gap ?? 8),
+                border: `1px solid ${C.border}`,
+                borderRadius: 10,
+                padding: 12,
+                minWidth: 0,
+                gridColumn: Number.isFinite(span) && span > 1 ? `span ${Math.min(3, span)}` : undefined,
+              },
+            },
             props.title ? h('div', { style: { fontSize: 12, fontWeight: 600, color: C.text } }, String(props.title)) : null,
+            props.subtitle ? h('div', { style: { fontSize: 10, color: C.muted } }, String(props.subtitle)) : null,
             ...kids,
           )
         }
@@ -2217,7 +2377,10 @@ window.__ModuleLoader__.load({
               'data-iui-container': 'grid',
               style: {
                 display: 'grid',
-                gridTemplateColumns: props.columns ? `repeat(${Number(props.columns)}, minmax(0, 1fr))` : 'repeat(auto-fit, minmax(140px, 1fr))',
+                gridTemplateColumns: props.columns && Number(props.columns) > 1
+                  ? `repeat(auto-fit, minmax(160px, 1fr))`
+                  : 'repeat(auto-fit, minmax(160px, 1fr))',
+                alignItems: props.align === 'stretch' ? 'stretch' : undefined,
                 gap: Number(props.gap ?? 10),
               },
             },
@@ -2225,11 +2388,12 @@ window.__ModuleLoader__.load({
           )
         }
         if (item.type === 'table') {
-          const columns = Array.isArray(props.columns) ? props.columns : []
-          const rows = Array.isArray(props.rows) ? props.rows : []
+          const normalized = IUI_AST.tableMatrix(props)
+          const columns = normalized.columns
+          const rows = normalized.rows
           return h(
             'div',
-            { key, 'data-iui-table': String(rows.length), style: { overflowX: 'auto' } },
+            { key, 'data-iui-table': String(rows.length), 'data-iui-table-cols': String(columns.length), style: { overflowX: 'auto', maxWidth: '100%' } },
             h(
               'table',
               { style: { width: '100%', borderCollapse: 'collapse', fontSize: 12, color: C.text } },
@@ -2296,6 +2460,7 @@ window.__ModuleLoader__.load({
 
     function IuiPreview({ sample, onSample }) {
       const buttons = [
+        ['mlGallery', t('iui.sampleMlGallery')],
         ['mlInline', t('iui.sampleMlInline')],
         ['mlInteractive', t('iui.sampleMlInteractive')],
         ['mlCompare', t('iui.sampleMlCompare')],
@@ -2327,17 +2492,51 @@ window.__ModuleLoader__.load({
       )
     }
 
+    // 绑定路径读写：只按点号取/写，不求值
+    function readStatePath(source, path) {
+      let cursor = source
+      for (const part of String(path).split('.')) {
+        if (cursor === null || typeof cursor !== 'object') return undefined
+        cursor = cursor[part]
+      }
+      return cursor
+    }
+    function writeStatePath(source, path, value) {
+      const parts = String(path).split('.')
+      const clone = Array.isArray(source) ? [...source] : { ...source }
+      let cursor = clone
+      for (let index = 0; index < parts.length - 1; index += 1) {
+        const part = parts[index]
+        const child = cursor[part]
+        cursor[part] = child !== null && typeof child === 'object' ? (Array.isArray(child) ? [...child] : { ...child }) : {}
+        cursor = cursor[part]
+      }
+      cursor[parts[parts.length - 1]] = value
+      return clone
+    }
+    function sameValue(a, b) {
+      if (a === b) return true
+      try {
+        return JSON.stringify(a) === JSON.stringify(b)
+      } catch {
+        return false
+      }
+    }
+
     // 行内原语渲染（Markdown 受信嵌入用）：与 IuiSheet 的 paragraph 子渲染保持一致
+    const TONE_COLORS = {
+      neutral: ['rgba(127,127,127,0.14)', C.text],
+      info: ['rgba(65,118,230,0.16)', C.brand],
+      success: ['rgba(46,160,67,0.16)', '#2ea043'],
+      warning: ['rgba(210,153,34,0.18)', '#b08800'],
+      danger: ['rgba(218,54,51,0.16)', '#d1242f'],
+    }
+
     function renderInlinePrimitive(node) {
       const props = node?.props ?? {}
       if (node?.type === 'text') return h('span', null, String(props.text ?? ''))
       if (node?.type === 'badge') {
-        const tone = {
-          neutral: ['rgba(127,127,127,0.14)', C.text],
-          success: ['rgba(46,160,67,0.16)', '#2ea043'],
-          warning: ['rgba(210,153,34,0.18)', '#b08800'],
-          danger: ['rgba(218,54,51,0.16)', '#d1242f'],
-        }[props.tone] ?? ['rgba(127,127,127,0.14)', C.text]
+        const tone = TONE_COLORS[props.tone] ?? TONE_COLORS.neutral
         return h('span', { 'data-iui-badge': String(props.tone ?? 'neutral'), style: { display: 'inline-block', padding: '0 6px', borderRadius: 999, fontSize: 11, lineHeight: '18px', background: tone[0], color: tone[1] } }, String(props.text ?? ''))
       }
       if (node?.type === 'icon') return h('span', { 'data-iui-icon': String(props.name ?? ''), role: 'img', 'aria-label': String(props.label ?? props.name ?? '') }, { check: '✓', alert: '!', dot: '•', 'arrow-right': '→', spark: '✳' }[props.name] ?? '•')
@@ -3702,6 +3901,20 @@ chart bar
   </grid>
   <table columns='["项目","数值"]' rows='[["测试数",171],["失败",0]]' caption="表格也是同一套原语组合"/>
 </ui>`,
+      mlGallery: `<ui title="画廊回归样本" fallback="切换区间，指标与图表随本地状态更新">
+  <paragraph>语义文本是地基，<emphasis>强调</emphasis>、<code>iui/1</code> 行内标识与 <badge variant="info">预览</badge> <badge variant="success">已完成</badge> 都在同一行。</paragraph>
+  <state name="range" value='{"current":{"value":"12,480","delta":"+18.2%","caption":"近 7 天累计"},"series":[{"label":"周四","value":1420},{"label":"周五","value":1680}]}' />
+  <segmented label="统计范围" bind="$state.range" options='[{"label":"近 7 天","value":{"current":{"value":"12,480","delta":"+18.2%","caption":"近 7 天累计"},"series":[{"label":"周四","value":1420},{"label":"周五","value":1680}]}},{"label":"近 30 天","value":{"current":{"value":"48,296","delta":"+12.4%","caption":"近 30 天累计"},"series":[{"label":"第 1 周","value":9320},{"label":"第 2 周","value":11040}]}}]' />
+  <row gap="md" align="stretch">
+    <metric label="交互渲染总量" value="$state.range.current.value" delta="$state.range.current.delta" caption="$state.range.current.caption" variant="info"/>
+    <metric label="日均渲染" value="1,783" caption="按当前区间折算"/>
+  </row>
+  <card title="渠道明细" subtitle="对象行 + 列描述符">
+    <table columns='[{"key":"channel","label":"渠道"},{"key":"sessions","label":"会话"},{"key":"state","label":"状态"}]' rows='[{"channel":"Web 客户端","sessions":"28,410","state":"稳定"},{"channel":"移动端 WebView","sessions":"6,180","state":"观察中"}]' />
+  </card>
+  <card title="渲染量走势"><chart type="line" series="$state.range.series" /></card>
+  <empty icon="inbox" title="暂无更多条目" description="空状态给出方向，而不是空白。"/>
+</ui>`,
       mlInline: `<ui title="行内混排" fallback="新版正文接入已实现，折叠待修复">
   <column gap="8">
     <p>新版正文接入 <badge tone="success">已实现</badge>，思考折叠 <badge tone="warning">待修复</badge>，详见 <a href="https://example.com">说明</a>。</p>
@@ -4017,6 +4230,7 @@ chart bar
       'iui.sampleInteractive': '示例：指标 + 趋势 + 切换',
       'iui.sampleCompare': '示例：两列对比',
       'iui.sampleBroken': '示例：坏 AST 降级',
+      'iui.sampleMlGallery': '示例 ML：画廊回归（状态+表格）',
       'iui.sampleMlInline': '示例 ML：行内混排（badge/链接）',
       'iui.sampleMlInteractive': '示例 ML：指标+趋势+切换',
       'iui.sampleMlCompare': '示例 ML：两列卡片+表格',
@@ -4131,6 +4345,7 @@ chart bar
       'iui.sampleInteractive': 'Sample: metrics + trend + switch',
       'iui.sampleCompare': 'Sample: two-column compare',
       'iui.sampleBroken': 'Sample: broken AST',
+      'iui.sampleMlGallery': 'ML sample: gallery regression (state + table)',
       'iui.sampleMlInline': 'ML sample: inline mixing (badge/link)',
       'iui.sampleMlInteractive': 'ML sample: metrics + trend + switch',
       'iui.sampleMlCompare': 'ML sample: two cards + table',

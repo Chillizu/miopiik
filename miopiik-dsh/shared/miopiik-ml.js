@@ -38,11 +38,14 @@ export const ML_TAGS = Object.freeze({
   card: 'card',
   table: 'table',
   p: 'paragraph',
+  paragraph: 'paragraph',
   badge: 'badge',
   icon: 'icon',
   b: 'emphasis',
+  emphasis: 'emphasis',
   code: 'code',
   a: 'link',
+  link: 'link',
   callout: 'callout',
   progress: 'progress',
   empty: 'empty',
@@ -184,6 +187,24 @@ function textOf(element) {
   return element.children.map(textOf).join(' ').replace(/\s+/gu, ' ').trim()
 }
 
+/** 语义间距/对齐：模型写 md/lg 比写像素自然；未知值原样保留交给校验器。 */
+const GAP_TOKENS = Object.freeze({ none: 0, xs: 2, sm: 6, md: 12, lg: 20, xl: 28 })
+
+/** 受限属性正规化：只做**显式枚举**的改名与语义值转换，不做任意猜测。 */
+function normalizeAttrs(element) {
+  const attrs = { ...element.attrs }
+  if (attrs.variant !== undefined && attrs.tone === undefined) {
+    attrs.tone = attrs.variant
+    delete attrs.variant
+  }
+  if (attrs.type !== undefined && attrs.kind === undefined && element.name === 'chart') {
+    attrs.kind = attrs.type
+    delete attrs.type
+  }
+  if (typeof attrs.gap === 'string' && GAP_TOKENS[attrs.gap] !== undefined) attrs.gap = GAP_TOKENS[attrs.gap]
+  return attrs
+}
+
 /** 属性值：$state.* 保留绑定；JSON 字面量解析；数字转 number；其余按字符串。 */
 function readValue(raw) {
   if (typeof raw !== 'string') return raw
@@ -211,7 +232,29 @@ function readProps(attrs, keys) {
   return props
 }
 
-const TEXT_PROPS = Object.freeze({ text: ['text'], p: ['gap'], badge: ['text', 'tone'], emphasis: ['text', 'strong'], code: ['text'], a: ['text', 'href'], icon: ['name', 'label'], callout: ['tone', 'title', 'text'], progress: ['label', 'value', 'max'], empty: ['text'], metric: ['label', 'value', 'unit', 'note'], chart: ['kind', 'series', 'source', 'title'], segmented: ['label', 'bind', 'options'], table: ['columns', 'rows', 'caption'], card: ['title'], grid: ['columns', 'gap'], row: ['gap'], column: ['gap'] })
+const TEXT_PROPS = Object.freeze({
+  text: ['text'],
+  p: ['gap'],
+  paragraph: ['gap'],
+  badge: ['text', 'tone'],
+  emphasis: ['text', 'strong'],
+  code: ['text'],
+  a: ['text', 'href'],
+  link: ['text', 'href'],
+  icon: ['name', 'label'],
+  callout: ['tone', 'title', 'text'],
+  progress: ['label', 'value', 'max', 'tone'],
+  empty: ['text', 'title', 'description', 'icon'],
+  divider: ['label'],
+  metric: ['label', 'value', 'unit', 'note', 'delta', 'caption', 'tone'],
+  chart: ['kind', 'type', 'series', 'source', 'title'],
+  segmented: ['label', 'bind', 'options'],
+  table: ['columns', 'rows', 'caption'],
+  card: ['title', 'subtitle', 'gap', 'span', 'align'],
+  grid: ['columns', 'gap', 'align'],
+  row: ['gap', 'align'],
+  column: ['gap', 'align'],
+})
 
 /**
  * 解析 miopiik-ml 源码。
@@ -235,6 +278,21 @@ export function parseMiopiikMl(source) {
       continue
     }
     if (child.name === 'state') {
+      // 形态一：<state name="range" value='{...}' />
+      if (typeof child.attrs.name === 'string' && child.attrs.name !== '') {
+        const rawValue = child.attrs.value
+        if (typeof rawValue === 'string' && rawValue.trim() !== '') {
+          try {
+            state[child.attrs.name] = JSON.parse(rawValue)
+          } catch {
+            degraded.push(`<state name="${child.attrs.name}"> 的 value 不是合法 JSON`)
+          }
+        } else {
+          degraded.push(`<state name="${child.attrs.name}"> 缺少 value`)
+        }
+        continue
+      }
+      // 形态二：<state>{...}</state>
       const raw = child.children.map((node) => (node.name === '#text' ? node.text : '')).join('').trim()
       if (raw === '') continue
       try {
@@ -252,7 +310,8 @@ export function parseMiopiikMl(source) {
   const compile = (element) => {
     if (element.name === '#text') return { kind: 'degraded', text: decodeEntities(String(element.text ?? '')) }
     const type = ML_TAGS[element.name]
-    const fallbackText = typeof element.attrs.fallback === 'string' ? element.attrs.fallback : ''
+    const attrs = normalizeAttrs(element)
+    const fallbackText = typeof attrs.fallback === 'string' ? attrs.fallback : ''
     const innerText = textOf(element)
     const degrade = (reason) => {
       degraded.push(`<${element.name}> ${reason}`)
@@ -262,11 +321,17 @@ export function parseMiopiikMl(source) {
     }
     if (type === undefined || type === 'root' || type === 'state') return degrade('未知标签')
     if (element.unclosed) return degrade('没有闭合')
-    const INLINE_LEAVES = { badge: 'text', emphasis: 'text', code: 'text', a: 'text', callout: 'text', progress: 'label', empty: 'text' }
+    const INLINE_LEAVES = { badge: 'text', emphasis: 'text', b: 'text', code: 'text', a: 'text', link: 'text', callout: 'text', progress: 'label', empty: 'text' }
     if (INLINE_LEAVES[element.name] !== undefined) {
       const key = INLINE_LEAVES[element.name]
-      const props = readProps(element.attrs, TEXT_PROPS[element.name] ?? [])
+      const props = readProps(attrs, TEXT_PROPS[element.name] ?? [])
       if (props[key] === undefined && innerText !== '') props[key] = innerText
+      // empty：text 可由 title/description 派生；三者都没有才降级
+      if (element.name === 'empty' && (props[key] === undefined || props[key] === '')) {
+        const fallback = props.title ?? props.description
+        if (fallback !== undefined && fallback !== '') props[key] = fallback
+        else return degrade('没有内容')
+      }
       if (props[key] === undefined || props[key] === '') return degrade('没有内容')
       return { kind: 'node', node: { id: typeof element.attrs.id === 'string' && element.attrs.id !== '' ? element.attrs.id : `ml-${element.name}`, type, props, children: [] } }
     }
@@ -274,7 +339,21 @@ export function parseMiopiikMl(source) {
       const text = typeof element.attrs.text === 'string' ? element.attrs.text : innerText
       return text === '' ? degrade('没有内容') : { kind: 'node', node: { id: typeof element.attrs.id === 'string' && element.attrs.id !== '' ? element.attrs.id : 'ml-text', type: 'text', props: { text }, children: [] } }
     }
-    if (element.name === 'p') {
+    if (element.name === 'callout' && element.children.some((child) => child.name !== '#text')) {
+      const children = element.children
+        .map((child) => {
+          if (child.name === '#text') {
+            const text = String(child.text ?? '').trim()
+            return text === '' ? null : { id: 'ml-callout-text', type: 'text', props: { text }, children: [] }
+          }
+          const item = compile(child)
+          return item.kind === 'node' ? item.node : { id: 'ml-callout-degraded', type: 'text', props: { text: item.text }, children: [] }
+        })
+        .filter(Boolean)
+      const props = readProps(attrs, TEXT_PROPS.callout)
+      return { kind: 'node', node: { id: typeof attrs.id === 'string' && attrs.id !== '' ? attrs.id : 'ml-callout', type: 'callout', props, children } }
+    }
+    if (element.name === 'p' || element.name === 'paragraph') {
       const children = element.children.map((child) => {
         if (child.name === '#text') {
           const text = String(child.text ?? '')
@@ -284,7 +363,7 @@ export function parseMiopiikMl(source) {
         return item.kind === 'node' ? item.node : { id: 'ml-inline-degraded', type: 'text', props: { text: item.text }, children: [] }
       }).filter(Boolean)
       if (children.length === 0) return degrade('段落为空')
-      return { kind: 'node', node: { id: typeof element.attrs.id === 'string' && element.attrs.id !== '' ? element.attrs.id : 'ml-p', type: 'paragraph', props: readProps(element.attrs, ['gap']), children } }
+      return { kind: 'node', node: { id: typeof attrs.id === 'string' && attrs.id !== '' ? attrs.id : 'ml-p', type: 'paragraph', props: readProps(attrs, ['gap']), children } }
     }
     if (CONTAINERS[element.name] === true) {
       const nodes = element.children.map((child) => compile(child))
@@ -296,9 +375,9 @@ export function parseMiopiikMl(source) {
       return {
         kind: 'node',
         node: {
-          id: typeof element.attrs.id === 'string' && element.attrs.id !== '' ? element.attrs.id : `ml-${element.name}`,
+          id: typeof attrs.id === 'string' && attrs.id !== '' ? attrs.id : `ml-${element.name}`,
           type,
-          props: readProps(element.attrs, TEXT_PROPS[element.name] ?? []),
+          props: readProps(attrs, TEXT_PROPS[element.name] ?? []),
           children,
         },
       }

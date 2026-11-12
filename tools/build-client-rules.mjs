@@ -54,7 +54,7 @@ export function buildAstBlock() {
     '    // >>> miopiik:iui-ast (generated; edit miopiik-dsh/shared/iui-ast.js)',
     '    const IUI_AST = (() => {',
     body.replace(/^/gmu, '      '),
-    '      return { IUI_VERSION, REGISTRY, LIMITS, readBinding, resolveValue, validateAst, degradeToText }',
+    '      return { IUI_VERSION, REGISTRY, LIMITS, INLINE_TYPES, TONES, ICONS, readBinding, resolveValue, validateAst, tableMatrix, degradeToText }',
     '    })()',
     '    // <<< miopiik:iui-ast',
   ].join('\n')

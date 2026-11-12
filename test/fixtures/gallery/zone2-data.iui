@@ -1,0 +1,49 @@
+<ui title="展区二 · 数据、信息与布局" fallback="统计概览：关键指标、趋势与分布图表、渠道表格、环形进度，使用虚构数据。">
+
+  <paragraph>
+    下面这组界面全部由布局原语拼成：<code>card</code> 划分信息块，<code>grid</code> 负责栅格，
+    <code>row</code> 与 <code>column</code> 处理一维排布。数据为演示用的虚构值，但结构本身是可以直接搬走的。
+  </paragraph>
+
+  <row gap="md" align="stretch">
+    <metric label="28 日活跃会话" value="48,296" delta="+12.4%" caption="较上周期" />
+    <metric label="平均首帧耗时" value="312 ms" delta="-8.1%" caption="越低越好" variant="success" />
+    <metric label="本地交互占比" value="93.7%" delta="+2.3pt" caption="无需模型往返" variant="info" />
+    <metric label="解析失败率" value="0.04%" delta="-0.01pt" caption="近 7 日" variant="danger" />
+  </row>
+
+  <divider />
+
+  <grid columns="3" gap="lg">
+    <card title="渲染量趋势" subtitle="按日聚合，单位：万次">
+      <chart type="line" series='[{"label":"11-06","value":182},{"label":"11-07","value":204},{"label":"11-08","value":167},{"label":"11-09","value":151},{"label":"11-10","value":223},{"label":"11-11","value":248},{"label":"11-12","value":271}]' />
+    </card>
+
+    <card title="组件使用分布" subtitle="按渲染节点计">
+      <chart type="bar" series='[{"label":"paragraph","value":4120},{"label":"card","value":2380},{"label":"badge","value":1960},{"label":"metric","value":1240},{"label":"chart","value":860}]' />
+    </card>
+
+    <card title="主题与端型" subtitle="采样 12,000 次渲染">
+      <progress value="64" max="100" label="深色主题" variant="info" />
+      <progress value="27" max="100" label="浅色主题" variant="neutral" />
+      <progress value="9" max="100" label="高对比度" variant="success" />
+    </card>
+
+    <card title="渠道明细" subtitle="近 7 日，虚构数据" span="2">
+      <table caption="接入渠道与渲染成功率" columns='[{"key":"channel","label":"渠道"},{"key":"sessions","label":"会话"},{"key":"render","label":"渲染成功率"},{"key":"state","label":"状态"}]' rows='[{"channel":"Web 客户端","sessions":"28,410","render":"99.96%","state":"稳定"},{"channel":"桌面客户端","sessions":"12,070","render":"99.91%","state":"稳定"},{"channel":"移动端 WebView","sessions":"6,180","render":"98.72%","state":"观察中"},{"channel":"嵌入式宿主","sessions":"1,636","render":"97.40%","state":"实验中"}]' />
+    </card>
+
+    <card title="交互密度" subtitle="每千次渲染的本地事件">
+      <chart type="bar" series='[{"label":"点击","value":318},{"label":"悬停","value":142},{"label":"聚焦","value":76},{"label":"滚动","value":214}]' />
+    </card>
+  </grid>
+
+  <card title="窄屏降级策略" subtitle="同一棵树，不做两份结构">
+    <paragraph>
+      <code>grid</code> 在窄屏下按<emphasis>最小列宽</emphasis>折叠，而不是整体横向滚动；
+      <code>metric</code> 组会从四列收敛为两列，<code>table</code> 转为纵向字段表。
+      降级发生在布局层，AST 不变。
+    </paragraph>
+  </card>
+
+</ui>

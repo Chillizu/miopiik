@@ -1,0 +1,50 @@
+<ui title="展区一 · 基础组件与视觉语言" fallback="文本、徽章、图标、强调、代码、链接、提示条、进度与空状态的基础展示。">
+
+  <paragraph>
+    语义文本是整套界面的地基。<emphasis>段落自身不携带任何样式选择器</emphasis>，字号、行高与对比度全部由主题决定；需要突出时用
+    <emphasis>emphasis</emphasis>，行内标识用 <code>iui/1</code>，跳转用
+    <link href="/docs/iui">渲染协议文档</link>。所有可交互元素都继承焦点环，键盘可达。
+  </paragraph>
+
+  <paragraph>
+    状态一律走语义枚举，而不是色值：
+    <badge variant="success">已完成</badge>
+    <badge variant="warning">实验中</badge>
+    <badge variant="info">预览</badge>
+    <badge variant="danger">已弃用</badge>
+    <badge variant="neutral">草稿</badge>
+    同一组徽章在浅色与深色主题下会自动取各自的对比度层，这里不需要任何条件分支。
+  </paragraph>
+
+  <row gap="md">
+    <icon name="spark" label="灵感" />
+    <icon name="chart" label="统计" />
+    <icon name="layers" label="分层" />
+    <icon name="shield" label="安全" />
+    <icon name="clock" label="时延" />
+  </row>
+
+  <callout variant="info" title="设计约束">
+    <paragraph>
+      组件只接受语义属性，不接受内联样式。切换主题时，<emphasis>组件树的结构不需要重建</emphasis>，
+      换掉的只是背后那一套设计令牌。
+    </paragraph>
+  </callout>
+
+  <callout variant="warning" title="能力边界">
+    <paragraph>
+      不支持任意 HTML、CSS 与脚本。需要更复杂的形态时，用已有原语组合，而不是想办法绕过白名单。
+    </paragraph>
+  </callout>
+
+  <divider label="状态与进度" />
+
+  <paragraph>渲染管线各环节的迁移进度，按节点粒度统计：</paragraph>
+
+  <progress value="86" max="100" label="解析器" variant="success" />
+  <progress value="72" max="100" label="状态绑定" variant="info" />
+  <progress value="41" max="100" label="流式增量" variant="warning" />
+
+  <empty icon="inbox" title="暂无更多条目" description="空状态同样是设计语言的一部分：它给出方向，而不是留下茫然的白。" />
+
+</ui>

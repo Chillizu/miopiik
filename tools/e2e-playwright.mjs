@@ -79,6 +79,25 @@ try {
     degraded: await output.getAttribute('data-iui-degraded'),
     metrics: await page.locator('[data-iui-metric]').evaluateAll((nodes) => nodes.map((n) => n.textContent.replace(/\s+/g, ' ').trim())),
   })
+  // 1a) 画廊回归样本：状态 + 对象行表格 + 行内混排
+  await page.getByRole('button', { name: /示例 ML：画廊回归/ }).click()
+  await page.waitForTimeout(800)
+  const galleryMetrics = () => page.locator('[data-iui-metric]').evaluateAll((nodes) => nodes.map((n) => n.textContent.replace(/\s+/g, ' ').trim()))
+  const galleryBefore = await galleryMetrics()
+  const tableText = await page.locator('[data-iui-table]').first().innerText()
+  const tableCols = await page.locator('[data-iui-table]').first().getAttribute('data-iui-table-cols')
+  record('mlGallery', {
+    metrics: galleryBefore,
+    tableHasObjectObject: tableText.includes('[object Object]'),
+    tableHasChannel: tableText.includes('Web 客户端'),
+    tableCols,
+    badges: await page.locator('[data-iui-badge]').count(),
+    safeLinks: await page.locator('[data-iui-output] a[href^="https://"], [data-iui-output] a[href^="/"]').count(),
+  })
+  await page.getByRole('button', { name: '近 30 天', exact: true }).click()
+  await page.waitForTimeout(500)
+  record('mlGalleryAfterSwitch', { metrics: await galleryMetrics(), changed: JSON.stringify(galleryBefore) !== JSON.stringify(await galleryMetrics()) })
+
   // 1b) 行内混排：文字与 badge 同一行
   await page.getByRole('button', { name: /示例 ML：行内混排/ }).click()
   await page.waitForTimeout(700)
@@ -171,6 +190,9 @@ const fail = evidence.errors.length > 0 ||
   broken.kind !== 'ok' || broken.text?.includes('无法渲染') !== true ||
   partial.metricStillVisible !== true || partial.text?.includes('无法渲染') !== true ||
   // 默认关闭时正文归原生所有；行内混排必须真的在同一行
+  (evidence.steps.find((s) => s.name === 'mlGallery')?.tableHasObjectObject !== false) ||
+  (evidence.steps.find((s) => s.name === 'mlGallery')?.tableHasChannel !== true) ||
+  (evidence.steps.find((s) => s.name === 'mlGalleryAfterSwitch')?.changed !== true) ||
   native.ourInlineRows !== 0 ||
   (inline.badges ?? []).length < 2 || inline.progressbar !== 1 || inline.safeLink !== 1
 console.log(JSON.stringify({ ok: !fail, evidence }, null, 2))
