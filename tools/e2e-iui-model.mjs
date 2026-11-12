@@ -72,7 +72,7 @@ try {
   }
   // 安全边界：只允许在**新建的空会话**里发测试消息。找不到"新会话"就中止，
   // 绝不回落到用户已有会话（曾经误把测试提示词排进主会话的待发送队列）。
-  const fresh = page.getByRole('button', { name: '新会话' }).first()
+  const fresh = page.getByRole('button', { name: /新建会话|新会话/ }).first()
   if ((await fresh.count()) === 0) {
     console.log(JSON.stringify({ ok: false, blocked: 'no-new-session-button', evidence }, null, 2))
     await context.close()

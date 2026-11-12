@@ -3617,12 +3617,15 @@ chart bar
         }
         if (item.kind !== 'text') return
         const parts = splitInkFences(item.text)
+        rendered.push(h('div', { key: `dbg${index}`, style: { display: 'none' }, 'data-mi-parts': parts.map((part) => `${part.type}:${String(part.text ?? '').length}`).join(',') }))
         rendered.push(
           h(
             'div',
             { key: `t${index}`, style: { display: 'flex', flexDirection: 'column', gap: 10 } },
             ...parts.map((part, partIndex) =>
-              part.type === 'widget'
+              part.type === 'iui'
+                ? h(IuiSheet, { key: `u${partIndex}`, sample: part.ast, format: part.format, degraded: part.degraded })
+                : part.type === 'widget'
                 ? h(WidgetCard, { key: `w${partIndex}`, spec: part.spec })
                 : part.type === 'invalid'
                   ? h('div', { key: `x${partIndex}`, style: { fontSize: 12, color: C.muted, borderLeft: `2px solid ${C.border}`, paddingLeft: 8, lineHeight: '18px' } }, part.text)
@@ -3641,7 +3644,12 @@ chart bar
       if (rendered.length === 0) return null
       return h(
         'div',
-        { style: inlineShellStyles() },
+        {
+          style: inlineShellStyles(),
+          // 诊断用的最小事实：块种类/长度、切片种类，便于 e2e 断言，不含任何用户数据
+          'data-mi-blocks': plan.map((item) => `${item.kind}:${String(item.text ?? '').length}`).join(','),
+          'data-mi-rendered': String(rendered.length),
+        },
         h('div', { style: { display: 'flex', flexDirection: 'column', gap: 16 } }, ...rendered),
       )
     }
