@@ -121,18 +121,45 @@ ctx.markdownEmbeds.register(registration): () => void   // 返回 disposer
 
 ### 6.4 启用步骤（需重启，由 ChatGPT preflight）
 
+**重要：只改 web profile 的覆盖链接，不动 `~/.dsh/profiles/node_modules/` 下的共享/全局包。**
+
 ```bash
-# 1) 生成 fork（幂等；生成物已被 .gitignore 忽略）
+# 1) 生成 fork（幂等；会自动重建 node_modules 依赖链接）
 node tools/fork-chat-embeds.mjs
-# 2) 备份并替换 profile 里的链接（只改 profile，不动全局安装）
+
+# 2) 在 web profile 专属目录加覆盖链接（不存在才建；不要动共享链接）
 cd ~/.dsh/profiles/web/node_modules/@deepseek-ai
-mv dsh-client-ui-chat dsh-client-ui-chat.bak
+# 若该名称已被共享配置占用，先备份再替换
+[ -e dsh-client-ui-chat ] && mv dsh-client-ui-chat dsh-client-ui-chat.bak
 ln -s /home/data/Projects/Mio/MiOpIIk/miopiik-dsh/upstream/dsh-client-ui-chat-embeds dsh-client-ui-chat
-# 3) 重启 dsh-web（ChatGPT 执行），然后浏览器里：
+
+# 3) 重启 dsh-web（由 ChatGPT 执行）
+# 4) 浏览器控制台：
 localStorage.setItem('miopiik.markdownEmbeds', '1'); location.reload()
 ```
 
-**回滚**：`mv dsh-client-ui-chat.bak dsh-client-ui-chat`（并重启）；或仅把 `markdownEmbeds` 置 0 即刻停止接管。
+**为什么需要 node_modules 依赖链接**：fork 目录是"另一个包"，Node 从它自身向上解析依赖，
+不会继承 DSH 安装树；缺少链接时 `lib/index.js` 会报
+`ERR_MODULE_NOT_FOUND: @deepseek-ai/schemastery`，插件 import 失败导致聊天不可用。
+生成器会在复制后创建 `fork/node_modules -> <DSH 安装>/node_modules`，并在 `--check` 时只读校验
+（不删除、不重建）。
+
+**回滚**（任选其一）：
+```bash
+# 彻底回滚
+cd ~/.dsh/profiles/web/node_modules/@deepseek-ai && mv dsh-client-ui-chat.bak dsh-client-ui-chat
+# 或只停用接管（无需重启）
+localStorage.setItem('miopiik.markdownEmbeds', '0')
+```
+
+### 6.4.1 已实测（2026-11-12，ChatGPT 执行）
+
+- fork 覆盖链接解析成功；服务 `active`，3080 返回 401（正常鉴权，未泄露凭据）。
+- 隔离 headless Chromium（未复用用户 profile、未发新消息）中：`window.__miopiikMarkdownEmbeds`
+  存在，分词结果为 `[text, inline, text, inline]`；页面 JS error = 0。
+- 同一会话 64 个原生 `[data-variant=think]` 中，对首个 `[role=button]` 实际点击，
+  `aria-expanded` 走 `false → true → false`，**原生 reasoning 折叠在 fork 开启条件下可用**。
+- 首次启用时曾因缺依赖链接 import 失败，已回滚并修复（见上）。
 
 ### 6.5 尚未完成 / 风险
 
