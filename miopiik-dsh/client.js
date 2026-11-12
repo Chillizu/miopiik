@@ -595,7 +595,7 @@ window.__ModuleLoader__.load({
           const children = spec.children && Array.isArray(node.children) ? node.children.map((child, index) => walk(child, depth + 1, `${path}.children[${index}]`)).filter(Boolean) : []
           return { id: typeof node.id === 'string' && node.id !== '' ? node.id : path, type, props, children }
         }
-        const ast = walk(input, 1, 'root')
+        const ast = walk(input.root, 1, 'root')
         if (ast === null || errors.length > 0) {
           return { ok: false, errors, fallback: typeof input?.fallback === 'string' ? input.fallback : '' }
         }
