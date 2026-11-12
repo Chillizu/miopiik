@@ -37,6 +37,12 @@ const evidence = await evaluate(`(() => {
       badChart: /chart 只能是/.test(text),
     },
     hasDONE: /DONE/.test(text),
+    native: {
+      codeBlock: !!document.querySelector('[data-chat-flow-kind="assistant-step"] pre code, [data-chat-flow-kind="assistant-step"] pre'),
+      link: !!document.querySelector('[data-chat-flow-kind="assistant-step"] a[href^="http"]'),
+      list: !!document.querySelector('[data-chat-flow-kind="assistant-step"] ul li'),
+      textLen: (document.querySelector('[data-chat-flow-kind="assistant-step"]')?.innerText ?? '').length,
+    },
     hasValidGraphCard: /合法图/.test(text),
     consoleErrors: null,
   };

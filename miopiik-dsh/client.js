@@ -370,9 +370,23 @@ window.__ModuleLoader__.load({
 
     const overlay = createStore({ open: false, tab: 'loops' })
     // 正文内嵌的开关：不是配置项，而是注册/注销——关掉时 dispose，chat 自己的渲染器就回来了。
-    const inlineBody = createStore({ enabled: true })
+    // 正文接管默认关闭；用户开关一次后记住（localStorage），避免每次刷新重置。
+    const INLINE_KEY = 'miopiik.inlineBody'
+    const readInlinePref = () => {
+      try {
+        return localStorage.getItem(INLINE_KEY) === '1'
+      } catch {
+        return false
+      }
+    }
+    const inlineBody = createStore({ enabled: readInlinePref() })
     let inlineBodyControl = { register: null, dispose: null }
     function setInlineBody(enabled) {
+      try {
+        localStorage.setItem(INLINE_KEY, enabled ? '1' : '0')
+      } catch {
+        // 存不下就只对本次生效
+      }
       inlineBody.set({ enabled })
       if (enabled) {
         if (inlineBodyControl.dispose === null && inlineBodyControl.register !== null) {
@@ -2400,22 +2414,18 @@ window.__ModuleLoader__.load({
 
     const INK_FENCE = /```ink-view[ \t]*\r?\n([\s\S]*?)```/g
 
-    // chat 自己注入的正文壳（字号/行高/段间距）；接管时原样借用，无 fence 的消息观感才不变。
-    function chatShellClasses() {
-      try {
-        const text = [...document.querySelectorAll('style[data-plugin="@deepseek-ai/dsh-client-ui-chat"]')]
-          .map((node) => node.textContent || '')
-          .join('')
-        const root = /\.([A-Za-z0-9_]+_root)\{font-size:var\(--dsh-content-font-size/.exec(text)
-        const body = /\.([A-Za-z0-9_]+_body)\{flex-direction:column;gap:16px/.exec(text)
-        if (root !== null && body !== null) return { root: root[1], body: body[1] }
-      } catch {
-        return null
+    // 正文壳：只用 DSH 的公开 theme token（--dsh-content-* / --dsw-alias-*），
+    // 不再探测编译生成的 CSS 类哈希——那会随 DSH 构建漂移。
+    function inlineShellStyles() {
+      return {
+        display: 'flex',
+        flexDirection: 'column',
+        fontSize: 'var(--dsh-content-font-size, 14px)',
+        lineHeight: 'calc(24px + var(--dsh-content-font-delta, 0px))',
+        color: 'var(--dsw-alias-label-primary, #1b1b1b)',
       }
-      return null
     }
 
-    let chatShell = null
 
     // 正文里的 spec 与工具参数走**同一套**规则（由 shared/spec-rules.js 生成内联，防漂移）。
     function readSpec(raw) {
@@ -2534,14 +2544,9 @@ window.__ModuleLoader__.load({
         )
       }
       if (rendered.length === 0) return null
-      if (chatShell === null) chatShell = chatShellClasses()
-      if (chatShell !== null) {
-        return h('div', { className: chatShell.root }, h('div', { className: chatShell.body }, ...rendered))
-      }
-      // 拿不到 chat 的壳就自己给等价的排版，别退化成一坨行内文字
       return h(
         'div',
-        { style: { display: 'flex', flexDirection: 'column', fontSize: 14, lineHeight: '24px', color: C.text } },
+        { style: inlineShellStyles() },
         h('div', { style: { display: 'flex', flexDirection: 'column', gap: 16 } }, ...rendered),
       )
     }
