@@ -629,6 +629,11 @@ window.__ModuleLoader__.load({
           ast: { version: IUI_VERSION, state, root, fallback: typeof input?.fallback === 'string' ? input.fallback : '', title: typeof input?.title === 'string' ? input.title : '' },
         }
       }
+      
+      /** 局部降级：把一段文本包成合法的 text 节点（客户端/测试共用）。 */
+      function degradeToText(text) {
+        return { id: 'degraded', type: 'text', props: { text: String(text ?? '') }, children: [] }
+      }
       return { IUI_VERSION, REGISTRY, LIMITS, readBinding, resolveValue, validateAst, degradeToText }
     })()
     // <<< miopiik:iui-ast
@@ -1697,6 +1702,7 @@ window.__ModuleLoader__.load({
         ['interactive', t('iui.sampleInteractive')],
         ['compare', t('iui.sampleCompare')],
         ['broken', t('iui.sampleBroken')],
+        ['json', t('iui.sampleFromJson')],
       ]
       return h(
         'div',
@@ -1708,7 +1714,7 @@ window.__ModuleLoader__.load({
           { style: { display: 'flex', gap: 8, flexWrap: 'wrap' } },
           ...buttons.map(([key, label]) => h('button', { key, type: 'button', onClick: () => onSample(key), style: styles.action }, label)),
         ),
-        h(IuiSheet, { sample: IUI_SAMPLES[sample] }),
+        h(IuiSheet, { sample: sample === 'json' ? readIuiFence(IUI_SAMPLE_JSON) ?? IUI_SAMPLES.broken : IUI_SAMPLES[sample] }),
       )
     }
 
@@ -3018,6 +3024,19 @@ chart bar
     }
 
     const INK_FENCE = /```ink-view[ \t]*\r?\n([\s\S]*?)```/g
+    // 新模式：模型写 fenced ```iui，内容是 IUI AST 的 JSON（受同一套 validateAst 约束）
+    const IUI_FENCE = /```iui[ \t]*\r?\n([\s\S]*?)```/g
+    const IUI_SAMPLE_JSON = JSON.stringify(IUI_SAMPLES.interactive, null, 2)
+
+    function readIuiFence(raw) {
+      try {
+        const parsed = JSON.parse(String(raw).trim())
+        if (parsed === null || typeof parsed !== 'object') return null
+        return parsed
+      } catch {
+        return null
+      }
+    }
 
     // 正文壳：只用 DSH 的公开 theme token（--dsh-content-* / --dsw-alias-*），
     // 不再探测编译生成的 CSS 类哈希——那会随 DSH 构建漂移。
@@ -3050,6 +3069,29 @@ chart bar
 
     // 一段正文切成「markdown 段 / 卡片段」，保序。
     function splitInkFences(text) {
+      const source = String(text ?? '')
+      const parts = []
+      let last = 0
+      IUI_FENCE.lastIndex = 0
+      let iui = IUI_FENCE.exec(source)
+      while (iui !== null) {
+        const ast = readIuiFence(iui[1])
+        if (iui.index > last) {
+          // 前面的普通文本先按老规则（可能含 ink-view）递归切一遍
+          const inner = splitInkFencesLegacy(source.slice(last, iui.index))
+          parts.push(...inner)
+        }
+        if (ast === null) parts.push({ type: 'invalid', text: '（这段 iui 不是合法 JSON，已降级）', reason: 'json' })
+        else parts.push({ type: 'iui', ast })
+        last = iui.index + iui[0].length
+        iui = IUI_FENCE.exec(source)
+      }
+      if (last >= source.length) return parts.length === 0 ? [{ type: 'md', text: source }] : parts
+      const rest = source.slice(last)
+      return [...parts, ...splitInkFencesLegacy(rest)]
+    }
+
+    function splitInkFencesLegacy(text) {
       const source = String(text ?? '')
       const parts = []
       let last = 0
@@ -3268,6 +3310,7 @@ chart bar
       'iui.sampleInteractive': '示例：指标 + 趋势 + 切换',
       'iui.sampleCompare': '示例：两列对比',
       'iui.sampleBroken': '示例：坏 AST 降级',
+      'iui.sampleFromJson': '示例：模型写的 AST（JSON）',
       'dsl.title': '实验性 IUI（预览）',
       'dsl.on': '开',
       'dsl.off': '关',
@@ -3377,6 +3420,7 @@ chart bar
       'iui.sampleInteractive': 'Sample: metrics + trend + switch',
       'iui.sampleCompare': 'Sample: two-column compare',
       'iui.sampleBroken': 'Sample: broken AST',
+      'iui.sampleFromJson': 'Sample: model-authored AST (JSON)',
       'dsl.title': 'Experimental IUI (preview)',
       'dsl.on': 'on',
       'dsl.off': 'off',

@@ -70,3 +70,18 @@ test('实验入口：默认关闭、localStorage 记忆、AST 校验器已内联
   assert.ok(client.includes('data-iui-output'))
   assert.ok(client.includes('aria-pressed'))
 })
+
+test('防回归：客户端内联块里 return 的标识符在真源里都有定义（曾因 degradeToText 被删导致整插件不启动）', async () => {
+  const { readFileSync } = await import('node:fs')
+  const module = await import('../miopiik-dsh/shared/iui-ast.js')
+  const client = readFileSync(new URL('../miopiik-dsh/client.js', import.meta.url), 'utf8')
+  const start = client.indexOf('const IUI_AST = (() => {')
+  const stop = client.indexOf('// <<< miopiik:iui-ast')
+  assert.ok(start > 0 && stop > start, '找不到内联的 IUI_AST 块')
+  const block = client.slice(start, stop)
+  const tail = block.slice(block.lastIndexOf('return {'))
+  const names = tail.slice('return {'.length, tail.indexOf('}')).split(',').map((part) => part.trim()).filter(Boolean)
+  for (const name of names) {
+    assert.equal(typeof module[name], 'function', `${name} 在内联块里被导出，但真源没有定义`)
+  }
+})

@@ -121,3 +121,8 @@ export function validateAst(input) {
     ast: { version: IUI_VERSION, state, root, fallback: typeof input?.fallback === 'string' ? input.fallback : '', title: typeof input?.title === 'string' ? input.title : '' },
   }
 }
+
+/** 局部降级：把一段文本包成合法的 text 节点（客户端/测试共用）。 */
+export function degradeToText(text) {
+  return { id: 'degraded', type: 'text', props: { text: String(text ?? '') }, children: [] }
+}
