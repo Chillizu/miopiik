@@ -52,8 +52,15 @@ function tokenUrl() {
   return { url: `http://127.0.0.1:3080/?token=${match[1]}`, token: match[1] }
 }
 
-const pages = (await targets()).filter((target) => target.type === 'page')
-const page = pages.find((target) => target.url.includes('127.0.0.1:3080')) ?? pages[0]
+let pages = (await targets()).filter((target) => target.type === 'page')
+let page = pages.find((target) => target.url.includes('127.0.0.1:3080'))
+if (page === undefined) {
+  // 没有 DSH 标签页就新建一个（token 只在进程内使用）
+  const helper = tokenUrl()
+  const created = await fetch(`${base}/json/new?${encodeURIComponent(helper.url)}`, { method: 'PUT' }).then((r) => r.json())
+  page = created
+  pages = [created]
+}
 if (page === undefined) throw new Error('没有可用标签页')
 const cdp = await connect(page.webSocketDebuggerUrl)
 try {

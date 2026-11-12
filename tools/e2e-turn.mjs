@@ -24,13 +24,20 @@ const send = (method, params = {}) => new Promise((res, rej) => {
 const evaluate = async (expression) => (await send('Runtime.evaluate', { expression, awaitPromise: true, returnByValue: true })).result?.value
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
 
-const typed = await evaluate(`(() => {
+const inserted = await evaluate(`(() => {
   const el = document.querySelector('textarea, [contenteditable="true"]');
   if (!el) return 'no-input';
   el.focus();
   document.execCommand('insertText', false, ${JSON.stringify(text)});
-  return (el.textContent || el.value || '').length > 0 ? 'typed' : 'empty';
+  return 'inserted';
 })()`)
+await sleep(400)
+const typed = await evaluate(`(() => {
+  const el = document.querySelector('textarea, [contenteditable="true"]');
+  const value = (el?.value ?? el?.innerText ?? '').trim();
+  return value.length > 0 ? 'typed:' + value.length : 'empty';
+})()`)
+void typed
 await sleep(500)
 await evaluate(`(() => { const b = [...document.querySelectorAll('button[aria-label]')].find((x) => /发送|Send/i.test(x.getAttribute('aria-label') || '')); b?.click(); return !!b })()`)
 let stable = 0

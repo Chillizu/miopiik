@@ -299,6 +299,59 @@ window.__ModuleLoader__.load({
     })()
     // <<< miopiik:spec-rules
 
+    // >>> miopiik:assistant-blocks (generated; edit miopiik-dsh/shared/assistant-blocks.js)
+    const ASSISTANT_BLOCKS = (() => {
+      /**
+       * assistant 消息块 → 渲染计划（纯函数，Host/Client 共用，无 DOM 依赖）。
+       *
+       * 为什么单独抽出来：之前内联渲染直接在 for 循环里用 `return` 做"跳过"，
+       * 结果第一个不匹配的块就退出了整个组件，普通正文整段消失（P0）。
+       * 现在分类逻辑集中在这里，组件只做"映射"，不允许提前 return。
+       */
+      
+      const ASSISTANT_BLOCK_KINDS = Object.freeze(['text', 'reasoning', 'images', 'unknown'])
+      
+      /**
+       * @param blocks assistant 消息的 block 数组（不可信，可能含 null）
+       * @param groupPart 该节点在回合里的分组：'reasoning' | 'response' | undefined
+       * @returns {Array<{kind:string, text?:string, images?:Array, block?:unknown}>}
+       */
+      function planAssistantBlocks(blocks, groupPart) {
+        const plan = []
+        if (!Array.isArray(blocks)) return plan
+        for (let index = 0; index < blocks.length; index += 1) {
+          const block = blocks[index]
+          if (block === null || typeof block !== 'object') continue
+          if (groupPart === 'reasoning' && block.kind !== 'reasoning') continue
+          if (groupPart === 'response' && block.kind === 'reasoning') continue
+          if (block.kind === 'reasoning') {
+            const text = String(block.text ?? '')
+            if (text.trim() !== '') plan.push({ kind: 'reasoning', text })
+            continue
+          }
+          if (block.kind === 'image') {
+            const group = [block]
+            while (index + 1 < blocks.length && blocks[index + 1]?.kind === 'image') {
+              index += 1
+              group.push(blocks[index])
+            }
+            plan.push({ kind: 'images', images: group.map((item) => ({ attachment: item.attachment })) })
+            continue
+          }
+          if (block.kind === 'text') {
+            plan.push({ kind: 'text', text: String(block.text ?? '') })
+            continue
+          }
+          // 工具调用由 Chat 自己的工具行渲染，正文里跳过，避免重复
+          if (block.kind === 'tool-call') continue
+          plan.push({ kind: 'unknown', block })
+        }
+        return plan
+      }
+      return { ASSISTANT_BLOCK_KINDS, planAssistantBlocks }
+    })()
+    // <<< miopiik:assistant-blocks
+
     function createStore(initial) {
       let state = initial
       const listeners = new Set()
@@ -2427,64 +2480,54 @@ window.__ModuleLoader__.load({
         },
         footnotes: tr('markdown.footnotes'),
       }
+      // 分类交给纯函数；组件只做映射，绝不提前 return（P0：曾因循环里 return 吞掉整段正文）
+      const plan = ASSISTANT_BLOCKS.planAssistantBlocks(blocks, groupPart)
       const rendered = []
-      for (let index = 0; index < blocks.length; index += 1) {
-        const block = blocks[index]
-        if (block === null || typeof block !== 'object') return
-        if (groupPart === 'reasoning' && block.kind !== 'reasoning') return
-        if (groupPart === 'response' && block.kind === 'reasoning') return
-        if (block.kind === 'text') {
-          const parts = splitInkFences(block.text)
-          rendered.push(
-            h(
-              'div',
-              { key: `t${index}`, style: { display: 'flex', flexDirection: 'column', gap: 10 } },
-              ...parts.map((part, partIndex) =>
-                part.type === 'widget'
-                  ? h(WidgetCard, { key: `w${partIndex}`, spec: part.spec })
-                  : part.type === 'invalid'
-                    ? h('div', { key: `x${partIndex}`, style: { fontSize: 12, color: C.muted, borderLeft: `2px solid ${C.border}`, paddingLeft: 8, lineHeight: '18px' } }, part.text)
-                  : MarkdownText !== null
-                    ? h(MarkdownText, { key: `m${partIndex}`, text: part.text, streaming, labels, pathImages })
-                    : h('div', { key: `m${partIndex}`, style: { whiteSpace: 'pre-wrap', fontSize: 14, lineHeight: 1.7 } }, part.text),
-              ),
-            ),
-          )
-          continue
-        }
-        if (block.kind === 'image') {
-          // 图片块原本走 chat 的 message.images 席位；接管后要自己转回去，否则正文里的图会消失
-          const group = [block]
-          while (index + group.length < blocks.length && blocks[index + group.length]?.kind === 'image') {
-            group.push(blocks[index + group.length])
-          }
-          const renderSlot = props?.renderSlot
-          if (typeof renderSlot === 'function') {
-            rendered.push(
-              h(
-                'div',
-                { key: `i${index}` },
-                renderSlot('conversation.chat.message.images', {
-                  images: group.map((item) => ({ attachment: item.attachment })),
-                  loadImage: props.loadImage,
-                  align: 'start',
-                }),
-              ),
-            )
-            index += group.length - 1
-          }
-          continue
-        }
-        if (block.kind === 'reasoning') {
-          if (String(block.text ?? '').trim() === '') return
+      plan.forEach((item, index) => {
+        if (item.kind === 'reasoning') {
           rendered.push(
             h(
               'div',
               { key: `r${index}`, style: { fontSize: 12, lineHeight: '18px', color: C.muted, whiteSpace: 'pre-wrap', borderLeft: `2px solid ${C.border}`, paddingLeft: 8 } },
-              String(block.text),
+              item.text,
             ),
           )
+          return
         }
+        if (item.kind === 'images') {
+          if (typeof props?.renderSlot === 'function') {
+            rendered.push(
+              h(
+                'div',
+                { key: `i${index}` },
+                props.renderSlot('conversation.chat.message.images', { images: item.images, loadImage: props.loadImage, align: 'start' }),
+              ),
+            )
+          }
+          return
+        }
+        if (item.kind !== 'text') return
+        const parts = splitInkFences(item.text)
+        rendered.push(
+          h(
+            'div',
+            { key: `t${index}`, style: { display: 'flex', flexDirection: 'column', gap: 10 } },
+            ...parts.map((part, partIndex) =>
+              part.type === 'widget'
+                ? h(WidgetCard, { key: `w${partIndex}`, spec: part.spec })
+                : part.type === 'invalid'
+                  ? h('div', { key: `x${partIndex}`, style: { fontSize: 12, color: C.muted, borderLeft: `2px solid ${C.border}`, paddingLeft: 8, lineHeight: '18px' } }, part.text)
+                  : MarkdownText !== null
+                    ? h(MarkdownText, { key: `m${partIndex}`, text: part.text, streaming, labels, pathImages })
+                    : h('div', { key: `m${partIndex}`, style: { whiteSpace: 'pre-wrap', fontSize: 14, lineHeight: 1.7 } }, part.text),
+            ),
+          ),
+        )
+      })
+      if (data.status === 'interrupted') {
+        rendered.push(
+          h('div', { key: 'stopped', style: { fontSize: 12, color: C.muted, lineHeight: '18px' } }, tr('message.stopped')),
+        )
       }
       if (rendered.length === 0) return null
       if (chatShell === null) chatShell = chatShellClasses()

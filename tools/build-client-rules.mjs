@@ -11,10 +11,24 @@ import { fileURLToPath } from 'node:url'
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..')
 const sharedPath = join(root, 'miopiik-dsh', 'shared', 'spec-rules.js')
+const blocksPath = join(root, 'miopiik-dsh', 'shared', 'assistant-blocks.js')
 const clientPath = join(root, 'miopiik-dsh', 'client.js')
 
 export const BEGIN = '    // >>> miopiik:spec-rules (generated; edit miopiik-dsh/shared/spec-rules.js)'
 export const END = '    // <<< miopiik:spec-rules'
+
+export function buildBlocksBlock() {
+  const source = readFileSync(blocksPath, 'utf8')
+  const body = source.replace(/^export\s+(const|function|let)\s/gmu, '$1 ').trim()
+  return [
+    '    // >>> miopiik:assistant-blocks (generated; edit miopiik-dsh/shared/assistant-blocks.js)',
+    '    const ASSISTANT_BLOCKS = (() => {',
+    body.replace(/^/gmu, '      '),
+    '      return { ASSISTANT_BLOCK_KINDS, planAssistantBlocks }',
+    '    })()',
+    '    // <<< miopiik:assistant-blocks',
+  ].join('\n')
+}
 
 export function buildBlock() {
   const source = readFileSync(sharedPath, 'utf8')
@@ -34,20 +48,32 @@ export function buildBlock() {
 
 export function syncCheck() {
   const client = readFileSync(clientPath, 'utf8')
-  const start = client.indexOf(BEGIN)
-  const end = client.indexOf(END)
-  if (start < 0 || end < 0) return { ok: false, reason: 'client.js 里找不到 markers' }
-  const current = client.slice(start, end + END.length)
-  const expected = buildBlock()
-  return { ok: current === expected, current, expected }
+  const pairs = [
+    [BEGIN, END, buildBlock()],
+    ['    // >>> miopiik:assistant-blocks (generated; edit miopiik-dsh/shared/assistant-blocks.js)', '    // <<< miopiik:assistant-blocks', buildBlocksBlock()],
+  ]
+  for (const [begin, end, expected] of pairs) {
+    const start = client.indexOf(begin)
+    const stop = client.indexOf(end)
+    if (start < 0 || stop < 0) return { ok: false, reason: 'client.js 里找不到 markers' }
+    if (client.slice(start, stop + end.length) !== expected) return { ok: false, current: client.slice(start, stop + end.length), expected }
+  }
+  return { ok: true }
 }
 
 export function writeBlock() {
   const client = readFileSync(clientPath, 'utf8')
-  const start = client.indexOf(BEGIN)
-  const end = client.indexOf(END)
-  if (start < 0 || end < 0) throw new Error('client.js 里找不到 markers')
-  const next = client.slice(0, start) + buildBlock() + client.slice(end + END.length)
+  const pairs = [
+    [BEGIN, END, buildBlock()],
+    ['    // >>> miopiik:assistant-blocks (generated; edit miopiik-dsh/shared/assistant-blocks.js)', '    // <<< miopiik:assistant-blocks', buildBlocksBlock()],
+  ]
+  let next = client
+  for (const [begin, end, block] of pairs) {
+    const start = next.indexOf(begin)
+    const stop = next.indexOf(end)
+    if (start < 0 || stop < 0) throw new Error('client.js 里找不到 markers')
+    next = next.slice(0, start) + block + next.slice(stop + end.length)
+  }
   writeFileSync(clientPath, next, 'utf8')
   return next.length - client.length
 }
