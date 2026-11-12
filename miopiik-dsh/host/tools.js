@@ -724,7 +724,12 @@ export function registerTools(ctx, engines, operator, services = {}) {
         if (!checked.ok) {
           throw new Error(`${checked.errors.join('；')}。可用：${(checked.available ?? WIDGET_KINDS).join(' / ')}`)
         }
-        const svg = renderSpecSvg(checked.spec)
+        let svg = null
+        try {
+          svg = renderSpecSvg(checked.spec)
+        } catch (error) {
+          throw new Error(`画图失败（已隔离）：${error?.message ?? error}`)
+        }
         if (svg === null) {
           throw new Error('这份 spec 画不成图：dataset 需要 chart=bar|line|donut；graph 需要 nodes')
         }
