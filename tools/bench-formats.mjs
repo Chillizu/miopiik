@@ -49,6 +49,23 @@ function snapshotSessions() {
   return new Set(readdirSync(SESSION_ROOT).filter((name) => name.startsWith('session-')))
 }
 
+/** 本次运行后新出现（或刚被写过）的会话目录，取最新一个。 */
+function newestSessionSince(startedAt) {
+  const candidates = readdirSync(SESSION_ROOT)
+    .filter((name) => name.startsWith('session-'))
+    .map((name) => {
+      // 目录 mtime 不随日志增长变化，必须看日志文件本身的 mtime
+      try {
+        return { name, mtime: statSync(join(SESSION_ROOT, name, 'session.v4.jsonl.zstd')).mtimeMs }
+      } catch {
+        return { name, mtime: 0 }
+      }
+    })
+    .filter((item) => item.mtime >= startedAt - 2000)
+    .sort((a, b) => b.mtime - a.mtime)
+  return candidates[0]?.name ?? null
+}
+
 function readUsage(sessionDir) {
   const file = join(SESSION_ROOT, sessionDir, 'session.v4.jsonl.zstd')
   let raw = ''
@@ -84,7 +101,6 @@ const browser = await chromium.launch({ executablePath: '/usr/bin/chromium', hea
 const results = []
 try {
   for (const key of wanted) {
-    const before = snapshotSessions()
     const context = await browser.newContext({ viewport: { width: 1280, height: 900 } })
     await context.addInitScript(() => {
       try {
@@ -130,9 +146,10 @@ try {
 
     const output = page.locator('[data-iui-output]').first()
     let firstVisibleMs = null
-    for (let i = 0; i < 120; i += 1) {
+    for (let i = 0; i < 240; i += 1) {
       await page.waitForTimeout(250)
-      if ((await output.count()) > 0) {
+      const visible = await page.evaluate(() => document.querySelector('[data-iui-output]') !== null)
+      if (visible) {
         firstVisibleMs = Date.now() - started
         break
       }
@@ -164,10 +181,9 @@ try {
     const literalFence = (await page.locator('body').innerText()).includes('```iui')
     await context.close()
 
-    const after = snapshotSessions()
-    const created = [...after].filter((name) => !before.has(name))
-    const usage = created.length === 1 ? readUsage(created[0]) : null
-    results.push({ key, rendered, renderedFacts, firstVisibleMs, literalFence, usage, sessionCount: created.length, errors })
+    const newest = newestSessionSince(started)
+    const usage = newest === null ? null : readUsage(newest)
+    results.push({ key, rendered, renderedFacts, firstVisibleMs, literalFence, usage, sessionCount: newest === null ? 0 : 1, errors })
   }
 } finally {
   await browser.close()
