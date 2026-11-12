@@ -72,18 +72,22 @@ const PATCHED_TEXT_CASE = `\t\t\t\t\tcase "text": {
 							}, i));
 							break;
 						}
+						const segmentNodes = [];
 						segments.forEach((part, partIndex) => {
 							if (part.kind === "text") {
-								rendered.push((0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.MarkdownText, {
-									text: part.text,
-									streaming,
-									labels,
-									fileMentions: mentions,
-									pathImages
+								segmentNodes.push((0, react_jsx_runtime.jsx)("div", {
+									style: { display: "inline" },
+									children: (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.MarkdownText, {
+										text: part.text,
+										streaming,
+										labels,
+										fileMentions: mentions,
+										pathImages
+									})
 								}, i + ":" + partIndex));
 								return;
 							}
-							rendered.push((0, react_jsx_runtime.jsx)(MiopiikEmbedSegment, {
+							segmentNodes.push((0, react_jsx_runtime.jsx)(MiopiikEmbedSegment, {
 								part,
 								streaming,
 								labels,
@@ -92,6 +96,13 @@ const PATCHED_TEXT_CASE = `\t\t\t\t\tcase "text": {
 								t
 							}, i + ":" + partIndex));
 						});
+						// 行内段与块级段分开放：有行内标记时用 flex 容器把文字和 badge 排在同一行
+						const hasInline = segments.some((part) => part.kind === "inline");
+						rendered.push((0, react_jsx_runtime.jsx)("div", {
+							"data-miopiik-segments": hasInline ? "inline" : "block",
+							style: hasInline ? { display: "flex", flexWrap: "wrap", alignItems: "baseline", columnGap: 2, rowGap: 4 } : undefined,
+							children: segmentNodes
+						}, i));
 						break;
 					}`
 

@@ -163,7 +163,15 @@ localStorage.setItem('miopiik.markdownEmbeds', '0')
 
 ### 6.5 尚未完成 / 风险
 
-- 未在真实 3080 验证（需重启；本轮不自行重启）。
+- 原生 reasoning 折叠已在 fork 下实测通过；**行内混排的真实观感与历史回放尚未验收**（见 6.5 限制）。
 - fork 与上游版本耦合：升级 DSH 后若 `AssistantMarkdown` 结构变化，生成脚本会**直接报错**而不是产出错误补丁。
-- 行内 token 若跨越 Markdown 结构（如 `**加粗 {{badge:x}} 继续**`），两侧文本会被分别渲染，加粗会在 token 处断开——这是切分式嵌入的已知限制，改用 remark 插件可彻底解决（上游 PR 方向）。
+- **切分式嵌入的已知限制**（重要，勿混淆为"已完成"）：
+  - 行内 token 若跨越 Markdown 结构（如 `**加粗 {{badge:x}} 继续**`），两侧文本会被分别渲染，加粗会在 token 处断开；
+  - 文字与 badge 目前靠外层 flex 容器排在同一行（`data-miopiik-segments="inline"`），**不是真正的行内排版**；
+    MarkdownText 是块级组件，段落边距、复制选区、屏幕阅读器朗读顺序都可能与原生不一致；
+  - 选中复制时，分段渲染可能带出多余换行。
+  - 彻底解决需要 **Markdown AST 级嵌入**（remark/renderer 插件），前提是 DSH 把 primitives 作为可解析包发布：
+    本机核实 `@deepseek-ai/dsh-client-ui-primitives` **在磁盘上不存在**（profile 链接指向已删除的
+    `/opt/deepseek-harness/...`，运行时由前端 bundle 注入），因此当前**无法 fork MarkdownText 做 AST 级改造**，
+    只能等上游把 primitives 发成插件包或直接提供 embed 接口。
 - 流式期间未闭合 token 按普通文本显示，闭合后一次性 materialize。
