@@ -557,60 +557,77 @@ window.__ModuleLoader__.load({
       }
       
       /**
-       * 校验并规范化一棵 AST。
-       * @returns {{ok:true, ast} | {ok:false, errors, fallback}}
+       * 校验并规范化一棵 AST（**局部容错**）。
+       *
+       * 规则：
+       *  - 根节点不合法 / 深度或节点预算超限 → 整份拒绝（安全边界，不尝试修复）；
+       *  - 子节点不合法 → 只把该子树替换成 fallback 文本节点，兄弟与父布局保留；
+       *  - 未知组件、props 不合法、subtree 预算越界都走同一条降级路径。
+       *
+       * @returns {{ok:true, ast, errors:string[], degraded:number} | {ok:false, errors:string[], fallback:string}}
        */
       function validateAst(input) {
-        const errors = []
+        const fatal = []
         let nodes = 0
+        let degraded = 0
+      
+        const failNode = (node, path, reason) => {
+          degraded += 1
+          const text = typeof node?.fallback === 'string' && node.fallback.trim() !== '' ? node.fallback : `（此段组件无法渲染：${reason}）`
+          return { id: `${path}-degraded`, type: 'text', props: { text }, children: [], degraded: true }
+        }
+      
         const walk = (node, depth, path) => {
-          if (!isRecord(node)) {
-            errors.push(`${path} 不是对象`)
-            return null
-          }
+          if (!isRecord(node)) return failNode(node, path, '不是对象')
           if (depth > LIMITS.depth) {
-            errors.push(`${path} 超过最大深度 ${LIMITS.depth}`)
+            fatal.push(`${path} 超过最大深度 ${LIMITS.depth}`)
             return null
           }
           nodes += 1
           if (nodes > LIMITS.nodes) {
-            errors.push(`节点数超过 ${LIMITS.nodes}`)
+            fatal.push(`节点数超过 ${LIMITS.nodes}`)
             return null
           }
-          const type = node.type
-          const spec = REGISTRY[type]
-          if (spec === undefined) {
-            errors.push(`${path} 未知组件类型：${String(type)}`)
-            return null
-          }
+          const spec = REGISTRY[node.type]
+          if (spec === undefined) return failNode(node, path, `未知组件类型 ${String(node.type)}`)
           const props = isRecord(node.props) ? node.props : {}
-          if (props.bind !== undefined) {
-            const binding = readBinding(props.bind)
-            if (binding.scope !== 'state') errors.push(`${path}.bind 只能绑定 $state.*`)
+          if (props.bind !== undefined && readBinding(props.bind).scope !== 'state') {
+            return failNode(node, path, 'bind 只能绑定 $state.*')
           }
-          if (type === 'segmented' && (!Array.isArray(props.options) || props.options.length === 0 || props.options.length > LIMITS.options)) {
-            errors.push(`${path}.options 必须是 1–${LIMITS.options} 项数组`)
+          if (node.type === 'segmented' && (!Array.isArray(props.options) || props.options.length === 0 || props.options.length > LIMITS.options)) {
+            return failNode(node, path, `options 需要 1–${LIMITS.options} 项`)
           }
-          if (type === 'chart') {
-            const series = readBinding(props.series)
-            const literal = series.literal
-            if (Array.isArray(literal) && literal.length > LIMITS.series) errors.push(`${path}.series 超过 ${LIMITS.series} 点`)
+          if (node.type === 'chart') {
+            const literal = readBinding(props.series).literal
+            if (Array.isArray(literal) && literal.length > LIMITS.series) return failNode(node, path, `series 超过 ${LIMITS.series} 点`)
           }
-          if (type === 'text' && typeof props.text === 'string' && props.text.length > LIMITS.text) errors.push(`${path}.text 超过 ${LIMITS.text} 字`)
-          const children = spec.children && Array.isArray(node.children) ? node.children.map((child, index) => walk(child, depth + 1, `${path}.children[${index}]`)).filter(Boolean) : []
-          return { id: typeof node.id === 'string' && node.id !== '' ? node.id : path, type, props, children }
+          if (node.type === 'text' && typeof props.text === 'string' && props.text.length > LIMITS.text) {
+            return failNode(node, path, `text 超过 ${LIMITS.text} 字`)
+          }
+          const children = []
+          if (spec.children && Array.isArray(node.children)) {
+            for (const [index, child] of node.children.entries()) {
+              const walked = walk(child, depth + 1, `${path}.children[${index}]`)
+              if (walked === null) return null
+              children.push(walked)
+            }
+          }
+          return { id: typeof node.id === 'string' && node.id !== '' ? node.id : path, type: node.type, props, children }
         }
-        const ast = walk(input.root, 1, 'root')
-        if (ast === null || errors.length > 0) {
-          return { ok: false, errors, fallback: typeof input?.fallback === 'string' ? input.fallback : '' }
+      
+        const root = walk(input?.root, 1, 'root')
+        // 根节点若只能降级，等于整份文档没有可信结构 → 整段拒绝（不做半残渲染）
+        if (root !== null && root.degraded === true) fatal.push('根节点不合法')
+        if (fatal.length > 0 || root === null) {
+          return { ok: false, errors: fatal.length > 0 ? fatal : ['根节点不合法'], fallback: typeof input?.fallback === 'string' ? input.fallback : '' }
         }
         const state = isRecord(input.state) ? input.state : {}
-        return { ok: true, errors: [], ast: { version: IUI_VERSION, state, root: ast, fallback: typeof input.fallback === 'string' ? input.fallback : '', title: typeof input.title === 'string' ? input.title : '' } }
-      }
-      
-      /** 局部降级：把一棵不合法子树换成 fallback 文本节点。 */
-      function degradeToText(text) {
-        return { id: 'degrade', type: 'text', props: { text: String(text ?? '') }, children: [] }
+        return {
+          ok: true,
+          errors: [],
+          degraded,
+          ast: { version: IUI_VERSION, state, root, fallback: typeof input?.fallback === 'string' ? input.fallback : '', title: typeof input?.title === 'string' ? input.title : '' },
+        }
       }
       return { IUI_VERSION, REGISTRY, LIMITS, readBinding, resolveValue, validateAst, degradeToText }
     })()

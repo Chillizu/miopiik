@@ -26,13 +26,23 @@ test('合法 AST：版本、绑定、状态初值都保留', () => {
   assert.deepEqual(resolveValue('$state.range.current', { state: { range: { current: 7 } } }), 7)
 })
 
-test('未知组件类型整树不合法（由调用方降级为 fallback）', () => {
+test('未知组件只降级该子树：父布局与合法兄弟保留', () => {
   const bad = good()
-  bad.root.children.push({ id: 'x', type: 'qrcode', props: {} })
+  bad.root.children.push({ id: 'x', type: 'qrcode', props: {}, fallback: '这段是坏节点' })
   const checked = validateAst(bad)
-  assert.equal(checked.ok, false)
-  assert.match(checked.errors.join(''), /未知组件类型/)
-  assert.equal(checked.fallback, 'f')
+  assert.equal(checked.ok, true, '局部降级不应整份拒绝')
+  assert.equal(checked.degraded, 1)
+  const degraded = checked.ast.root.children.at(-1)
+  assert.equal(degraded.type, 'text')
+  assert.equal(degraded.props.text, '这段是坏节点')
+  assert.equal(checked.ast.root.children[0].type, 'metric', '合法兄弟必须保留')
+  assert.equal(checked.ast.root.type, 'column', '父布局必须保留')
+})
+
+test('根节点损坏 / 预算超限：整份拒绝（安全边界）', () => {
+  assert.equal(validateAst({ root: { id: 'r', type: 'nope' }, fallback: 'f' }).ok, false)
+  const deep = (() => { let node = { id: 'leaf', type: 'text', props: { text: 'x' } }; for (let i = 0; i < 6; i += 1) node = { id: `n${i}`, type: 'column', children: [node] }; return node })()
+  assert.equal(validateAst({ root: deep, fallback: 'f' }).ok, false)
 })
 
 test('预算：深度与节点数超限被拒', () => {
@@ -48,7 +58,9 @@ test('绑定只接受 $state / $data，其余按字面量处理；segmented 的 
   assert.deepEqual(readBinding('$state.a'), { scope: 'state', key: 'a' })
   assert.deepEqual(readBinding('$data.a'), { scope: 'data', key: 'a' })
   assert.deepEqual(readBinding('$fn.eval("x")'), { literal: '$fn.eval("x")' })
-  assert.equal(validateAst({ fallback: 'f', root: { id: 'r', type: 'segmented', props: { bind: '$data.x', options: [{ label: 'a', value: 1 }] } } }).ok, false)
+  const badBind = validateAst({ fallback: 'f', root: { id: 'r', type: 'column', children: [{ id: 's', type: 'segmented', props: { bind: '$data.x', options: [{ label: 'a', value: 1 }] } }] } })
+  assert.equal(badBind.ok, true, '子节点非法应局部降级')
+  assert.equal(badBind.degraded, 1)
 })
 
 test('实验入口：默认关闭、localStorage 记忆、AST 校验器已内联进客户端', () => {
