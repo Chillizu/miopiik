@@ -70,11 +70,26 @@ try {
     await context.close()
     process.exit(0)
   }
+  // 安全边界：只允许在**新建的空会话**里发测试消息。找不到"新会话"就中止，
+  // 绝不回落到用户已有会话（曾经误把测试提示词排进主会话的待发送队列）。
   const fresh = page.getByRole('button', { name: '新会话' }).first()
-  if (await fresh.count()) { await fresh.click(); await page.waitForTimeout(2200) }
-  else {
-    const session = page.locator('[role="treeitem"]').filter({ hasText: 'MiOpIIk 架构' }).first()
-    if (await session.count()) { await session.click(); await page.waitForTimeout(2500) }
+  if ((await fresh.count()) === 0) {
+    console.log(JSON.stringify({ ok: false, blocked: 'no-new-session-button', evidence }, null, 2))
+    await context.close()
+    process.exit(0)
+  }
+  await fresh.click()
+  await page.waitForTimeout(2200)
+  const emptyComposer = await page.evaluate(() => {
+    const el = document.querySelector('textarea, [contenteditable="true"]')
+    const value = el?.value ?? el?.innerText ?? ''
+    return value.trim() === ''
+  })
+  evidence.startedNewEmptySession = emptyComposer
+  if (!emptyComposer) {
+    console.log(JSON.stringify({ ok: false, blocked: 'composer-not-empty', evidence }, null, 2))
+    await context.close()
+    process.exit(0)
   }
   await page.locator('textarea, [contenteditable="true"]').first().waitFor({ timeout: 5000 }).catch(() => {})
   const input = page.locator('textarea, [contenteditable="true"]').first()
