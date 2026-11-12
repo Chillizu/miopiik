@@ -29,3 +29,26 @@ test('DSL：同一份内容的字符成本低于 JSON（粗代理）', () => {
   const cost = comparePayloadCost(specs)
   assert.ok(cost.ratio < 0.6, `DSL 应明显更短，实际 ratio=${cost.ratio}（json=${cost.json}, dsl=${cost.dsl}）`)
 })
+
+test('实验入口默认关闭：客户端默认值 + localStorage 键 + 预览面板存在', async () => {
+  const { readFileSync } = await import('node:fs')
+  const source = readFileSync(new URL('../miopiik-dsh/client.js', import.meta.url), 'utf8')
+  assert.ok(source.includes("localStorage.getItem(DSL_PREVIEW_KEY) === '1'"), '实验预览应读 localStorage 且默认关')
+  assert.ok(source.includes("function DslPreview("))
+  assert.ok(source.includes("data-dsl-preview"))
+  assert.ok(source.includes('UI_DSL.compileInlineDsl'), '预览应走共享 DSL 编译器')
+})
+
+test('半截/未闭合块与坏数值都只降级为文本', () => {
+  const partial = compileInlineDsl('::card title="半截"\nchart bar\n周一 1\n')
+  assert.equal(partial.every((segment) => segment.kind === 'text'), true)
+  const unterminated = compileInlineDsl('::card title="x"\nchart bar\n周一 abc\n::end')
+  assert.equal(unterminated.every((segment) => segment.kind === 'text'), true)
+})
+
+test('DSL 编译结果必须能过同一套 validateSpec（未知标签/超预算被拒并降级）', () => {
+  const unknown = compileInlineDsl('::mermaid\ngraph TD\n::end')
+  assert.equal(unknown.every((segment) => segment.kind === 'text'), true)
+  const tooMany = compileInlineDsl(['::card title="超行"', 'chart bar', ...Array.from({ length: 210 }, (_, i) => `项${i} ${i}`), '::end'].join('\n'))
+  assert.equal(tooMany.every((segment) => segment.kind === 'text'), true)
+})

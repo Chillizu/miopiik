@@ -352,6 +352,158 @@ window.__ModuleLoader__.load({
     })()
     // <<< miopiik:assistant-blocks
 
+    // >>> miopiik:ui-dsl (generated; edit miopiik-dsh/shared/ui-dsl.js)
+    const UI_DSL = (() => {
+      /**
+       * 实验原型：面向模型的紧凑声明 DSL（P1 探索，未接入渲染路径）。
+       *
+       * 目标：验证「比 JSON 更省 token、且模型更好写」的假设，同时不放弃结构校验——
+       * 解析产物一律交给 shared/spec-rules.js 的 validateSpec 变成标准 AST，
+       * 非法就降级为纯文本，不进渲染。
+       *
+       * 语法（示例）：
+       *   ::card title="本周预算" source="git log"
+       *   chart bar
+       *   本周 3
+       *   下周 5
+       *   ::end
+       *
+       *   ::text title="说明"
+       *   p 第一段
+       *   b 要点
+       *   ::end
+       */
+      
+      
+      const OPEN = /^::([a-z]+)(?:[ \t]+(.*))?$/u
+      const KV = /([a-z]+)="((?:[^"\\]|\\.)*)"/gu
+      
+      function readAttrs(text) {
+        const attrs = {}
+        for (const match of String(text ?? '').matchAll(KV)) attrs[match[1]] = match[2].replace(/\\"/gu, '"')
+        return attrs
+      }
+      
+      function parseDataset(lines, attrs) {
+        const rows = []
+        let chart = 'bar'
+        for (const line of lines) {
+          const trimmed = line.trim()
+          if (trimmed === '') continue
+          if (trimmed.startsWith('chart ')) {
+            chart = trimmed.slice(6).trim()
+            continue
+          }
+          const parts = trimmed.split(/\s+/u)
+          if (parts.length < 2) return { error: `无法解析数据行：${trimmed}` }
+          const value = Number(parts[parts.length - 1])
+          if (!Number.isFinite(value)) return { error: `数值不合法：${trimmed}` }
+          rows.push([parts.slice(0, -1).join(' '), value])
+        }
+        return {
+          spec: {
+            widget: 'dataset',
+            preset: 'card',
+            title: attrs.title ?? '',
+            props: { chart, columns: [{ label: '项' }, { label: '值' }], rows, ...(attrs.source ? { source: attrs.source } : {}) },
+            fallback: attrs.fallback ?? defaultFallback(rows),
+          },
+        }
+      }
+      
+      function parseText(lines, attrs) {
+        const paragraphs = []
+        const bullets = []
+        for (const line of lines) {
+          const trimmed = line.trim()
+          if (trimmed === '') continue
+          if (trimmed.startsWith('b ')) bullets.push(trimmed.slice(2))
+          else if (trimmed.startsWith('p ')) paragraphs.push(trimmed.slice(2))
+          else paragraphs.push(trimmed)
+        }
+        return {
+          spec: {
+            widget: 'text',
+            preset: 'card',
+            title: attrs.title ?? '',
+            props: { paragraphs, bullets },
+            fallback: attrs.fallback ?? defaultFallback([...paragraphs, ...bullets].map((t) => ['', 0])),
+          },
+        }
+      }
+      
+      function defaultFallback(rows) {
+        return rows.map((row) => `${row[0]} ${row[1]}`).join('，').slice(0, 300) || '（无内容）'
+      }
+      
+      /**
+       * 把一段带 DSL 块的正文切成 {kind:'text'|'ui', ...} 片段；非法块降级为 text。
+       * @param source 模型输出
+       * @param options.measure 为 true 时附带 JSON 对照长度（仅供原型测量）
+       */
+      function compileInlineDsl(source, validate) {
+        const lines = String(source ?? '').split(/\r?\n/u)
+        const segments = []
+        let buffer = []
+        let index = 0
+        const flush = () => {
+          if (buffer.length > 0) segments.push({ kind: 'text', text: buffer.join('\n') })
+          buffer = []
+        }
+        while (index < lines.length) {
+          const open = OPEN.exec(lines[index])
+          if (open === null) {
+            buffer.push(lines[index])
+            index += 1
+            continue
+          }
+          const [, name, rest] = open
+          const attrs = readAttrs(rest)
+          const body = []
+          index += 1
+          let closed = false
+          while (index < lines.length) {
+            if (/^::end\s*$/u.test(lines[index])) {
+              closed = true
+              index += 1
+              break
+            }
+            body.push(lines[index])
+            index += 1
+          }
+          const parsed = name === 'card' || name === 'chart' ? parseDataset(body, attrs) : name === 'text' ? parseText(body, attrs) : { error: `未知块：${name}` }
+          if (!closed || parsed.error !== undefined) {
+            buffer.push(...lines.slice(index - body.length - 1, index))
+            continue
+          }
+          const checked = validate(parsed.spec)
+          flush()
+          if (!checked.ok) {
+            segments.push({ kind: 'text', text: attrs.fallback ?? `（这一段界面描述不合法：${checked.errors[0]}）` })
+            continue
+          }
+          segments.push({ kind: 'ui', spec: checked.spec })
+        }
+        flush()
+        return segments
+      }
+      
+      /** 原型测量：同一份内容，DSL 与 JSON 各占多少字符（token 成本的粗代理）。 */
+      function comparePayloadCost(specs) {
+        const json = JSON.stringify(specs)
+        const dsl = specs
+          .map((spec) => {
+            if (spec.widget !== 'dataset') return `::text title="${spec.title ?? ''}"\n::end`
+            const rows = spec.props.rows.map((row) => `${row[0]} ${row[1]}`).join('\n')
+            return `::card title="${spec.title ?? ''}" source="${spec.props.source ?? ''}"\nchart ${spec.props.chart === true ? 'bar' : spec.props.chart}\n${rows}\n::end`
+          })
+          .join('\n')
+        return { json: json.length, dsl: dsl.length, ratio: Number((dsl.length / json.length).toFixed(2)) }
+      }
+      return { compileInlineDsl, comparePayloadCost }
+    })()
+    // <<< miopiik:ui-dsl
+
     function createStore(initial) {
       let state = initial
       const listeners = new Set()
@@ -1114,7 +1266,7 @@ window.__ModuleLoader__.load({
               : tab === 'context'
               ? h(ContextPane, { snapshot })
               : tab === 'view'
-              ? h(WidgetCanvas, { snapshot })
+              ? h('div', { style: { display: 'flex', flexDirection: 'column' } }, h(WidgetCanvas, { snapshot }), h(DslPreview, {}))
               : h(StreamPane, {
                   snapshot,
                   filter: streamFilter,
@@ -1227,6 +1379,125 @@ window.__ModuleLoader__.load({
      * 流水：一行一条（决定或任务），点开右侧看完整内容。
      * 不设全局「完整模式」——详情是按需的，不是一次性倒出来。
      */
+
+    // 实验性 IUI：紧凑 DSL 预览（默认关闭，只在「视图」页跑，不碰 assistant-step）
+    const DSL_PREVIEW_KEY = 'miopiik.dslPreview'
+    const DSL_SAMPLE_CHART = `先看这周的数据。
+
+::card title="每周提交" source="git log"
+chart bar
+周一 12
+周二 18
+周三 15
+::end
+
+上面这张是构建活动，下面是说明文字。`
+    const DSL_SAMPLE_COMPARE = `两种口径放一起看：
+
+::card title="按周统计" source="git log"
+chart bar
+本周 12
+上周 9
+::end
+
+::text title="口径"
+p 数据来自 git log --date=short。
+b 只统计主分支。
+::end`
+    const DSL_SAMPLE_BROKEN = `下面这段是坏样例：
+
+::card title="坏样例"
+chart bar
+周一 abc
+::end
+
+上面这条应当降级为纯文本而不是报错。`
+
+    function readDslPreview() {
+      try {
+        return localStorage.getItem(DSL_PREVIEW_KEY) === '1'
+      } catch {
+        return false
+      }
+    }
+
+    function DslPreview() {
+      const [on, setOn] = React.useState(readDslPreview)
+      const [text, setText] = React.useState(DSL_SAMPLE_CHART)
+      const [segments, setSegments] = React.useState(null)
+      const toggle = () => {
+        const next = !on
+        try {
+          localStorage.setItem(DSL_PREVIEW_KEY, next ? '1' : '0')
+        } catch {
+          // 存不下就只对本次生效
+        }
+        setOn(next)
+        setSegments(null)
+      }
+      const compile = (source) => {
+        setText(source)
+        setSegments(UI_DSL.compileInlineDsl(source, SPEC_RULES.validateSpec))
+      }
+      const MarkdownText = primitives !== null && primitives.MarkdownText != null ? primitives.MarkdownText : null
+      return h(
+        'div',
+        { 'data-dsl-preview': on ? 'on' : 'off', style: { display: 'flex', flexDirection: 'column', gap: 10, marginTop: 20, borderTop: `1px dashed ${C.border}`, paddingTop: 14 } },
+        h(
+          'div',
+          { style: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 } },
+          h('div', { style: { fontSize: 13, fontWeight: 600 } }, t('dsl.title')),
+          h(
+            'button',
+            {
+              type: 'button',
+              onClick: toggle,
+              style: { border: `1px solid ${on ? C.brand : C.border}`, background: on ? C.brand : 'transparent', color: on ? '#fff' : C.muted, borderRadius: 999, padding: '3px 12px', fontSize: 11, cursor: 'pointer' },
+            },
+            on ? t('dsl.on') : t('dsl.off'),
+          ),
+        ),
+        on
+          ? h(
+              'div',
+              { style: { display: 'flex', flexDirection: 'column', gap: 8 } },
+              h('div', { style: { fontSize: 11, color: C.muted, lineHeight: '16px' } }, t('dsl.hint')),
+              h('textarea', {
+                value: text,
+                onChange: (event) => setText(event.target.value),
+                rows: 8,
+                style: { width: '100%', boxSizing: 'border-box', fontFamily: 'ui-monospace, monospace', fontSize: 12, lineHeight: '18px', border: `1px solid ${C.border}`, borderRadius: 8, padding: 8, background: C.base, color: C.text },
+              }),
+              h(
+                'div',
+                { style: { display: 'flex', gap: 8, flexWrap: 'wrap' } },
+                h('button', { type: 'button', onClick: () => compile(text), style: styles.action }, t('dsl.compile')),
+                h('button', { type: 'button', onClick: () => compile(DSL_SAMPLE_CHART), style: styles.action }, t('dsl.sampleChart')),
+                h('button', { type: 'button', onClick: () => compile(DSL_SAMPLE_COMPARE), style: styles.action }, t('dsl.sampleCompare')),
+                h('button', { type: 'button', onClick: () => compile(DSL_SAMPLE_BROKEN), style: styles.action }, t('dsl.sampleBroken')),
+              ),
+              h(
+                'div',
+                { 'data-dsl-output': '1', style: { display: 'flex', flexDirection: 'column', gap: 10, paddingTop: 4 } },
+                ...(segments === null
+                  ? []
+                  : segments.map((segment, index) =>
+                      segment.kind === 'ui'
+                        ? h(WidgetCard, { key: `d${index}`, spec: segment.spec })
+                        : h(
+                            'div',
+                            { key: `d${index}`, style: { fontSize: 12, color: segment.kind === 'text' ? C.text : C.muted, lineHeight: '18px', whiteSpace: 'pre-wrap' } },
+                            MarkdownText !== null && segment.kind === 'text'
+                              ? h(MarkdownText, { text: segment.text, streaming: false })
+                              : segment.text,
+                          ),
+                    )),
+              ),
+            )
+          : null,
+      )
+    }
+
     function WidgetCanvas({ snapshot }) {
       const widgets = snapshot?.view?.widgets ?? []
       const card = (spec, key) => h('div', { key }, h(WidgetCard, { spec, padded: true }))
@@ -2658,6 +2929,14 @@ window.__ModuleLoader__.load({
       'tab.list': '清单',
       'tab.stream': '流水',
       'tab.context': '所见',
+      'dsl.title': '实验性 IUI（预览）',
+      'dsl.on': '开',
+      'dsl.off': '关',
+      'dsl.hint': '默认关闭。这是实验入口：DSL 在本地编译成受校验的 AST，只渲染已知组件，不执行任何模型给的脚本或样式；关闭后不影响正常聊天。',
+      'dsl.compile': '编译预览',
+      'dsl.sampleChart': '示例：图表 + 说明',
+      'dsl.sampleCompare': '示例：组合两块',
+      'dsl.sampleBroken': '示例：坏样例',
       'tab.view': '视图',
       'inline.title': '展示',
       'inline.preparing': '正在准备展示…',
@@ -2754,6 +3033,14 @@ window.__ModuleLoader__.load({
       'tab.list': 'List',
       'tab.stream': 'Stream',
       'tab.context': 'Seen',
+      'dsl.title': 'Experimental IUI (preview)',
+      'dsl.on': 'on',
+      'dsl.off': 'off',
+      'dsl.hint': 'Off by default. Local compile to a validated AST; only known components render, no model-supplied scripts or styles. Normal chat is unaffected when off.',
+      'dsl.compile': 'Compile preview',
+      'dsl.sampleChart': 'Sample: chart + prose',
+      'dsl.sampleCompare': 'Sample: two blocks',
+      'dsl.sampleBroken': 'Sample: broken input',
       'tab.view': 'View',
       'inline.title': 'View',
       'inline.preparing': 'Preparing…',

@@ -12,6 +12,7 @@ import { fileURLToPath } from 'node:url'
 const root = join(dirname(fileURLToPath(import.meta.url)), '..')
 const sharedPath = join(root, 'miopiik-dsh', 'shared', 'spec-rules.js')
 const blocksPath = join(root, 'miopiik-dsh', 'shared', 'assistant-blocks.js')
+const dslPath = join(root, 'miopiik-dsh', 'shared', 'ui-dsl.js')
 const clientPath = join(root, 'miopiik-dsh', 'client.js')
 
 export const BEGIN = '    // >>> miopiik:spec-rules (generated; edit miopiik-dsh/shared/spec-rules.js)'
@@ -27,6 +28,19 @@ export function buildBlocksBlock() {
     '      return { ASSISTANT_BLOCK_KINDS, planAssistantBlocks }',
     '    })()',
     '    // <<< miopiik:assistant-blocks',
+  ].join('\n')
+}
+
+export function buildDslBlock() {
+  const source = readFileSync(dslPath, 'utf8')
+  const body = source.replace(/^export\s+(const|function|let)\s/gmu, '$1 ').trim()
+  return [
+    '    // >>> miopiik:ui-dsl (generated; edit miopiik-dsh/shared/ui-dsl.js)',
+    '    const UI_DSL = (() => {',
+    body.replace(/^/gmu, '      '),
+    '      return { compileInlineDsl, comparePayloadCost }',
+    '    })()',
+    '    // <<< miopiik:ui-dsl',
   ].join('\n')
 }
 
@@ -51,6 +65,7 @@ export function syncCheck() {
   const pairs = [
     [BEGIN, END, buildBlock()],
     ['    // >>> miopiik:assistant-blocks (generated; edit miopiik-dsh/shared/assistant-blocks.js)', '    // <<< miopiik:assistant-blocks', buildBlocksBlock()],
+    ['    // >>> miopiik:ui-dsl (generated; edit miopiik-dsh/shared/ui-dsl.js)', '    // <<< miopiik:ui-dsl', buildDslBlock()],
   ]
   for (const [begin, end, expected] of pairs) {
     const start = client.indexOf(begin)
@@ -66,6 +81,7 @@ export function writeBlock() {
   const pairs = [
     [BEGIN, END, buildBlock()],
     ['    // >>> miopiik:assistant-blocks (generated; edit miopiik-dsh/shared/assistant-blocks.js)', '    // <<< miopiik:assistant-blocks', buildBlocksBlock()],
+    ['    // >>> miopiik:ui-dsl (generated; edit miopiik-dsh/shared/ui-dsl.js)', '    // <<< miopiik:ui-dsl', buildDslBlock()],
   ]
   let next = client
   for (const [begin, end, block] of pairs) {
