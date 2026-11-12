@@ -1495,12 +1495,11 @@ window.__ModuleLoader__.load({
 
     // ── 实验性 IUI v1：受信组件树 + 局部状态（不做表达式求值，不执行模型脚本）──
     const IUI_SAMPLES = (() => {
-      const range = (label, series, current, prev) => ({ label, value: { series, current, prev } })
       return {
         interactive: {
           title: '周活跃概览',
           fallback: '近 7 天活跃 74 次，上一区间 52 次。',
-          state: { range: range('近7天', [['一', 12], ['二', 18], ['三', 15], ['四', 9], ['五', 20]], 74, 52) },
+          state: { range: { series: [['一', 12], ['二', 18], ['三', 15], ['四', 9], ['五', 20]], current: 74, prev: 52 } },
           root: {
             id: 'root',
             type: 'column',
@@ -1514,8 +1513,8 @@ window.__ModuleLoader__.load({
                   label: '范围',
                   bind: '$state.range',
                   options: [
-                    range('近7天', [['一', 12], ['二', 18], ['三', 15], ['四', 9], ['五', 20]], 74, 52),
-                    range('近30天', [['第1周', 40], ['第2周', 61], ['第3周', 52], ['第4周', 78]], 231, 198),
+                    { label: '近7天', value: { series: [['一', 12], ['二', 18], ['三', 15], ['四', 9], ['五', 20]], current: 74, prev: 52 } },
+                    { label: '近30天', value: { series: [['第1周', 40], ['第2周', 61], ['第3周', 52], ['第4周', 78]], current: 231, prev: 198 } },
                   ],
                 },
               },
