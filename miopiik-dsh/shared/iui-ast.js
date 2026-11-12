@@ -18,12 +18,28 @@ export const REGISTRY = Object.freeze({
   card: { props: { title: 'string?', gap: 'number?' }, children: true },
   grid: { props: { columns: 'number?', gap: 'number?' }, children: true },
   table: { props: { columns: 'value', rows: 'value', caption: 'string?' }, children: false },
+  // 行内原语：与文字同处一行，顺序即 AST 顺序（不是另开卡片）
+  paragraph: { props: { gap: 'number?' }, children: true },
+  badge: { props: { text: 'string', tone: 'string?' }, children: false },
+  icon: { props: { name: 'string', label: 'string?' }, children: false },
+  emphasis: { props: { text: 'string', strong: 'boolean?' }, children: false },
+  code: { props: { text: 'string' }, children: false },
+  link: { props: { text: 'string', href: 'string' }, children: false },
+  // 块级反馈原语
+  callout: { props: { tone: 'string?', title: 'string?', text: 'string' }, children: false },
+  progress: { props: { label: 'string?', value: 'number', max: 'number?' }, children: false },
+  empty: { props: { text: 'string' }, children: false },
   chart: { props: { kind: 'string', series: 'value', source: 'string?' }, children: false },
   segmented: { props: { label: 'string?', options: 'value', bind: 'string' }, children: false },
   divider: { props: {}, children: false },
 })
 
 export const LIMITS = Object.freeze({ nodes: 120, depth: 4, series: 60, options: 6, text: 2000 })
+
+/** 行内原语：paragraph 只接受这些子节点，保证"同一行文字混排"的语义。 */
+export const INLINE_TYPES = Object.freeze(['text', 'badge', 'icon', 'emphasis', 'code', 'link'])
+export const TONES = Object.freeze(['neutral', 'success', 'warning', 'danger'])
+export const ICONS = Object.freeze(['check', 'alert', 'dot', 'arrow-right', 'spark'])
 
 const BIND = /^\$(state|data)\.([A-Za-z0-9_]+(?:\.[A-Za-z0-9_]+)*)$/u
 
@@ -104,6 +120,32 @@ export function validateAst(input) {
       if (!Array.isArray(props.rows)) return failNode(node, path, 'table 需要 rows 二维数组')
       if (props.rows.length > 200) return failNode(node, path, 'table 最多 200 行')
       if (props.rows.some((row) => !Array.isArray(row))) return failNode(node, path, 'table 的 rows 必须是二维数组')
+    }
+    if (node.type === 'paragraph') {
+      const inlineKids = Array.isArray(node.children) ? node.children : []
+      const bad = inlineKids.find((child) => child === null || typeof child !== 'object' || !INLINE_TYPES.includes(child.type))
+      if (bad !== undefined) return failNode(node, path, `paragraph 只接受行内组件（${INLINE_TYPES.join('/')}）`)
+    }
+    if (node.type === 'badge' && props.tone !== undefined && !TONES.includes(props.tone)) {
+      return failNode(node, path, `badge.tone 只能是 ${TONES.join('/')}`)
+    }
+    if (node.type === 'callout' && props.tone !== undefined && !TONES.includes(props.tone)) {
+      return failNode(node, path, `callout.tone 只能是 ${TONES.join('/')}`)
+    }
+    if (node.type === 'icon' && !ICONS.includes(props.name)) {
+      return failNode(node, path, `icon 只允许白名单图标：${ICONS.join('/')}`)
+    }
+    if (node.type === 'link') {
+      const href = typeof props.href === 'string' ? props.href : ''
+      if (!/^https:\/\/[^\s]+$/u.test(href)) return failNode(node, path, 'link 只接受 https 链接')
+    }
+    if (node.type === 'progress') {
+      if (typeof props.value !== 'number' || !Number.isFinite(props.value) || props.value < 0) {
+        return failNode(node, path, 'progress.value 需要 >= 0 的数字')
+      }
+      if (props.max !== undefined && (typeof props.max !== 'number' || props.max <= 0)) {
+        return failNode(node, path, 'progress.max 需要正数')
+      }
     }
     if (node.type === 'grid' && props.columns !== undefined) {
       const columns = props.columns

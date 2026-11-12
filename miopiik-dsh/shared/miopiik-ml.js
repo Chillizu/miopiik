@@ -37,6 +37,15 @@ export const ML_TAGS = Object.freeze({
   grid: 'grid',
   card: 'card',
   table: 'table',
+  p: 'paragraph',
+  badge: 'badge',
+  icon: 'icon',
+  b: 'emphasis',
+  code: 'code',
+  a: 'link',
+  callout: 'callout',
+  progress: 'progress',
+  empty: 'empty',
   chart: 'chart',
   segmented: 'segmented',
   divider: 'divider',
@@ -202,7 +211,7 @@ function readProps(attrs, keys) {
   return props
 }
 
-const TEXT_PROPS = Object.freeze({ text: ['text'], metric: ['label', 'value', 'unit', 'note'], chart: ['kind', 'series', 'source', 'title'], segmented: ['label', 'bind', 'options'], table: ['columns', 'rows', 'caption'], card: ['title'], grid: ['columns', 'gap'], row: ['gap'], column: ['gap'] })
+const TEXT_PROPS = Object.freeze({ text: ['text'], p: ['gap'], badge: ['text', 'tone'], emphasis: ['text', 'strong'], code: ['text'], a: ['text', 'href'], icon: ['name', 'label'], callout: ['tone', 'title', 'text'], progress: ['label', 'value', 'max'], empty: ['text'], metric: ['label', 'value', 'unit', 'note'], chart: ['kind', 'series', 'source', 'title'], segmented: ['label', 'bind', 'options'], table: ['columns', 'rows', 'caption'], card: ['title'], grid: ['columns', 'gap'], row: ['gap'], column: ['gap'] })
 
 /**
  * 解析 miopiik-ml 源码。
@@ -253,9 +262,29 @@ export function parseMiopiikMl(source) {
     }
     if (type === undefined || type === 'root' || type === 'state') return degrade('未知标签')
     if (element.unclosed) return degrade('没有闭合')
+    const INLINE_LEAVES = { badge: 'text', emphasis: 'text', code: 'text', a: 'text', callout: 'text', progress: 'label', empty: 'text' }
+    if (INLINE_LEAVES[element.name] !== undefined) {
+      const key = INLINE_LEAVES[element.name]
+      const props = readProps(element.attrs, TEXT_PROPS[element.name] ?? [])
+      if (props[key] === undefined && innerText !== '') props[key] = innerText
+      if (props[key] === undefined || props[key] === '') return degrade('没有内容')
+      return { kind: 'node', node: { id: typeof element.attrs.id === 'string' && element.attrs.id !== '' ? element.attrs.id : `ml-${element.name}`, type, props, children: [] } }
+    }
     if (element.name === 'text') {
       const text = typeof element.attrs.text === 'string' ? element.attrs.text : innerText
       return text === '' ? degrade('没有内容') : { kind: 'node', node: { id: typeof element.attrs.id === 'string' && element.attrs.id !== '' ? element.attrs.id : 'ml-text', type: 'text', props: { text }, children: [] } }
+    }
+    if (element.name === 'p') {
+      const children = element.children.map((child) => {
+        if (child.name === '#text') {
+          const text = String(child.text ?? '')
+          return text.trim() === '' ? null : { id: 'ml-inline-text', type: 'text', props: { text }, children: [] }
+        }
+        const item = compile(child)
+        return item.kind === 'node' ? item.node : { id: 'ml-inline-degraded', type: 'text', props: { text: item.text }, children: [] }
+      }).filter(Boolean)
+      if (children.length === 0) return degrade('段落为空')
+      return { kind: 'node', node: { id: typeof element.attrs.id === 'string' && element.attrs.id !== '' ? element.attrs.id : 'ml-p', type: 'paragraph', props: readProps(element.attrs, ['gap']), children } }
     }
     if (CONTAINERS[element.name] === true) {
       const nodes = element.children.map((child) => compile(child))

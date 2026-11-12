@@ -526,12 +526,28 @@ window.__ModuleLoader__.load({
         card: { props: { title: 'string?', gap: 'number?' }, children: true },
         grid: { props: { columns: 'number?', gap: 'number?' }, children: true },
         table: { props: { columns: 'value', rows: 'value', caption: 'string?' }, children: false },
+        // 行内原语：与文字同处一行，顺序即 AST 顺序（不是另开卡片）
+        paragraph: { props: { gap: 'number?' }, children: true },
+        badge: { props: { text: 'string', tone: 'string?' }, children: false },
+        icon: { props: { name: 'string', label: 'string?' }, children: false },
+        emphasis: { props: { text: 'string', strong: 'boolean?' }, children: false },
+        code: { props: { text: 'string' }, children: false },
+        link: { props: { text: 'string', href: 'string' }, children: false },
+        // 块级反馈原语
+        callout: { props: { tone: 'string?', title: 'string?', text: 'string' }, children: false },
+        progress: { props: { label: 'string?', value: 'number', max: 'number?' }, children: false },
+        empty: { props: { text: 'string' }, children: false },
         chart: { props: { kind: 'string', series: 'value', source: 'string?' }, children: false },
         segmented: { props: { label: 'string?', options: 'value', bind: 'string' }, children: false },
         divider: { props: {}, children: false },
       })
       
       const LIMITS = Object.freeze({ nodes: 120, depth: 4, series: 60, options: 6, text: 2000 })
+      
+      /** 行内原语：paragraph 只接受这些子节点，保证"同一行文字混排"的语义。 */
+      const INLINE_TYPES = Object.freeze(['text', 'badge', 'icon', 'emphasis', 'code', 'link'])
+      const TONES = Object.freeze(['neutral', 'success', 'warning', 'danger'])
+      const ICONS = Object.freeze(['check', 'alert', 'dot', 'arrow-right', 'spark'])
       
       const BIND = /^\$(state|data)\.([A-Za-z0-9_]+(?:\.[A-Za-z0-9_]+)*)$/u
       
@@ -612,6 +628,32 @@ window.__ModuleLoader__.load({
             if (!Array.isArray(props.rows)) return failNode(node, path, 'table 需要 rows 二维数组')
             if (props.rows.length > 200) return failNode(node, path, 'table 最多 200 行')
             if (props.rows.some((row) => !Array.isArray(row))) return failNode(node, path, 'table 的 rows 必须是二维数组')
+          }
+          if (node.type === 'paragraph') {
+            const inlineKids = Array.isArray(node.children) ? node.children : []
+            const bad = inlineKids.find((child) => child === null || typeof child !== 'object' || !INLINE_TYPES.includes(child.type))
+            if (bad !== undefined) return failNode(node, path, `paragraph 只接受行内组件（${INLINE_TYPES.join('/')}）`)
+          }
+          if (node.type === 'badge' && props.tone !== undefined && !TONES.includes(props.tone)) {
+            return failNode(node, path, `badge.tone 只能是 ${TONES.join('/')}`)
+          }
+          if (node.type === 'callout' && props.tone !== undefined && !TONES.includes(props.tone)) {
+            return failNode(node, path, `callout.tone 只能是 ${TONES.join('/')}`)
+          }
+          if (node.type === 'icon' && !ICONS.includes(props.name)) {
+            return failNode(node, path, `icon 只允许白名单图标：${ICONS.join('/')}`)
+          }
+          if (node.type === 'link') {
+            const href = typeof props.href === 'string' ? props.href : ''
+            if (!/^https:\/\/[^\s]+$/u.test(href)) return failNode(node, path, 'link 只接受 https 链接')
+          }
+          if (node.type === 'progress') {
+            if (typeof props.value !== 'number' || !Number.isFinite(props.value) || props.value < 0) {
+              return failNode(node, path, 'progress.value 需要 >= 0 的数字')
+            }
+            if (props.max !== undefined && (typeof props.max !== 'number' || props.max <= 0)) {
+              return failNode(node, path, 'progress.max 需要正数')
+            }
           }
           if (node.type === 'grid' && props.columns !== undefined) {
             const columns = props.columns
@@ -694,6 +736,15 @@ window.__ModuleLoader__.load({
         grid: 'grid',
         card: 'card',
         table: 'table',
+        p: 'paragraph',
+        badge: 'badge',
+        icon: 'icon',
+        b: 'emphasis',
+        code: 'code',
+        a: 'link',
+        callout: 'callout',
+        progress: 'progress',
+        empty: 'empty',
         chart: 'chart',
         segmented: 'segmented',
         divider: 'divider',
@@ -859,7 +910,7 @@ window.__ModuleLoader__.load({
         return props
       }
       
-      const TEXT_PROPS = Object.freeze({ text: ['text'], metric: ['label', 'value', 'unit', 'note'], chart: ['kind', 'series', 'source', 'title'], segmented: ['label', 'bind', 'options'], table: ['columns', 'rows', 'caption'], card: ['title'], grid: ['columns', 'gap'], row: ['gap'], column: ['gap'] })
+      const TEXT_PROPS = Object.freeze({ text: ['text'], p: ['gap'], badge: ['text', 'tone'], emphasis: ['text', 'strong'], code: ['text'], a: ['text', 'href'], icon: ['name', 'label'], callout: ['tone', 'title', 'text'], progress: ['label', 'value', 'max'], empty: ['text'], metric: ['label', 'value', 'unit', 'note'], chart: ['kind', 'series', 'source', 'title'], segmented: ['label', 'bind', 'options'], table: ['columns', 'rows', 'caption'], card: ['title'], grid: ['columns', 'gap'], row: ['gap'], column: ['gap'] })
       
       /**
        * 解析 miopiik-ml 源码。
@@ -910,9 +961,29 @@ window.__ModuleLoader__.load({
           }
           if (type === undefined || type === 'root' || type === 'state') return degrade('未知标签')
           if (element.unclosed) return degrade('没有闭合')
+          const INLINE_LEAVES = { badge: 'text', emphasis: 'text', code: 'text', a: 'text', callout: 'text', progress: 'label', empty: 'text' }
+          if (INLINE_LEAVES[element.name] !== undefined) {
+            const key = INLINE_LEAVES[element.name]
+            const props = readProps(element.attrs, TEXT_PROPS[element.name] ?? [])
+            if (props[key] === undefined && innerText !== '') props[key] = innerText
+            if (props[key] === undefined || props[key] === '') return degrade('没有内容')
+            return { kind: 'node', node: { id: typeof element.attrs.id === 'string' && element.attrs.id !== '' ? element.attrs.id : `ml-${element.name}`, type, props, children: [] } }
+          }
           if (element.name === 'text') {
             const text = typeof element.attrs.text === 'string' ? element.attrs.text : innerText
             return text === '' ? degrade('没有内容') : { kind: 'node', node: { id: typeof element.attrs.id === 'string' && element.attrs.id !== '' ? element.attrs.id : 'ml-text', type: 'text', props: { text }, children: [] } }
+          }
+          if (element.name === 'p') {
+            const children = element.children.map((child) => {
+              if (child.name === '#text') {
+                const text = String(child.text ?? '')
+                return text.trim() === '' ? null : { id: 'ml-inline-text', type: 'text', props: { text }, children: [] }
+              }
+              const item = compile(child)
+              return item.kind === 'node' ? item.node : { id: 'ml-inline-degraded', type: 'text', props: { text: item.text }, children: [] }
+            }).filter(Boolean)
+            if (children.length === 0) return degrade('段落为空')
+            return { kind: 'node', node: { id: typeof element.attrs.id === 'string' && element.attrs.id !== '' ? element.attrs.id : 'ml-p', type: 'paragraph', props: readProps(element.attrs, ['gap']), children } }
           }
           if (CONTAINERS[element.name] === true) {
             const nodes = element.children.map((child) => compile(child))
@@ -1995,6 +2066,60 @@ window.__ModuleLoader__.load({
             ),
           )
         }
+        if (item.type === 'paragraph') {
+          const TONE = {
+            neutral: { bg: 'rgba(127,127,127,0.14)', fg: C.text },
+            success: { bg: 'rgba(46,160,67,0.16)', fg: '#2ea043' },
+            warning: { bg: 'rgba(210,153,34,0.18)', fg: '#b08800' },
+            danger: { bg: 'rgba(218,54,51,0.16)', fg: '#d1242f' },
+          }
+          const ICON_GLYPH = { check: '✓', alert: '!', dot: '•', 'arrow-right': '→', spark: '✳' }
+          const inline = (child, index) => {
+            const key2 = `${key}-${index}`
+            if (child.type === 'text') return h('span', { key: key2 }, String(child.props.text ?? ''))
+            if (child.type === 'badge') {
+              const tone = TONE[child.props.tone] ?? TONE.neutral
+              return h('span', { key: key2, 'data-iui-badge': String(child.props.tone ?? 'neutral'), style: { display: 'inline-block', padding: '0 6px', margin: '0 2px', borderRadius: 999, fontSize: 11, lineHeight: '18px', background: tone.bg, color: tone.fg } }, String(child.props.text ?? ''))
+            }
+            if (child.type === 'emphasis') return h(child.props.strong === false ? 'em' : 'strong', { key: key2 }, String(child.props.text ?? ''))
+            if (child.type === 'code') return h('code', { key: key2, style: { fontFamily: 'ui-monospace, monospace', fontSize: 12, background: 'rgba(127,127,127,0.14)', borderRadius: 4, padding: '0 4px' } }, String(child.props.text ?? ''))
+            if (child.type === 'link') return h('a', { key: key2, href: String(child.props.href ?? ''), target: '_blank', rel: 'noreferrer noopener', style: { color: C.brand, textDecoration: 'underline' } }, String(child.props.text ?? ''))
+            if (child.type === 'icon') return h('span', { key: key2, 'data-iui-icon': String(child.props.name ?? ''), role: 'img', 'aria-label': String(child.props.label ?? child.props.name ?? ''), style: { margin: '0 2px' } }, ICON_GLYPH[child.props.name] ?? '•')
+            return h('span', { key: key2 }, '')
+          }
+          return h(
+            'div',
+            { key, 'data-iui-inline': String(item.children.length), style: { display: 'flex', flexWrap: 'wrap', alignItems: 'baseline', columnGap: Number(props.gap ?? 2), rowGap: 4, fontSize: 13, lineHeight: '22px', color: C.text } },
+            ...item.children.map(inline),
+          )
+        }
+        if (item.type === 'badge') {
+          return h('span', { key, 'data-iui-badge': String(props.tone ?? 'neutral'), style: { display: 'inline-block', padding: '0 6px', borderRadius: 999, fontSize: 11, background: 'rgba(127,127,127,0.14)' } }, String(props.text ?? ''))
+        }
+        if (item.type === 'callout') {
+          const tone = String(props.tone ?? 'neutral')
+          const color = tone === 'warning' ? '#b08800' : tone === 'danger' ? '#d1242f' : tone === 'success' ? '#2ea043' : C.muted
+          return h(
+            'div',
+            { key, 'data-iui-callout': tone, style: { display: 'flex', flexDirection: 'column', gap: 4, borderLeft: `3px solid ${color}`, background: 'rgba(127,127,127,0.07)', borderRadius: 6, padding: '8px 10px' } },
+            props.title ? h('div', { style: { fontSize: 12, fontWeight: 600, color } }, String(props.title)) : null,
+            h('div', { style: { fontSize: 12, lineHeight: '18px', color: C.text } }, String(props.text ?? '')),
+          )
+        }
+        if (item.type === 'progress') {
+          const max = Number(props.max ?? 1)
+          const ratio = Math.max(0, Math.min(1, Number(props.value) / (max === 0 ? 1 : max)))
+          return h(
+            'div',
+            { key, style: { display: 'flex', flexDirection: 'column', gap: 4 } },
+            props.label ? h('div', { style: { fontSize: 11, color: C.muted } }, String(props.label)) : null,
+            h('div', { role: 'progressbar', 'aria-valuenow': String(Math.round(ratio * 100)), 'aria-valuemin': '0', 'aria-valuemax': '100', style: { height: 6, borderRadius: 999, background: 'rgba(127,127,127,0.18)', overflow: 'hidden' } },
+              h('div', { style: { width: `${ratio * 100}%`, height: '100%', background: C.brand } })),
+          )
+        }
+        if (item.type === 'empty') {
+          return h('div', { key, 'data-iui-empty': '1', style: { fontSize: 12, color: C.muted, textAlign: 'center', padding: '12px 0' } }, String(props.text ?? ''))
+        }
         if (item.type === 'card') {
           const kids = item.children.map((child, index) => node(child, `${key}-${index}`))
           return h(
@@ -2091,6 +2216,7 @@ window.__ModuleLoader__.load({
 
     function IuiPreview({ sample, onSample }) {
       const buttons = [
+        ['mlInline', t('iui.sampleMlInline')],
         ['mlInteractive', t('iui.sampleMlInteractive')],
         ['mlCompare', t('iui.sampleMlCompare')],
         ['mlPartial', t('iui.sampleMlPartial')],
@@ -3458,6 +3584,13 @@ chart bar
   </grid>
   <table columns='["项目","数值"]' rows='[["测试数",171],["失败",0]]' caption="表格也是同一套原语组合"/>
 </ui>`,
+      mlInline: `<ui title="行内混排" fallback="新版正文接入已实现，折叠待修复">
+  <column gap="8">
+    <p>新版正文接入 <badge tone="success">已实现</badge>，思考折叠 <badge tone="warning">待修复</badge>，详见 <a href="https://example.com">说明</a>。</p>
+    <callout tone="neutral" title="边界">行内组件与文字同一行渲染，不另开卡片。</callout>
+    <progress label="迁移进度" value="0.6"/>
+  </column>
+</ui>`,
       mlPartial: `<ui title="局部降级" fallback="坏节点会降级为文本，其余照常">
   <column gap="8">
     <text>下面那个未知标签只影响它自己。</text>
@@ -3766,6 +3899,7 @@ chart bar
       'iui.sampleInteractive': '示例：指标 + 趋势 + 切换',
       'iui.sampleCompare': '示例：两列对比',
       'iui.sampleBroken': '示例：坏 AST 降级',
+      'iui.sampleMlInline': '示例 ML：行内混排（badge/链接）',
       'iui.sampleMlInteractive': '示例 ML：指标+趋势+切换',
       'iui.sampleMlCompare': '示例 ML：两列卡片+表格',
       'iui.sampleMlPartial': '示例 ML：局部降级',
@@ -3879,6 +4013,7 @@ chart bar
       'iui.sampleInteractive': 'Sample: metrics + trend + switch',
       'iui.sampleCompare': 'Sample: two-column compare',
       'iui.sampleBroken': 'Sample: broken AST',
+      'iui.sampleMlInline': 'ML sample: inline mixing (badge/link)',
       'iui.sampleMlInteractive': 'ML sample: metrics + trend + switch',
       'iui.sampleMlCompare': 'ML sample: two cards + table',
       'iui.sampleMlPartial': 'ML sample: local degrade',
