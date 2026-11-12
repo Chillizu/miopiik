@@ -82,7 +82,7 @@ function readTag(source, index) {
   while (i < source.length && /[A-Za-z0-9_-]/u.test(source[i])) i += 1
   const name = source.slice(nameStart, i)
   if (name === '') return null
-  const attrs = {}
+  const attrs = Object.create(null)
   let selfClosing = false
   let closed = false
   while (i < source.length) {
@@ -197,9 +197,11 @@ function normalizeAttrs(element) {
     attrs.tone = attrs.variant
     delete attrs.variant
   }
-  if (attrs.type !== undefined && attrs.kind === undefined && element.name === 'chart') {
-    attrs.kind = attrs.type
+  if (element.name === 'chart') {
+    if (attrs.type !== undefined && attrs.kind === undefined) attrs.kind = attrs.type
+    if (attrs.data !== undefined && attrs.series === undefined) attrs.series = attrs.data
     delete attrs.type
+    delete attrs.data
   }
   if (typeof attrs.gap === 'string' && GAP_TOKENS[attrs.gap] !== undefined) attrs.gap = GAP_TOKENS[attrs.gap]
   return attrs
@@ -280,6 +282,10 @@ export function parseMiopiikMl(source) {
     if (child.name === 'state') {
       // 形态一：<state name="range" value='{...}' />
       if (typeof child.attrs.name === 'string' && child.attrs.name !== '') {
+        if (!/^[A-Za-z_][A-Za-z0-9_]{0,63}$/u.test(child.attrs.name) || ['__proto__', 'constructor', 'prototype'].includes(child.attrs.name)) {
+          degraded.push('<state> 名称不安全')
+          continue
+        }
         const rawValue = child.attrs.value
         if (typeof rawValue === 'string' && rawValue.trim() !== '') {
           try {
@@ -383,7 +389,7 @@ export function parseMiopiikMl(source) {
       }
     }
     if (element.children.length > 0) return degrade('该标签不接受子内容')
-    return { kind: 'node', node: { id: typeof element.attrs.id === 'string' && element.attrs.id !== '' ? element.attrs.id : `ml-${element.name}`, type, props: readProps(element.attrs, TEXT_PROPS[element.name] ?? []), children: [] } }
+    return { kind: 'node', node: { id: typeof attrs.id === 'string' && attrs.id !== '' ? attrs.id : `ml-${element.name}`, type, props: readProps(attrs, TEXT_PROPS[element.name] ?? []), children: [] } }
   }
 
   const compiled = children.map((child) => compile(child))

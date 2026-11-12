@@ -515,9 +515,9 @@ window.__ModuleLoader__.load({
        *  - 绑定只允许 `$state.<key>` 与 `$data.<key>` 两种形式，不做表达式求值；
        *  - 预算（节点数/深度/数据量）在这里统一拒绝，由调用方决定降级策略。
        */
-      
+
       const IUI_VERSION = 'iui/1'
-      
+
       const REGISTRY = Object.freeze({
         text: { props: { text: 'string' }, children: false },
         metric: { props: { label: 'string', value: 'value', unit: 'string?', note: 'string?', delta: 'string?', caption: 'string?', tone: 'string?' }, children: false },
@@ -541,27 +541,28 @@ window.__ModuleLoader__.load({
         segmented: { props: { label: 'string?', options: 'value', bind: 'string' }, children: false },
         divider: { props: { label: 'string?' }, children: false },
       })
-      
-      const LIMITS = Object.freeze({ nodes: 120, depth: 4, series: 60, options: 6, text: 2000 })
-      
+
+      const LIMITS = Object.freeze({ nodes: 120, depth: 6, series: 60, options: 6, text: 2000, stateBytes: 16384 })
+
       /** 行内原语：paragraph 只接受这些子节点，保证"同一行文字混排"的语义。 */
       const INLINE_TYPES = Object.freeze(['text', 'badge', 'icon', 'emphasis', 'code', 'link'])
-      const TONES = Object.freeze(['neutral', 'success', 'warning', 'danger', 'info'])
+      const TONES = Object.freeze(['neutral', 'success', 'warning', 'danger', 'info', 'accent'])
       const ICONS = Object.freeze(['check', 'alert', 'dot', 'arrow-right', 'spark', 'chart', 'layers', 'shield', 'clock', 'inbox', 'info'])
-      
+
       const BIND = /^\$(state|data)\.([A-Za-z0-9_]+(?:\.[A-Za-z0-9_]+)*)$/u
-      
+      const RESERVED = new Set(['__proto__', 'prototype', 'constructor'])
+
       function isRecord(value) {
         return value !== null && typeof value === 'object' && !Array.isArray(value)
       }
-      
+
       /** 只允许 `$state.x` / `$data.x`，其余原样返回。 */
       function readBinding(value) {
         if (typeof value !== 'string') return { literal: value }
         const match = BIND.exec(value)
-        return match === null ? { literal: value } : { scope: match[1], key: match[2] }
+        return match === null || match[2].split('.').some((part) => RESERVED.has(part)) ? { literal: value } : { scope: match[1], key: match[2] }
       }
-      
+
       /** 解析绑定到实际值（无表达式、无函数）。 */
       function resolveValue(value, scope) {
         const binding = readBinding(value)
@@ -574,7 +575,47 @@ window.__ModuleLoader__.load({
         }
         return cursor
       }
-      
+
+      /**
+       * 把受信图表输入统一变成 [标签, 数值] 点列。
+       * 模型常给数字数组、[label,value] 数组或 {label,value}；三种都受限解析，不用表达式。
+       */
+      function chartMatrix(series) {
+        if (!Array.isArray(series) || series.length === 0 || series.length > LIMITS.series) return null
+        const rows = []
+        for (let i = 0; i < series.length; i += 1) {
+          const item = series[i]
+          let label = String(i + 1)
+          let raw
+          if (typeof item === 'number') raw = item
+          else if (Array.isArray(item) && item.length >= 2) {
+            label = String(item[0])
+            raw = item[1]
+          } else if (isRecord(item)) {
+            label = String(item.label ?? i + 1)
+            raw = item.value
+          } else return null
+          const value = typeof raw === 'number' || (typeof raw === 'string' && raw.trim() !== '')
+            ? Number(raw)
+            : NaN
+          if (!Number.isFinite(value) || label.length > 100) return null
+          rows.push([label, value])
+        }
+        return rows
+      }
+
+      /** 本地状态也是来自模型的 JSON；避免超大对象和原型属性污染。 */
+      function stateSafe(value, depth = 0) {
+        if (depth > 8) return false
+        if (value === null || typeof value === 'boolean') return true
+        if (typeof value === 'number') return Number.isFinite(value)
+        if (typeof value === 'string') return value.length <= LIMITS.text
+        if (Array.isArray(value)) return value.length <= 128 && value.every((item) => stateSafe(item, depth + 1))
+        if (!isRecord(value)) return false
+        const keys = Object.keys(value)
+        return keys.length <= 64 && keys.every((key) => key.length <= 64 && !RESERVED.has(key) && stateSafe(value[key], depth + 1))
+      }
+
       /**
        * 校验并规范化一棵 AST（**局部容错**）。
        *
@@ -589,13 +630,13 @@ window.__ModuleLoader__.load({
         const fatal = []
         let nodes = 0
         let degraded = 0
-      
+
         const failNode = (node, path, reason) => {
           degraded += 1
           const text = typeof node?.fallback === 'string' && node.fallback.trim() !== '' ? node.fallback : `（此段组件无法渲染：${reason}）`
           return { id: `${path}-degraded`, type: 'text', props: { text }, children: [], degraded: true }
         }
-      
+
         const walk = (node, depth, path) => {
           if (!isRecord(node)) return failNode(node, path, '不是对象')
           if (depth > LIMITS.depth) {
@@ -617,20 +658,22 @@ window.__ModuleLoader__.load({
             return failNode(node, path, `options 需要 1–${LIMITS.options} 项`)
           }
           if (node.type === 'chart') {
-            const literal = readBinding(props.series).literal
-            if (Array.isArray(literal) && literal.length > LIMITS.series) return failNode(node, path, `series 超过 ${LIMITS.series} 点`)
+            if (!['bar', 'line'].includes(props.kind ?? 'bar')) return failNode(node, path, 'chart.kind 只能为 bar/line')
+            const binding = readBinding(props.series)
+            if (binding.scope === undefined && chartMatrix(binding.literal) === null) return failNode(node, path, 'chart.series 需要有效点列或状态绑定')
           }
           if (node.type === 'text' && typeof props.text === 'string' && props.text.length > LIMITS.text) {
             return failNode(node, path, `text 超过 ${LIMITS.text} 字`)
           }
           if (node.type === 'table') {
-            if (!Array.isArray(props.columns) || props.columns.length === 0) return failNode(node, path, 'table 需要 columns 数组')
+            if (!Array.isArray(props.columns) || props.columns.length === 0 || props.columns.length > 12) return failNode(node, path, 'table 需要 1–12 列')
             if (!Array.isArray(props.rows)) return failNode(node, path, 'table 需要 rows 数组')
             if (props.rows.length > 200) return failNode(node, path, 'table 最多 200 行')
-            const columnsOk = props.columns.every((column) => typeof column === 'string' || (column !== null && typeof column === 'object' && typeof column.label === 'string'))
+            const columnsOk = props.columns.every((column) => typeof column === 'string' || (isRecord(column) && typeof column.label === 'string' && (column.key === undefined || (typeof column.key === 'string' && !RESERVED.has(column.key) && /^[A-Za-z_][A-Za-z0-9_]{0,63}$/u.test(column.key)))))
             if (!columnsOk) return failNode(node, path, 'table.columns 需要字符串或 {key,label} 描述符')
             const rowsOk = props.rows.every((row) => Array.isArray(row) || (row !== null && typeof row === 'object'))
             if (!rowsOk) return failNode(node, path, 'table.rows 的每一项需要数组或对象')
+            if (JSON.stringify(props).length > LIMITS.stateBytes) return failNode(node, path, 'table 数据超出容量预算')
           }
           if (node.type === 'paragraph') {
             const inlineKids = Array.isArray(node.children) ? node.children : []
@@ -655,7 +698,7 @@ window.__ModuleLoader__.load({
           if (node.type === 'link') {
             const href = typeof props.href === 'string' ? props.href : ''
             // 只接受 https 绝对地址或站内相对路径（以 / 开头）；javascript:/data: 等一律拒绝
-            if (!/^(https:\/\/[^\s]+|\/[^\s]*)$/u.test(href)) return failNode(node, path, 'link 只接受 https 或站内绝对路径')
+            if (!/^(https:\/\/[^\s]+|\/(?!\/)[^\s]*|#[A-Za-z][A-Za-z0-9_-]*)$/u.test(href)) return failNode(node, path, 'link 只接受 https、站内路径或安全锚点')
           }
           if (node.type === 'progress') {
             if (typeof props.value !== 'number' || !Number.isFinite(props.value) || props.value < 0) {
@@ -681,14 +724,19 @@ window.__ModuleLoader__.load({
           }
           return { id: typeof node.id === 'string' && node.id !== '' ? node.id : path, type: node.type, props, children }
         }
-      
+
         const root = walk(input?.root, 1, 'root')
         // 根节点若只能降级，等于整份文档没有可信结构 → 整段拒绝（不做半残渲染）
         if (root !== null && root.degraded === true) fatal.push('根节点不合法')
         if (fatal.length > 0 || root === null) {
           return { ok: false, errors: fatal.length > 0 ? fatal : ['根节点不合法'], fallback: typeof input?.fallback === 'string' ? input.fallback : '' }
         }
-        const state = isRecord(input.state) ? input.state : {}
+        const state = input?.state ?? {}
+        let stateBytes = Infinity
+        try { stateBytes = JSON.stringify(state).length } catch { /* 循环或异常输入拒绝 */ }
+        if (!isRecord(state) || !stateSafe(state) || stateBytes > LIMITS.stateBytes) {
+          return { ok: false, errors: ['state 超过容量预算或包含不安全属性'], fallback: typeof input?.fallback === 'string' ? input.fallback : '' }
+        }
         return {
           ok: true,
           errors: [],
@@ -696,7 +744,7 @@ window.__ModuleLoader__.load({
           ast: { version: IUI_VERSION, state, root, fallback: typeof input?.fallback === 'string' ? input.fallback : '', title: typeof input?.title === 'string' ? input.title : '' },
         }
       }
-      
+
       /** 表格归一：列可为字符串或 {key,label}，行可为二维数组或对象；输出纯二维字符串表。 */
       function tableMatrix(props) {
         const rawColumns = Array.isArray(props?.columns) ? props.columns : []
@@ -714,12 +762,12 @@ window.__ModuleLoader__.load({
         })
         return { columns: columns.map((column) => column.label), rows: matrix }
       }
-      
+
       /** 局部降级：把一段文本包成合法的 text 节点（客户端/测试共用）。 */
       function degradeToText(text) {
         return { id: 'degraded', type: 'text', props: { text: String(text ?? '') }, children: [] }
       }
-      return { IUI_VERSION, REGISTRY, LIMITS, INLINE_TYPES, TONES, ICONS, readBinding, resolveValue, validateAst, tableMatrix, degradeToText }
+      return { IUI_VERSION, REGISTRY, LIMITS, INLINE_TYPES, TONES, ICONS, readBinding, resolveValue, validateAst, tableMatrix, chartMatrix, degradeToText }
     })()
     // <<< miopiik:iui-ast
 
@@ -809,7 +857,7 @@ window.__ModuleLoader__.load({
         while (i < source.length && /[A-Za-z0-9_-]/u.test(source[i])) i += 1
         const name = source.slice(nameStart, i)
         if (name === '') return null
-        const attrs = {}
+        const attrs = Object.create(null)
         let selfClosing = false
         let closed = false
         while (i < source.length) {
@@ -924,9 +972,11 @@ window.__ModuleLoader__.load({
           attrs.tone = attrs.variant
           delete attrs.variant
         }
-        if (attrs.type !== undefined && attrs.kind === undefined && element.name === 'chart') {
-          attrs.kind = attrs.type
+        if (element.name === 'chart') {
+          if (attrs.type !== undefined && attrs.kind === undefined) attrs.kind = attrs.type
+          if (attrs.data !== undefined && attrs.series === undefined) attrs.series = attrs.data
           delete attrs.type
+          delete attrs.data
         }
         if (typeof attrs.gap === 'string' && GAP_TOKENS[attrs.gap] !== undefined) attrs.gap = GAP_TOKENS[attrs.gap]
         return attrs
@@ -1007,6 +1057,10 @@ window.__ModuleLoader__.load({
           if (child.name === 'state') {
             // 形态一：<state name="range" value='{...}' />
             if (typeof child.attrs.name === 'string' && child.attrs.name !== '') {
+              if (!/^[A-Za-z_][A-Za-z0-9_]{0,63}$/u.test(child.attrs.name) || ['__proto__', 'constructor', 'prototype'].includes(child.attrs.name)) {
+                degraded.push('<state> 名称不安全')
+                continue
+              }
               const rawValue = child.attrs.value
               if (typeof rawValue === 'string' && rawValue.trim() !== '') {
                 try {
@@ -1110,7 +1164,7 @@ window.__ModuleLoader__.load({
             }
           }
           if (element.children.length > 0) return degrade('该标签不接受子内容')
-          return { kind: 'node', node: { id: typeof element.attrs.id === 'string' && element.attrs.id !== '' ? element.attrs.id : `ml-${element.name}`, type, props: readProps(element.attrs, TEXT_PROPS[element.name] ?? []), children: [] } }
+          return { kind: 'node', node: { id: typeof attrs.id === 'string' && attrs.id !== '' ? attrs.id : `ml-${element.name}`, type, props: readProps(attrs, TEXT_PROPS[element.name] ?? []), children: [] } }
         }
       
         const compiled = children.map((child) => compile(child))
@@ -2235,7 +2289,7 @@ window.__ModuleLoader__.load({
             'div',
             { key, 'data-iui-metric': String(props.label ?? ''), style: { display: 'flex', flexDirection: 'column', gap: 2, minWidth: 0, flex: '1 1 0' } },
             h('div', { style: { fontSize: 11, color: C.muted } }, String(props.label ?? '')),
-            h('div', { style: { fontSize: 20, fontWeight: 600, fontVariantNumeric: 'tabular-nums', color: props.tone ? tone[1] : C.text } }, `${value === undefined || value === null ? '—' : String(value)}${props.unit ? String(props.unit) : ''}`),
+            h('div', { style: { fontSize: 20, fontWeight: 600, fontVariantNumeric: 'tabular-nums', color: props.tone ? tone[1] : C.text } }, `${value === undefined || value === null ? '—' : String(value)}${resolve(props.unit) === undefined || resolve(props.unit) === null ? '' : String(resolve(props.unit))}`),
             delta !== undefined && delta !== null && String(delta) !== ''
               ? h('div', { 'data-iui-delta': String(delta), style: { fontSize: 11, color: String(delta).startsWith('-') ? '#d1242f' : '#2ea043' } }, String(delta))
               : null,
@@ -2286,6 +2340,8 @@ window.__ModuleLoader__.load({
             success: { bg: 'rgba(46,160,67,0.16)', fg: '#2ea043' },
             warning: { bg: 'rgba(210,153,34,0.18)', fg: '#b08800' },
             danger: { bg: 'rgba(218,54,51,0.16)', fg: '#d1242f' },
+            info: { bg: 'rgba(65,118,230,0.16)', fg: C.brand },
+            accent: { bg: 'rgba(65,118,230,0.16)', fg: C.brand },
           }
           const ICON_GLYPH = { check: '✓', alert: '!', dot: '•', 'arrow-right': '→', spark: '✳' }
           const inline = (child, index) => {
@@ -2303,12 +2359,13 @@ window.__ModuleLoader__.load({
           }
           return h(
             'div',
-            { key, 'data-iui-inline': String(item.children.length), style: { display: 'flex', flexWrap: 'wrap', alignItems: 'baseline', columnGap: Number(props.gap ?? 2), rowGap: 4, fontSize: 13, lineHeight: '22px', color: C.text } },
+            { key, 'data-iui-inline': String(item.children.length), style: { display: 'block', fontSize: 13, lineHeight: '22px', color: C.text, overflowWrap: 'break-word' } },
             ...item.children.map(inline),
           )
         }
         if (item.type === 'badge') {
-          return h('span', { key, 'data-iui-badge': String(props.tone ?? 'neutral'), style: { display: 'inline-block', padding: '0 6px', borderRadius: 999, fontSize: 11, background: 'rgba(127,127,127,0.14)' } }, String(props.text ?? ''))
+          const tone = TONE_COLORS[props.tone] ?? TONE_COLORS.neutral
+          return h('span', { key, 'data-iui-badge': String(props.tone ?? 'neutral'), style: { display: 'inline-block', padding: '0 6px', borderRadius: 999, fontSize: 11, background: tone[0], color: tone[1] } }, String(props.text ?? ''))
         }
         if (item.type === 'callout') {
           const tone = String(props.tone ?? 'neutral')
@@ -2439,12 +2496,14 @@ window.__ModuleLoader__.load({
         }
         if (item.type === 'chart') {
           const series = resolve(props.series)
-          const rows = Array.isArray(series) ? series.map((point) => (Array.isArray(point) ? point : [String(point?.label ?? ''), Number(point?.value ?? 0)])) : []
+          const rows = IUI_AST.chartMatrix(series)
           const kind = String(props.kind ?? 'bar')
           return h(
             'div',
             { key, 'data-iui-chart': kind, style: { display: 'flex', flexDirection: 'column', gap: 4 } },
-            renderChart([{ label: '项' }, { label: '值' }], rows, kind === 'line' ? 'line' : 'bar'),
+            rows === null
+              ? h('div', { 'data-iui-chart-empty': '1', role: 'status', style: { fontSize: 12, color: C.muted, padding: '18px 0' } }, '暂无有效图表数据')
+              : renderChart([{ label: '项' }, { label: '值' }], rows, kind === 'line' ? 'line' : 'bar'),
             props.source ? h('div', { style: { fontSize: 10, color: C.muted } }, `来源：${String(props.source)}`) : null,
           )
         }
@@ -2527,6 +2586,7 @@ window.__ModuleLoader__.load({
     const TONE_COLORS = {
       neutral: ['rgba(127,127,127,0.14)', C.text],
       info: ['rgba(65,118,230,0.16)', C.brand],
+      accent: ['rgba(65,118,230,0.16)', C.brand],
       success: ['rgba(46,160,67,0.16)', '#2ea043'],
       warning: ['rgba(210,153,34,0.18)', '#b08800'],
       danger: ['rgba(218,54,51,0.16)', '#d1242f'],

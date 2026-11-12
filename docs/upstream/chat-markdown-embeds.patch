@@ -1,5 +1,5 @@
 --- /home/chillizu/.npm-global/lib/node_modules/@deepseek-ai/dsh/node_modules/@deepseek-ai/dsh-client-ui-chat/lib/client.js	2026-11-03 20:13:23.600859953 +0800
-+++ /home/data/Projects/Mio/MiOpIIk/miopiik-dsh/upstream/dsh-client-ui-chat-embeds/lib/client.js	2026-11-12 22:16:19.839238601 +0800
++++ /home/data/Projects/Mio/MiOpIIk-iui-polish/miopiik-dsh/upstream/dsh-client-ui-chat-embeds/lib/client.js	2026-11-12 23:34:51.527505735 +0800
 @@ -6287,7 +6287,35 @@
  			return fileMediaUrl(base, path);
  		}
@@ -37,7 +37,7 @@
  			const labels = (0, react.useMemo)(() => markdownLabels(t), [t]);
  			const pathImages = (0, react.useMemo)(() => {
  				return { resolve: (value) => localPathMediaUrl(document.baseURI, value) };
-@@ -6301,15 +6329,51 @@
+@@ -6301,15 +6329,57 @@
  				if (groupPart === "reasoning" && block.kind !== "reasoning") continue;
  				if (groupPart === "response" && block.kind === "reasoning") continue;
  				switch (block.kind) {
@@ -75,14 +75,20 @@
 +								}, i + ":" + partIndex));
 +								return;
 +							}
-+							segmentNodes.push((0, react_jsx_runtime.jsx)(MiopiikEmbedSegment, {
++							const embedded = (0, react_jsx_runtime.jsx)(MiopiikEmbedSegment, {
 +								part,
 +								streaming,
 +								labels,
 +								mentions,
 +								pathImages,
 +								t
-+							}, i + ":" + partIndex));
++							}, i + ":" + partIndex);
++						// 行内/块级同条消息：块组件必须独占整行，不能被外层 flex 压成窄卡片。
++						segmentNodes.push(part.kind === "block" ? (0, react_jsx_runtime.jsx)("div", {
++							"data-miopiik-block-wrap": "1",
++							style: { width: "100%", flexBasis: "100%", minWidth: 0 },
++							children: embedded
++						}, i + ":" + partIndex + ":block") : embedded);
 +						});
 +						// 行内段与块级段分开放：有行内标记时用 flex 容器把文字和 badge 排在同一行
 +						const hasInline = segments.some((part) => part.kind === "inline");

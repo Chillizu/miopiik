@@ -87,14 +87,20 @@ const PATCHED_TEXT_CASE = `\t\t\t\t\tcase "text": {
 								}, i + ":" + partIndex));
 								return;
 							}
-							segmentNodes.push((0, react_jsx_runtime.jsx)(MiopiikEmbedSegment, {
+							const embedded = (0, react_jsx_runtime.jsx)(MiopiikEmbedSegment, {
 								part,
 								streaming,
 								labels,
 								mentions,
 								pathImages,
 								t
-							}, i + ":" + partIndex));
+							}, i + ":" + partIndex);
+						// 行内/块级同条消息：块组件必须独占整行，不能被外层 flex 压成窄卡片。
+						segmentNodes.push(part.kind === "block" ? (0, react_jsx_runtime.jsx)("div", {
+							"data-miopiik-block-wrap": "1",
+							style: { width: "100%", flexBasis: "100%", minWidth: 0 },
+							children: embedded
+						}, i + ":" + partIndex + ":block") : embedded);
 						});
 						// 行内段与块级段分开放：有行内标记时用 flex 容器把文字和 badge 排在同一行
 						const hasInline = segments.some((part) => part.kind === "inline");

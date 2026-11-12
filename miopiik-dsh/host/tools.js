@@ -706,7 +706,7 @@ export function registerTools(ctx, engines, operator, services = {}) {
     tool({
       name: 'ink_chart',
       description:
-        '把一份 spec 画成 SVG 文件，返回可直接写进正文的 markdown 图片：DSH 原生就把本地图当一等公民（api/file 鉴权路由），于是图表以图片身份内嵌，不依赖客户端接管。支持 dataset 的 bar/line/donut 与 graph。',
+        '旧版图表导出工具：仅当用户明确要求持久 SVG 文件或可下载的静态图片时使用。普通聊天中的图表应直接输出 fenced iui 声明，无需调用此工具。支持旧 view spec 的 dataset 与 graph。',
       parameters: {
         type: 'object',
         properties: {
@@ -754,7 +754,7 @@ export function registerTools(ctx, engines, operator, services = {}) {
     tool({
       name: 'ink_view',
       description:
-        'Extra 展示层：把一份结构化的 view spec 放到 MiOpIIk 的「视图」页（不占对话、不占 L3）。一个 IR，五个投影：dataset / graph / timeline / text / choice / media，外加 layout 容器。spec 是数据不是像素：必须有 fallback 纯文本。',
+        '旧版兼容工具：仅在用户明确要求向 MiOpIIk 侧栏「视图」页写入/列出/清理旧 Widget 时使用。普通聊天里的新 IUI 直接用 fenced iui 声明，不需工具调用，不要为演示 UI 调用本工具。旧 view spec 必须包含 fallback。',
       parameters: {
         type: 'object',
         properties: {

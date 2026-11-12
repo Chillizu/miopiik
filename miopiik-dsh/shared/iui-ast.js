@@ -34,14 +34,15 @@ export const REGISTRY = Object.freeze({
   divider: { props: { label: 'string?' }, children: false },
 })
 
-export const LIMITS = Object.freeze({ nodes: 120, depth: 4, series: 60, options: 6, text: 2000 })
+export const LIMITS = Object.freeze({ nodes: 120, depth: 6, series: 60, options: 6, text: 2000, stateBytes: 16384 })
 
 /** 行内原语：paragraph 只接受这些子节点，保证"同一行文字混排"的语义。 */
 export const INLINE_TYPES = Object.freeze(['text', 'badge', 'icon', 'emphasis', 'code', 'link'])
-export const TONES = Object.freeze(['neutral', 'success', 'warning', 'danger', 'info'])
+export const TONES = Object.freeze(['neutral', 'success', 'warning', 'danger', 'info', 'accent'])
 export const ICONS = Object.freeze(['check', 'alert', 'dot', 'arrow-right', 'spark', 'chart', 'layers', 'shield', 'clock', 'inbox', 'info'])
 
 const BIND = /^\$(state|data)\.([A-Za-z0-9_]+(?:\.[A-Za-z0-9_]+)*)$/u
+const RESERVED = new Set(['__proto__', 'prototype', 'constructor'])
 
 function isRecord(value) {
   return value !== null && typeof value === 'object' && !Array.isArray(value)
@@ -51,7 +52,7 @@ function isRecord(value) {
 export function readBinding(value) {
   if (typeof value !== 'string') return { literal: value }
   const match = BIND.exec(value)
-  return match === null ? { literal: value } : { scope: match[1], key: match[2] }
+  return match === null || match[2].split('.').some((part) => RESERVED.has(part)) ? { literal: value } : { scope: match[1], key: match[2] }
 }
 
 /** 解析绑定到实际值（无表达式、无函数）。 */
@@ -65,6 +66,46 @@ export function resolveValue(value, scope) {
     cursor = cursor[part]
   }
   return cursor
+}
+
+/**
+ * 把受信图表输入统一变成 [标签, 数值] 点列。
+ * 模型常给数字数组、[label,value] 数组或 {label,value}；三种都受限解析，不用表达式。
+ */
+export function chartMatrix(series) {
+  if (!Array.isArray(series) || series.length === 0 || series.length > LIMITS.series) return null
+  const rows = []
+  for (let i = 0; i < series.length; i += 1) {
+    const item = series[i]
+    let label = String(i + 1)
+    let raw
+    if (typeof item === 'number') raw = item
+    else if (Array.isArray(item) && item.length >= 2) {
+      label = String(item[0])
+      raw = item[1]
+    } else if (isRecord(item)) {
+      label = String(item.label ?? i + 1)
+      raw = item.value
+    } else return null
+    const value = typeof raw === 'number' || (typeof raw === 'string' && raw.trim() !== '')
+      ? Number(raw)
+      : NaN
+    if (!Number.isFinite(value) || label.length > 100) return null
+    rows.push([label, value])
+  }
+  return rows
+}
+
+/** 本地状态也是来自模型的 JSON；避免超大对象和原型属性污染。 */
+function stateSafe(value, depth = 0) {
+  if (depth > 8) return false
+  if (value === null || typeof value === 'boolean') return true
+  if (typeof value === 'number') return Number.isFinite(value)
+  if (typeof value === 'string') return value.length <= LIMITS.text
+  if (Array.isArray(value)) return value.length <= 128 && value.every((item) => stateSafe(item, depth + 1))
+  if (!isRecord(value)) return false
+  const keys = Object.keys(value)
+  return keys.length <= 64 && keys.every((key) => key.length <= 64 && !RESERVED.has(key) && stateSafe(value[key], depth + 1))
 }
 
 /**
@@ -109,20 +150,22 @@ export function validateAst(input) {
       return failNode(node, path, `options 需要 1–${LIMITS.options} 项`)
     }
     if (node.type === 'chart') {
-      const literal = readBinding(props.series).literal
-      if (Array.isArray(literal) && literal.length > LIMITS.series) return failNode(node, path, `series 超过 ${LIMITS.series} 点`)
+      if (!['bar', 'line'].includes(props.kind ?? 'bar')) return failNode(node, path, 'chart.kind 只能为 bar/line')
+      const binding = readBinding(props.series)
+      if (binding.scope === undefined && chartMatrix(binding.literal) === null) return failNode(node, path, 'chart.series 需要有效点列或状态绑定')
     }
     if (node.type === 'text' && typeof props.text === 'string' && props.text.length > LIMITS.text) {
       return failNode(node, path, `text 超过 ${LIMITS.text} 字`)
     }
     if (node.type === 'table') {
-      if (!Array.isArray(props.columns) || props.columns.length === 0) return failNode(node, path, 'table 需要 columns 数组')
+      if (!Array.isArray(props.columns) || props.columns.length === 0 || props.columns.length > 12) return failNode(node, path, 'table 需要 1–12 列')
       if (!Array.isArray(props.rows)) return failNode(node, path, 'table 需要 rows 数组')
       if (props.rows.length > 200) return failNode(node, path, 'table 最多 200 行')
-      const columnsOk = props.columns.every((column) => typeof column === 'string' || (column !== null && typeof column === 'object' && typeof column.label === 'string'))
+      const columnsOk = props.columns.every((column) => typeof column === 'string' || (isRecord(column) && typeof column.label === 'string' && (column.key === undefined || (typeof column.key === 'string' && !RESERVED.has(column.key) && /^[A-Za-z_][A-Za-z0-9_]{0,63}$/u.test(column.key)))))
       if (!columnsOk) return failNode(node, path, 'table.columns 需要字符串或 {key,label} 描述符')
       const rowsOk = props.rows.every((row) => Array.isArray(row) || (row !== null && typeof row === 'object'))
       if (!rowsOk) return failNode(node, path, 'table.rows 的每一项需要数组或对象')
+      if (JSON.stringify(props).length > LIMITS.stateBytes) return failNode(node, path, 'table 数据超出容量预算')
     }
     if (node.type === 'paragraph') {
       const inlineKids = Array.isArray(node.children) ? node.children : []
@@ -147,7 +190,7 @@ export function validateAst(input) {
     if (node.type === 'link') {
       const href = typeof props.href === 'string' ? props.href : ''
       // 只接受 https 绝对地址或站内相对路径（以 / 开头）；javascript:/data: 等一律拒绝
-      if (!/^(https:\/\/[^\s]+|\/[^\s]*)$/u.test(href)) return failNode(node, path, 'link 只接受 https 或站内绝对路径')
+      if (!/^(https:\/\/[^\s]+|\/(?!\/)[^\s]*|#[A-Za-z][A-Za-z0-9_-]*)$/u.test(href)) return failNode(node, path, 'link 只接受 https、站内路径或安全锚点')
     }
     if (node.type === 'progress') {
       if (typeof props.value !== 'number' || !Number.isFinite(props.value) || props.value < 0) {
@@ -180,7 +223,12 @@ export function validateAst(input) {
   if (fatal.length > 0 || root === null) {
     return { ok: false, errors: fatal.length > 0 ? fatal : ['根节点不合法'], fallback: typeof input?.fallback === 'string' ? input.fallback : '' }
   }
-  const state = isRecord(input.state) ? input.state : {}
+  const state = input?.state ?? {}
+  let stateBytes = Infinity
+  try { stateBytes = JSON.stringify(state).length } catch { /* 循环或异常输入拒绝 */ }
+  if (!isRecord(state) || !stateSafe(state) || stateBytes > LIMITS.stateBytes) {
+    return { ok: false, errors: ['state 超过容量预算或包含不安全属性'], fallback: typeof input?.fallback === 'string' ? input.fallback : '' }
+  }
   return {
     ok: true,
     errors: [],
