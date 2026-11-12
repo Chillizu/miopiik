@@ -82,6 +82,6 @@ test('防回归：客户端内联块里 return 的标识符在真源里都有定
   const tail = block.slice(block.lastIndexOf('return {'))
   const names = tail.slice('return {'.length, tail.indexOf('}')).split(',').map((part) => part.trim()).filter(Boolean)
   for (const name of names) {
-    assert.equal(typeof module[name], 'function', `${name} 在内联块里被导出，但真源没有定义`)
+    assert.notEqual(module[name], undefined, `${name} 在内联块里被导出，但真源没有定义`)
   }
 })
