@@ -95,6 +95,7 @@ Extra 展示层的**设计与协议**归档在独立仓库 [`miopiik-extra`](htt
 - [SPEC.md](SPEC.md) —— 规格（单一真源）
 - [docs/REPORT-2026-11-10.md](docs/REPORT-2026-11-10.md) —— 技术与理念报告（图文）
 - [docs/EXTRA-UI.md](docs/EXTRA-UI.md) —— Extra 展示层：协议、落点、对齐说明
+- [docs/IUI-V1-RELEASE-CANDIDATE.md](docs/IUI-V1-RELEASE-CANDIDATE.md) —— IUI v1 稳定候选：已验收能力、上线门禁、未完事项与回滚
 - [docs/ALIGNMENT-AUDIT.md](docs/ALIGNMENT-AUDIT.md) —— 自审计与偏差登记
 - [docs/machine-test-2026-11-06.md](docs/machine-test-2026-11-06.md) —— 实机验证记录
 

@@ -1,6 +1,6 @@
 # 上游提案：Markdown 受信嵌入扩展点（草案 v1）
 
-> 状态：**接口已在本机实验分支落地**（未启用、默认关闭），上游 PR 尚未提交。作者：MiOpIIk Extra 层。
+> 状态：**接口已在本机实验分支落地**。截至 2026-11-12，本机 Web profile 已加载实验 fork，受信嵌入的浏览器开关仍默认关闭；上游 PR 尚未提交。作者：MiOpIIk Extra 层。
 > 目标：让插件把**受信任的嵌入组件**放进 DSH 原生 Markdown 流里，而**不替换 assistant-step**。
 > 非目标：不改 Markdown 解析器语义、不执行模型提供的 HTML/JS/CSS、不改日志契约。
 
@@ -163,7 +163,7 @@ localStorage.setItem('miopiik.markdownEmbeds', '0')
 
 ### 6.5 尚未完成 / 风险
 
-- 原生 reasoning 折叠已在 fork 下实测通过；**行内混排的真实观感与历史回放尚未验收**（见 6.5 限制）。
+- 原生 reasoning 折叠已在 fork 下实测通过；真实画廊三展区的**历史回放与本地指标切换**也已通过 `tools/e2e-gallery-replay.mjs`。但跨 inline token 的 Markdown 语义、选中复制、屏幕阅读器顺序与流式增量仍未完整验收（见下文限制与 [RC 门禁](IUI-V1-RELEASE-CANDIDATE.md)）。
 - fork 与上游版本耦合：升级 DSH 后若 `AssistantMarkdown` 结构变化，生成脚本会**直接报错**而不是产出错误补丁。
 - **切分式嵌入的已知限制**（重要，勿混淆为"已完成"）：
   - 行内 token 若跨越 Markdown 结构（如 `**加粗 {{badge:x}} 继续**`），两侧文本会被分别渲染，加粗会在 token 处断开；

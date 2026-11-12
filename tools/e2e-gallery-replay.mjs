@@ -54,12 +54,50 @@ try {
       }))
     }
     out.replay = before
-    out.interaction = { hasSwitch, changed: after !== null && JSON.stringify(after.metrics) !== JSON.stringify(before.metrics), addedSteps: after === null ? null : after.assistantSteps - before.assistantSteps }
+    out.interaction = {
+      hasSwitch,
+      changed: after !== null && JSON.stringify(after.metrics) !== JSON.stringify(before.metrics),
+      addedSteps: after === null ? null : after.assistantSteps - before.assistantSteps,
+      beforeRange: before.metrics.find((metric) => metric.startsWith('交互渲染总量')) ?? '',
+      afterRange: after?.metrics.find((metric) => metric.startsWith('交互渲染总量')) ?? '',
+    }
+
+    // 原生 ReasoningRow 必须能实际展开、折叠，不能只验证 DOM 节点存在。
+    // 使用受信任的独立浏览器直接触发当前控件；不发送消息、不修改会话。
+    const disclosure = page.locator('[data-variant="think"] [role="button"]').first()
+    if ((await disclosure.count()) > 0) {
+      const original = await disclosure.getAttribute('aria-expanded')
+      await disclosure.evaluate((element) => element.click())
+      await page.waitForTimeout(100)
+      const toggled = await disclosure.getAttribute('aria-expanded')
+      await disclosure.evaluate((element) => element.click())
+      await page.waitForTimeout(100)
+      const restored = await disclosure.getAttribute('aria-expanded')
+      out.reasoning = { original, toggled, restored, working: original !== toggled && original === restored }
+    } else {
+      out.reasoning = { working: false, blocked: 'native-disclosure-not-found' }
+    }
   }
   await ctx.close()
 } finally {
   await browser.close()
 }
-const ok = out.blocked === undefined && (out.replay?.iui ?? 0) >= 3 && out.replay?.degradedTexts === 0 && out.errors.length === 0
+// 收尾门禁：渲染成功之外，真实回放、原生思考折叠与本地状态联动缺一不可。
+const ok =
+  out.blocked === undefined &&
+  out.replay?.iui === 3 &&
+  (out.replay?.tables ?? 0) >= 1 &&
+  (out.replay?.badges ?? 0) >= 5 &&
+  (out.replay?.metrics?.length ?? 0) >= 7 &&
+  out.replay?.degradedTexts === 0 &&
+  (out.replay?.assistantSteps ?? 0) >= 1 &&
+  (out.replay?.reasoningRows ?? 0) >= 1 &&
+  out.interaction?.hasSwitch === true &&
+  out.interaction?.changed === true &&
+  out.interaction?.addedSteps === 0 &&
+  out.interaction?.beforeRange.includes('12,480') === true &&
+  out.interaction?.afterRange.includes('48,296') === true &&
+  out.reasoning?.working === true &&
+  out.errors.length === 0
 console.log(JSON.stringify({ ok, ...out }, null, 2))
 process.exitCode = ok ? 0 : 1
