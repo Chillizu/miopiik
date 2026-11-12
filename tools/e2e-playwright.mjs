@@ -67,6 +67,33 @@ try {
   record('afterToggle', { state: await panel.getAttribute('data-dsl-preview') })
 
   const output = page.locator('[data-iui-output]')
+  // 1) miopiik-ml（模型面向格式）样例：结构 + 局部状态
+  await page.getByRole('button', { name: /示例 ML：指标\+趋势\+切换/ }).click()
+  await page.waitForTimeout(800)
+  record('mlInteractive', {
+    format: await output.getAttribute('data-iui-format'),
+    kind: await output.getAttribute('data-iui-output'),
+    degraded: await output.getAttribute('data-iui-degraded'),
+    metrics: await page.locator('[data-iui-metric]').evaluateAll((nodes) => nodes.map((n) => n.textContent.replace(/\s+/g, ' ').trim())),
+  })
+  // 2) ML 组合样例：网格 + 卡片 + 表格
+  await page.getByRole('button', { name: /示例 ML：两列卡片\+表格/ }).click()
+  await page.waitForTimeout(800)
+  record('mlCompare', {
+    cards: await page.locator('[data-iui-container="card"]').count(),
+    grid: await page.locator('[data-iui-container="grid"]').count(),
+    tableRows: await page.locator('[data-iui-table]').first().getAttribute('data-iui-table'),
+  })
+  // 3) ML 局部降级：未知标签只影响自身
+  await page.getByRole('button', { name: /示例 ML：局部降级/ }).click()
+  await page.waitForTimeout(700)
+  record('mlPartial', {
+    kind: await output.getAttribute('data-iui-output'),
+    degraded: await output.getAttribute('data-iui-degraded'),
+    metricStillVisible: (await page.locator('[data-iui-metric]').count()) > 0,
+    text: (await output.innerText()).replace(/\s+/g, ' ').slice(0, 100),
+  })
+
   await page.getByRole('button', { name: /示例：指标 \+ 趋势 \+ 切换/ }).click()
   await page.waitForTimeout(700)
   const readMetrics = () => page.locator('[data-iui-metric]').evaluateAll((nodes) => nodes.map((n) => n.textContent.replace(/\s+/g, ' ').trim()))
@@ -120,9 +147,13 @@ try {
   await browser.close()
 }
 
+const broken = evidence.steps.find((s) => s.name === 'brokenAst') ?? {}
+const partial = evidence.steps.find((s) => s.name === 'mlPartial') ?? {}
 const fail = evidence.errors.length > 0 ||
   evidence.steps.find((s) => s.name === 'interactiveAfterSwitch')?.changed !== true ||
   evidence.steps.find((s) => s.name === 'interactiveAfterSwitch')?.modelTurnsAdded !== 0 ||
-  evidence.steps.find((s) => s.name === 'brokenAst')?.kind !== 'invalid'
+  // 局部降级后父级仍然渲染（ok），坏节点自己变成文本
+  broken.kind !== 'ok' || broken.text?.includes('无法渲染') !== true ||
+  partial.metricStillVisible !== true || partial.text?.includes('无法渲染') !== true
 console.log(JSON.stringify({ ok: !fail, evidence }, null, 2))
 process.exitCode = fail ? 1 : 0
