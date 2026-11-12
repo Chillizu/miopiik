@@ -1,6 +1,6 @@
 # 上游提案：Markdown 受信嵌入扩展点（草案 v1）
 
-> 状态：**接口已在本机实验分支落地**。截至 2026-11-12，本机 Web profile 已加载实验 fork，受信嵌入的浏览器开关仍默认关闭；上游 PR 尚未提交。作者：MiOpIIk Extra 层。
+> 状态：**2026-11-13 已拆为独立 `miopiik-iui` DSH 插件**，本地 Web profile 已通过真实回放验收；底层仍使用版本耦合的实验 ui-chat fork，浏览器开关默认关闭，上游 PR 尚未提交。本文件记录旧提案与实现限制，实际安装以 [`miopiik-iui/README.md`](../miopiik-iui/README.md) 为准。
 > 目标：让插件把**受信任的嵌入组件**放进 DSH 原生 Markdown 流里，而**不替换 assistant-step**。
 > 非目标：不改 Markdown 解析器语义、不执行模型提供的 HTML/JS/CSS、不改日志契约。
 
@@ -167,7 +167,7 @@ localStorage.setItem('miopiik.markdownEmbeds', '0')
 - fork 与上游版本耦合：升级 DSH 后若 `AssistantMarkdown` 结构变化，生成脚本会**直接报错**而不是产出错误补丁。
 - **切分式嵌入的已知限制**（重要，勿混淆为"已完成"）：
   - 行内 token 若跨越 Markdown 结构（如 `**加粗 {{badge:x}} 继续**`），两侧文本会被分别渲染，加粗会在 token 处断开；
-  - 文字与 badge 目前靠外层 flex 容器排在同一行（`data-miopiik-segments="inline"`），**不是真正的行内排版**；
+  - 文字与 badge 目前靠外层 flex 容器排在同一行（`data-miopiik-segments="inline"`），块级 IUI 子节点已经通过 `data-miopiik-block-wrap` 占满一行（两条真实会话实机宽度 680/680 px），但**仍不是真正的行内 Markdown AST 排版**；
     MarkdownText 是块级组件，段落边距、复制选区、屏幕阅读器朗读顺序都可能与原生不一致；
   - 选中复制时，分段渲染可能带出多余换行。
   - 彻底解决需要 **Markdown AST 级嵌入**（remark/renderer 插件），前提是 DSH 把 primitives 作为可解析包发布：

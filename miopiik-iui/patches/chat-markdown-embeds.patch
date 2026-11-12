@@ -1,5 +1,5 @@
---- /home/chillizu/.npm-global/lib/node_modules/@deepseek-ai/dsh/node_modules/@deepseek-ai/dsh-client-ui-chat/lib/client.js	2026-11-03 20:13:23.600859953 +0800
-+++ /home/data/Projects/Mio/MiOpIIk-iui-standalone/miopiik-iui/upstream/dsh-client-ui-chat-embeds/lib/client.js	2026-11-13 01:08:05.177760079 +0800
+--- a/upstream/lib/client.js
++++ b/miopiik-iui/lib/client.js
 @@ -6287,7 +6287,35 @@
  			return fileMediaUrl(base, path);
  		}

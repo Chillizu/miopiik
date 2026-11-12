@@ -184,7 +184,7 @@ function build() {
   // diff 在有差异时退出码为 1，属正常，不能被当成失败
   let diff = ''
   try {
-    diff = execFileSync('diff', ['-u', join(upstreamDir, 'lib', 'client.js'), join(forkDir, 'lib', 'client.js')], { encoding: 'utf8' })
+    diff = execFileSync('diff', ['-u', '--label', 'a/upstream/lib/client.js', '--label', 'b/miopiik-iui/lib/client.js', join(upstreamDir, 'lib', 'client.js'), join(forkDir, 'lib', 'client.js')], { encoding: 'utf8' })
   } catch (error) {
     diff = String(error.stdout ?? '')
   }

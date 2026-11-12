@@ -9,9 +9,9 @@
 - **模型面向表达**：`miopiik-ml`（`\`\`\`iui` 围栏）作为首选候选，JSON AST 保留调试/兼容入口。两者统一进入 `iui/1` AST、`validateAst` 和受控 React 组件注册表；禁止任意 HTML/CSS/JS。
 - **模型输出的样式权限**：仅语义 tone、有限布局 token、数据、状态初值和安全绑定；主题、间距、颜色、事件处理、安全限制由可信客户端负责。
 - **局部状态**：`$state.foo.bar` 和 `$data.foo.bar` 是受限读取路径，不允许脚本表达式；交互仅允许声明式本地变更，不代表获得外部执行或写入授权。
-- **聊天层所有权**：DSH 原生 `AssistantMarkdown` 与 `ReasoningRow` 负责消息、思考折叠、图片和历史；MiOpIIk 仅接管显式受信的 inline token 与 fenced `iui` 片段。旧 `assistant-step` 覆盖开关保持关闭。
+- **聊天层所有权**：DSH 原生 `AssistantMarkdown` 与 `ReasoningRow` 负责消息、思考折叠、图片和历史；独立的 `miopiik-iui` 插件只呈现受信 inline token 与 fenced `iui` 片段。MiOpIIk Agent 已撤出聊天整行接管。
 - **部署实现**：当前是本地 `dsh-client-ui-chat` fork 和 Web profile 专用覆盖链接，**不是已经合并进 DSH 上游的正式 API**。安装/回滚详情见 [UPSTREAM-MARKDOWN-EMBED.md](UPSTREAM-MARKDOWN-EMBED.md)。
-- **旧展示数据**：`ink-view` / 旧七 Widget 现有输出继续可读；只读 adapter、模型默认生成协议切换、删除旧路径尚未交付，严禁以“清理”名义删旧数据。
+- **旧展示工具退役**：`ink_view` / `ink_chart` 已从 MiOpIIk 的工具注册中撤下，旧整行接管入口也已取消。历史会话与 `widgets` 账本原始文件保留；不承诺继续渲染旧 Widget，也不在 IUI 发布包内附带旧协议。
 
 ## 2. 已验证的 RC 能力
 
@@ -30,10 +30,11 @@
 npm test
 node tools/fork-chat-embeds.mjs --check
 node tools/e2e-gallery-replay.mjs
+node tools/e2e-iui-user-sessions.mjs
 node tools/e2e-playwright.mjs
 ```
 
-最后两项需要正在运行的本地 DSH Web、相应的受控测试环境和隔离 Playwright 浏览器。**脚本严禁发送模型测试消息到既有主会话**；画廊回放脚本只读打开旧会话并在测试浏览器内部点击状态控件。
+后三项需要正在运行的本地 DSH Web、相应的受控测试环境和隔离 Playwright 浏览器。**脚本严禁发送模型测试消息到既有主会话**；画廊回放脚本只读打开旧会话并在测试浏览器内部点击状态控件。
 
 ### 交付阻断项（必须全部满足才可称“该 RC 验收通过”）
 
@@ -51,8 +52,8 @@ node tools/e2e-playwright.mjs
 |---|---|---|
 | AST 级无损行内 Markdown | 仍将文本切成多个 `MarkdownText` 片段，跨 token 加粗、复制、语义朗读可能不完整 | 上游可用 renderer/remark 扩展点，真实选区复制与 a11y 测试 |
 | 流式增量 IUI | 未闭合 fence 按普通文本，闭合后一次物化 | 中间状态安全渲染，不闪烁、不重复挂载；流式/中断 E2E |
-| 旧 `ink-view` → 新 IUI adapter | 旧系统仍独立运行 | 只读 adapter 对历史会话和 SVG/Widget 证据回放等价，不迁移或删除原始账本 |
-| 新格式成为模型默认协议 | Host `prompt.js` 仍主要描述旧格式 | 真实模型多样本合法率/退化/性能达标，提示词版本化、灰度开关和回滚 |
+| 旧工具清理 | `ink_view` / `ink_chart` 已停止注册，历史日志未删除；旧渲染器部分死代码尚待清除 | 删除死代码前确认不会影响 MiOpIIk 的其他后台视图 |
+| 新格式模型默认引导 | `miopiik-iui/index.js` 已独立注入精简输出约定，不再依赖 MiOpIIk Agent；同模型 A/B 性能尚未完成 | 对普通问答、图表和交互任务做真实模型多样本合法率/退化/耗时对照 |
 | 公共上游集成 | 本地 fork、耦合打包产物和当前 DSH 版本 | 上游源码/API 可用、上游补丁审核及跨版本兼容测试 |
 | 长时运行、主题与可访问性全验收 | 已有暗色及窄屏基础测试，但不是完整矩阵 | 浅色/深色/高对比度、键盘、屏幕阅读器、复制、长会话内存与性能测试 |
 
@@ -69,8 +70,8 @@ node tools/e2e-playwright.mjs
 ## 5. 下一阶段的有限工作队列
 
 1. **P0：可靠性**——完善 E2E 真正的交互/折叠断言（本次落地）、受限输入的状态与表格安全预算、失败诊断、跨版本 fork 自检。
-2. **P1：原生程度**——争取 Markdown AST 级 block/inline 扩展；保留原生复制、链接、加粗、图片、朗读以及正确的流式生命周期。
-3. **P2：迁移**——版本化新旧 view adapter、真实模型多场景 benchmark、灰度启用新的模型提示词。
+2. **P1：原生程度**——本轮修复混合 Markdown + IUI 块级组件被压窄的问题（真实两条会话全宽回放已验收）；继续争取 Markdown AST 级 block/inline 扩展、复制与朗读、流式生命周期。
+3. **P2：独立发布准备**——减少旧展示死代码、同模型多场景 benchmark、独立包打包与安装矩阵、外部发布审查。
 4. **P3：推广**——稳定性矩阵、公开文档、原生插件接口，而不是继续无边界扩充 Widget 清单。
 
-不在没有足够证据时勾选完成，也不为了追求“完工”而提前删除旧协议。IUI 的定义不变：**让模型以受限声明在聊天中生成恰到好处的界面，其他聊天体验仍属于 DSH。**
+旧工具入口已退役，但历史数据不做破坏性删除；未完成的 Markdown 原生性与流式限制必须继续记录。IUI 的定义不变：**让模型以受限声明在聊天中生成恰到好处的界面，其他聊天体验仍属于 DSH。**
