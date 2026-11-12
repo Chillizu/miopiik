@@ -504,6 +504,113 @@ window.__ModuleLoader__.load({
     })()
     // <<< miopiik:ui-dsl
 
+    // >>> miopiik:iui-ast (generated; edit miopiik-dsh/shared/iui-ast.js)
+    const IUI_AST = (() => {
+      /**
+       * IUI AST v1（实验层）：有限的受信组件 + 任意组合 + 局部状态绑定。
+       *
+       * 设计边界：
+       *  - 模型/示例只产出**结构**（组件树 + 属性 + 状态初值 + 声明式绑定），不产出 CSS/JS；
+       *  - 组件类型必须在 REGISTRY 白名单内，未知类型→所在子树降级为 fallback 文本；
+       *  - 绑定只允许 `$state.<key>` 与 `$data.<key>` 两种形式，不做表达式求值；
+       *  - 预算（节点数/深度/数据量）在这里统一拒绝，由调用方决定降级策略。
+       */
+      
+      const IUI_VERSION = 'iui/1'
+      
+      const REGISTRY = Object.freeze({
+        text: { props: { text: 'string' }, children: false },
+        metric: { props: { label: 'string', value: 'value', unit: 'string?', note: 'string?' }, children: false },
+        row: { props: { gap: 'number?' }, children: true },
+        column: { props: { gap: 'number?' }, children: true },
+        chart: { props: { kind: 'string', series: 'value', source: 'string?' }, children: false },
+        segmented: { props: { label: 'string?', options: 'value', bind: 'string' }, children: false },
+        divider: { props: {}, children: false },
+      })
+      
+      const LIMITS = Object.freeze({ nodes: 120, depth: 4, series: 60, options: 6, text: 2000 })
+      
+      const BIND = /^\$(state|data)\.([A-Za-z0-9_]+)$/u
+      
+      function isRecord(value) {
+        return value !== null && typeof value === 'object' && !Array.isArray(value)
+      }
+      
+      /** 只允许 `$state.x` / `$data.x`，其余原样返回。 */
+      function readBinding(value) {
+        if (typeof value !== 'string') return { literal: value }
+        const match = BIND.exec(value)
+        return match === null ? { literal: value } : { scope: match[1], key: match[2] }
+      }
+      
+      /** 解析绑定到实际值（无表达式、无函数）。 */
+      function resolveValue(value, scope) {
+        const binding = readBinding(value)
+        if (binding.scope === undefined) return binding.literal
+        const source = scope[binding.scope] ?? {}
+        return source[binding.key]
+      }
+      
+      /**
+       * 校验并规范化一棵 AST。
+       * @returns {{ok:true, ast} | {ok:false, errors, fallback}}
+       */
+      function validateAst(input) {
+        const errors = []
+        let nodes = 0
+        const walk = (node, depth, path) => {
+          if (!isRecord(node)) {
+            errors.push(`${path} 不是对象`)
+            return null
+          }
+          if (depth > LIMITS.depth) {
+            errors.push(`${path} 超过最大深度 ${LIMITS.depth}`)
+            return null
+          }
+          nodes += 1
+          if (nodes > LIMITS.nodes) {
+            errors.push(`节点数超过 ${LIMITS.nodes}`)
+            return null
+          }
+          const type = node.type
+          const spec = REGISTRY[type]
+          if (spec === undefined) {
+            errors.push(`${path} 未知组件类型：${String(type)}`)
+            return null
+          }
+          const props = isRecord(node.props) ? node.props : {}
+          if (props.bind !== undefined) {
+            const binding = readBinding(props.bind)
+            if (binding.scope !== 'state') errors.push(`${path}.bind 只能绑定 $state.*`)
+          }
+          if (type === 'segmented' && (!Array.isArray(props.options) || props.options.length === 0 || props.options.length > LIMITS.options)) {
+            errors.push(`${path}.options 必须是 1–${LIMITS.options} 项数组`)
+          }
+          if (type === 'chart') {
+            const series = readBinding(props.series)
+            const literal = series.literal
+            if (Array.isArray(literal) && literal.length > LIMITS.series) errors.push(`${path}.series 超过 ${LIMITS.series} 点`)
+          }
+          if (type === 'text' && typeof props.text === 'string' && props.text.length > LIMITS.text) errors.push(`${path}.text 超过 ${LIMITS.text} 字`)
+          const children = spec.children && Array.isArray(node.children) ? node.children.map((child, index) => walk(child, depth + 1, `${path}.children[${index}]`)).filter(Boolean) : []
+          return { id: typeof node.id === 'string' && node.id !== '' ? node.id : path, type, props, children }
+        }
+        const ast = walk(input, 1, 'root')
+        if (ast === null || errors.length > 0) {
+          return { ok: false, errors, fallback: typeof input?.fallback === 'string' ? input.fallback : '' }
+        }
+        const state = isRecord(input.state) ? input.state : {}
+        return { ok: true, errors: [], ast: { version: IUI_VERSION, state, root: ast, fallback: typeof input.fallback === 'string' ? input.fallback : '', title: typeof input.title === 'string' ? input.title : '' } }
+      }
+      
+      /** 局部降级：把一棵不合法子树换成 fallback 文本节点。 */
+      function degradeToText(text) {
+        return { id: 'degrade', type: 'text', props: { text: String(text ?? '') }, children: [] }
+      }
+      return { IUI_VERSION, REGISTRY, LIMITS, readBinding, resolveValue, validateAst, degradeToText }
+    })()
+    // <<< miopiik:iui-ast
+
     function createStore(initial) {
       let state = initial
       const listeners = new Set()
@@ -1380,6 +1487,210 @@ window.__ModuleLoader__.load({
      * 不设全局「完整模式」——详情是按需的，不是一次性倒出来。
      */
 
+
+    // ── 实验性 IUI v1：受信组件树 + 局部状态（不做表达式求值，不执行模型脚本）──
+    const IUI_SAMPLES = (() => {
+      const range = (label, series, current, prev) => ({ label, value: { series, current, prev } })
+      return {
+        interactive: {
+          title: '周活跃概览',
+          fallback: '近 7 天活跃 74 次，上一区间 52 次。',
+          state: { range: range('近7天', [['一', 12], ['二', 18], ['三', 15], ['四', 9], ['五', 20]], 74, 52) },
+          root: {
+            id: 'root',
+            type: 'column',
+            props: { gap: 12 },
+            children: [
+              { id: 'note', type: 'text', props: { text: '切换时间范围只改本地状态，不会再请求模型。' } },
+              {
+                id: 'seg',
+                type: 'segmented',
+                props: {
+                  label: '范围',
+                  bind: '$state.range',
+                  options: [
+                    range('近7天', [['一', 12], ['二', 18], ['三', 15], ['四', 9], ['五', 20]], 74, 52),
+                    range('近30天', [['第1周', 40], ['第2周', 61], ['第3周', 52], ['第4周', 78]], 231, 198),
+                  ],
+                },
+              },
+              {
+                id: 'metrics',
+                type: 'row',
+                props: { gap: 12 },
+                children: [
+                  { id: 'm1', type: 'metric', props: { label: '当前区间', value: '$state.range.current', unit: '次' } },
+                  { id: 'm2', type: 'metric', props: { label: '上一区间', value: '$state.range.prev', unit: '次' } },
+                ],
+              },
+              { id: 'chart', type: 'chart', props: { kind: 'bar', series: '$state.range.series', source: '本地示例数据' } },
+            ],
+          },
+        },
+        compare: {
+          title: '两种口径对比',
+          fallback: '两种口径：主分支 12 次，含 PR 分支 18 次。',
+          root: {
+            id: 'root',
+            type: 'row',
+            props: { gap: 12 },
+            children: [
+              {
+                id: 'left',
+                type: 'column',
+                props: { gap: 6 },
+                children: [
+                  { id: 'l1', type: 'metric', props: { label: '主分支提交', value: 12, unit: '次' } },
+                  { id: 'l2', type: 'text', props: { text: '只统计 main，口径更窄。' } },
+                ],
+              },
+              {
+                id: 'right',
+                type: 'column',
+                props: { gap: 6 },
+                children: [
+                  { id: 'r1', type: 'metric', props: { label: '含 PR 分支', value: 18, unit: '次' } },
+                  { id: 'r2', type: 'text', props: { text: '包含 feature 分支，口径更宽。' } },
+                ],
+              },
+            ],
+          },
+        },
+        broken: {
+          title: '坏 AST',
+          fallback: '这段界面描述不合法，已降级为文本。',
+          root: {
+            id: 'root',
+            type: 'column',
+            props: { gap: 8 },
+            children: [
+              { id: 'ok', type: 'text', props: { text: '这一段本来合法，但兄弟节点坏了。' } },
+              { id: 'bad', type: 'qrcode', props: {} },
+            ],
+          },
+        },
+      }
+    })()
+
+    function IuiSheet({ sample }) {
+      const checked = IUI_AST.validateAst(sample)
+      const [state, setState] = React.useState(checked.ok ? checked.ast.state : {})
+      React.useEffect(() => {
+        if (checked.ok) setState(checked.ast.state)
+      }, [sample])
+      if (!checked.ok) {
+        return h(
+          'div',
+          { 'data-iui-output': 'invalid', style: { display: 'flex', flexDirection: 'column', gap: 4, fontSize: 12, lineHeight: '18px' } },
+          h('div', { style: { color: C.muted } }, '这份 AST 不合法，已整段降级：'),
+          h('div', null, checked.fallback || checked.errors[0]),
+        )
+      }
+      const ast = checked.ast
+      const scope = { state, data: {} }
+      const resolve = (value) => IUI_AST.resolveValue(value, scope)
+      const node = (item, key) => {
+        const props = item.props ?? {}
+        if (item.type === 'text') {
+          return h('div', { key, style: { fontSize: 12, lineHeight: '18px', color: C.text } }, String(resolve(props.text) ?? ''))
+        }
+        if (item.type === 'divider') return h('hr', { key, style: { border: 'none', borderTop: `1px solid ${C.border}`, width: '100%' } })
+        if (item.type === 'metric') {
+          return h(
+            'div',
+            { key, 'data-iui-metric': String(props.label ?? ''), style: { display: 'flex', flexDirection: 'column', gap: 2, minWidth: 0, flex: '1 1 0' } },
+            h('div', { style: { fontSize: 11, color: C.muted } }, String(props.label ?? '')),
+            h('div', { style: { fontSize: 20, fontWeight: 600, fontVariantNumeric: 'tabular-nums' } }, `${String(resolve(props.value) ?? '—')}${props.unit ? String(props.unit) : ''}`),
+            props.note ? h('div', { style: { fontSize: 10, color: C.muted } }, String(props.note)) : null,
+          )
+        }
+        if (item.type === 'segmented') {
+          const binding = IUI_AST.readBinding(props.bind)
+          const current = binding.scope === 'state' ? state[binding.key] : undefined
+          const options = Array.isArray(props.options) ? props.options : []
+          return h(
+            'div',
+            { key, style: { display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' } },
+            props.label ? h('span', { style: { fontSize: 11, color: C.muted } }, String(props.label)) : null,
+            ...options.map((option, index) =>
+              h(
+                'button',
+                {
+                  key: `${key}-${index}`,
+                  type: 'button',
+                  'aria-pressed': current === option.value,
+                  onClick: () => {
+                    if (binding.scope !== 'state') return
+                    setState((prev) => ({ ...prev, [binding.key]: option.value }))
+                  },
+                  style: {
+                    border: `1px solid ${current === option.value ? C.brand : C.border}`,
+                    background: current === option.value ? C.brand : 'transparent',
+                    color: current === option.value ? '#fff' : C.muted,
+                    borderRadius: 999,
+                    padding: '2px 10px',
+                    fontSize: 11,
+                    cursor: 'pointer',
+                  },
+                },
+                String(option.label ?? ''),
+              ),
+            ),
+          )
+        }
+        if (item.type === 'row' || item.type === 'column') {
+          const isRow = item.type === 'row'
+          return h(
+            'div',
+            {
+              key,
+              'data-iui-container': item.type,
+              style: { display: isRow ? 'grid' : 'flex', gridTemplateColumns: isRow ? `repeat(${Math.max(1, item.children.length)}, minmax(0, 1fr))` : undefined, flexDirection: isRow ? undefined : 'column', gap: Number(props.gap ?? 10) },
+            },
+            ...item.children.map((child, index) => node(child, `${key}-${index}`)),
+          )
+        }
+        if (item.type === 'chart') {
+          const series = resolve(props.series)
+          const rows = Array.isArray(series) ? series.map((point) => (Array.isArray(point) ? point : [String(point?.label ?? ''), Number(point?.value ?? 0)])) : []
+          const kind = String(props.kind ?? 'bar')
+          return h(
+            'div',
+            { key, 'data-iui-chart': kind, style: { display: 'flex', flexDirection: 'column', gap: 4 } },
+            renderChart([{ label: '项' }, { label: '值' }], rows, kind === 'line' ? 'line' : 'bar'),
+            props.source ? h('div', { style: { fontSize: 10, color: C.muted } }, `来源：${String(props.source)}`) : null,
+          )
+        }
+        return null
+      }
+      return h(
+        'div',
+        { 'data-iui-output': 'ok', style: { display: 'flex', flexDirection: 'column', gap: 10, border: `1px solid ${C.border}`, borderRadius: 12, padding: 12 } },
+        ast.title ? h('div', { style: { fontSize: 13, fontWeight: 600 } }, ast.title) : null,
+        node(ast.root, 'root'),
+      )
+    }
+
+    function IuiPreview({ sample, onSample }) {
+      const buttons = [
+        ['interactive', t('iui.sampleInteractive')],
+        ['compare', t('iui.sampleCompare')],
+        ['broken', t('iui.sampleBroken')],
+      ]
+      return h(
+        'div',
+        { 'data-iui-preview': '1', style: { display: 'flex', flexDirection: 'column', gap: 10, marginTop: 16, borderTop: `1px dashed ${C.border}`, paddingTop: 14 } },
+        h('div', { style: { fontSize: 13, fontWeight: 600 } }, t('iui.title')),
+        h('div', { style: { fontSize: 11, color: C.muted, lineHeight: '16px' } }, t('iui.hint')),
+        h(
+          'div',
+          { style: { display: 'flex', gap: 8, flexWrap: 'wrap' } },
+          ...buttons.map(([key, label]) => h('button', { key, type: 'button', onClick: () => onSample(key), style: styles.action }, label)),
+        ),
+        h(IuiSheet, { sample: IUI_SAMPLES[sample] }),
+      )
+    }
+
     // 实验性 IUI：紧凑 DSL 预览（默认关闭，只在「视图」页跑，不碰 assistant-step）
     const DSL_PREVIEW_KEY = 'miopiik.dslPreview'
     const DSL_SAMPLE_CHART = `先看这周的数据。
@@ -1425,6 +1736,7 @@ chart bar
       const [on, setOn] = React.useState(readDslPreview)
       const [text, setText] = React.useState(DSL_SAMPLE_CHART)
       const [segments, setSegments] = React.useState(null)
+      const [iuiSample, setIuiSample] = React.useState('interactive')
       const toggle = () => {
         const next = !on
         try {
@@ -1493,6 +1805,7 @@ chart bar
                           ),
                     )),
               ),
+              h(IuiPreview, { sample: iuiSample, onSample: setIuiSample }),
             )
           : null,
       )
@@ -2929,6 +3242,11 @@ chart bar
       'tab.list': '清单',
       'tab.stream': '流水',
       'tab.context': '所见',
+      'iui.title': '可组合 IUI（实验）',
+      'iui.hint': '受信组件树 + 局部状态：切换时间范围只改本地状态，不请求模型；坏节点整段降级。',
+      'iui.sampleInteractive': '示例：指标 + 趋势 + 切换',
+      'iui.sampleCompare': '示例：两列对比',
+      'iui.sampleBroken': '示例：坏 AST 降级',
       'dsl.title': '实验性 IUI（预览）',
       'dsl.on': '开',
       'dsl.off': '关',
@@ -3033,6 +3351,11 @@ chart bar
       'tab.list': 'List',
       'tab.stream': 'Stream',
       'tab.context': 'Seen',
+      'iui.title': 'Composable IUI (experimental)',
+      'iui.hint': 'Trusted component tree with local state: switching the range only updates local state, no model call. A bad node degrades its own subtree.',
+      'iui.sampleInteractive': 'Sample: metrics + trend + switch',
+      'iui.sampleCompare': 'Sample: two-column compare',
+      'iui.sampleBroken': 'Sample: broken AST',
       'dsl.title': 'Experimental IUI (preview)',
       'dsl.on': 'on',
       'dsl.off': 'off',
