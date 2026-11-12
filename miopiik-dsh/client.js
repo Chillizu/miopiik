@@ -1797,20 +1797,24 @@ window.__ModuleLoader__.load({
         return { seq: match.event.seq, specs: [...state.specs, hit.spec], failed: state.failed }
       },
       buildViewNode: (context) => {
-        if (context.state === undefined) return null
-        const specs = context.state.specs ?? []
-        if (specs.length === 0) return null
-        if (context.state.failed === true) return null
+        // 永远不返回 null：引擎不允许撤回已 materialize 的 key，只能 hidden。
+        const specs = context.state?.specs ?? []
+        const spec = specs[specs.length - 1] ?? null
+        const failed = context.state?.failed === true
+        // 引擎契约：已 materialize 的 key 不能"撤回"（return null 会抛错并打断事件流）；
+        // 想不显示只能返回同一个 key 且 visibility:'hidden'。
+        // 失败只影响「这一次」：本轮只要有过合法 spec 就显示最后一张，失败不回滚已成立的视图
+        const hidden = spec === null
         return {
           key: context.key,
           kind: WIDGET_NODE_KIND,
           id: context.id,
           target: 'chat',
-          anchorSeq: context.state.seq + 0.2, // 与工具行同一次调用，排它后面一点点：卡片落在调用处
+          anchorSeq: (context.state?.seq ?? 0) + 0.2,
           location: context.start?.location ?? { kind: 'unresolved' },
-          visibility: 'visible',
+          visibility: hidden ? 'hidden' : 'visible',
           groupTree: 'turn',
-          data: { spec: specs[specs.length - 1], total: specs.length, failed: context.state.failed === true },
+          data: { spec, total: specs.length, failed },
         }
       },
     }

@@ -1,7 +1,9 @@
 #!/usr/bin/env node
 /** 在真实 DSH 会话里发一条消息并等回合结束（用于补充冒烟场景）。 */
 const port = process.env.CDP_PORT ?? '9222'
-const text = process.argv.slice(2).join(' ')
+const args = process.argv.slice(2)
+const fresh = args.includes('--new')
+const text = args.filter((a) => a !== '--new').join(' ')
 if (text === '') throw new Error('需要消息文本')
 const targets = await (await fetch(`http://127.0.0.1:${port}/json/list`)).json()
 const page = targets.filter((t) => t.type === 'page').find((t) => t.url.includes('127.0.0.1:3080'))
@@ -24,6 +26,10 @@ const send = (method, params = {}) => new Promise((res, rej) => {
 const evaluate = async (expression) => (await send('Runtime.evaluate', { expression, awaitPromise: true, returnByValue: true })).result?.value
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
 
+if (fresh) {
+  await evaluate(`(() => { const b = [...document.querySelectorAll('button[aria-label]')].find((x) => x.getAttribute('aria-label') === '新建会话'); b?.click(); return !!b })()`)
+  await sleep(1500)
+}
 const inserted = await evaluate(`(() => {
   const el = document.querySelector('textarea, [contenteditable="true"]');
   if (!el) return 'no-input';
