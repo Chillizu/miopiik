@@ -26,9 +26,17 @@ try {
   await page.waitForTimeout(1500)
   await page.goto('http://127.0.0.1:3080/', { waitUntil: 'domcontentloaded' })
   await page.waitForTimeout(3000)
-  const item = page.locator('[role="treeitem"]').filter({ hasText: '请在这个独立会话中' }).first()
-  if ((await item.count()) === 0) {
-    out.blocked = 'gallery-session-not-found'
+  // 两个真实测试会话具有相同标题前缀；必须按不可变会话 ID 定位，绝不误测“第一条”。
+  const galleryId = process.env.MIOPIIK_GALLERY_SESSION_ID ?? 'session-e569fad1-7236-464a-a326-d51bf8e4e412'
+  const item = page.locator('[data-row-key="session:' + galleryId + '"]')
+  for (let attempt = 0; attempt < 5 && (await item.count()) === 0; attempt += 1) {
+    const expand = page.getByRole('button', { name: /展开其余.*个会话/u }).first()
+    if ((await expand.count()) === 0) break
+    await expand.click()
+    await page.waitForTimeout(300)
+  }
+  if ((await item.count()) !== 1) {
+    out.blocked = 'gallery-session-id-not-found'
   } else {
     await item.click()
     await page.waitForTimeout(4000)
