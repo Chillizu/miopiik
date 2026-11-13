@@ -68,7 +68,7 @@ MiOpIIk 的做法是把「对话、记账、干活」拆成三层，并且**只�
 | `SPEC.md` | 架构规格单一真源（十二不变式、数据模型、折叠与治理机制） |
 | `tools/` | 维护与辅助脚本 |
 
-Extra 展示层的早期设计归档在 [`miopiik-extra`](https://github.com/Chillizu/miopiik-extra)。当前 **MiOpIIk Agent** 与 **MiOpIIk IUI** 分别有自己的插件配置页：DSH「插件 → 已安装 → MiOpIIk / miopiik-iui」。前者展示架构和 Host 参数默认值（实际配置仍以 profile 为准）；后者控制本浏览器的 IUI 渲染，并提供实时预览与可复制声明。IUI 的安装和限制见 [插件说明](miopiik-iui/README.md)。
+Extra 展示层的早期设计归档在 [`miopiik-extra`](https://github.com/Chillizu/miopiik-extra)。当前 **MiOpIIk Agent** 与 **MiOpIIk IUI** 是两个独立插件，各自在 DSH「插件 → 已安装 → MiOpIIk / MiOpIIk IUI」下拥有同一套「介绍 / 配置」页面，风格对齐 DSH 默认插件页。Agent 的介绍说明 Mind / Ink / Operator 与版本，配置页只读列出 Host 参数的内置默认值和可复制的 YAML 示例（实际配置仍以 profile 为准）；IUI 的介绍用真实渲染器做轻量预览并说明兼容边界，配置页只提供本浏览器的真实渲染开关、诊断和可复制示例。IUI 的安装和限制见 [插件说明](miopiik-iui/README.md)。
 
 ## 安装（DSH workspace bundle）
 

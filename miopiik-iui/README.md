@@ -11,7 +11,7 @@
 - Metric, card, grid, table, bar/line chart, progress, callout, empty state and local segmented controls
 - Strict schema, bounded state and table data, safe links, local error isolation
 - Own short host output contract, instead of the retired `ink_view` / `ink_chart` tool surface
-- Native DSH **Plugins → Installed → miopiik-iui** configuration page with persistent per-browser switch, renderer status, live component preview and copyable source example
+- Native DSH **Plugins → Installed → MiOpIIk IUI** page, split into an Overview (what IUI is, a lightweight preview rendered by the real renderer, compatibility and boundaries) and a Configuration view (the one real per-browser rendering switch, diagnostics and a copyable Markdown example)
 - IUI rendering preference is browser-local; disabling the renderer does not disable Host output instructions
 - No arbitrary HTML, JavaScript, CSS, network calls or model round-trips from IUI controls
 
@@ -38,7 +38,7 @@ This DSH release does not yet provide an official Markdown AST embed API. The pl
 2. Run `node miopiik-iui/tools/build.mjs --check`. On first install, create the patched fork using `node miopiik-iui/tools/fork-chat-embeds.mjs` in a controlled staging environment, then run `node miopiik-iui/tools/fork-chat-embeds.mjs --check`. The `--check` command is read-only and requires the fork to exist.
 3. Point only that profile's `@deepseek-ai/dsh-client-ui-chat` dependency to `miopiik-iui/upstream/dsh-client-ui-chat-embeds`; do not overwrite DSH's global package. Ensure the fork's `node_modules` dependency link is intact.
 4. Back up the original profile configuration and fork; confirm DSH has no active task; restart the DSH Web service.
-5. The renderer is enabled by default after installation. Open **Plugins → Installed → MiOpIIk IUI** to view status and change the per-browser rendering preference. No DevTools command is required.
+5. The renderer is enabled by default after installation. Open **Plugins → Installed → MiOpIIk IUI**; the Overview shows the live preview and compatibility, and Configuration holds the per-browser rendering switch plus diagnostics. No DevTools command is required.
 
 **Rollback:** use the plugin's configuration page to disable rendering (or set the browser preference key to `'0'` as an emergency fallback), or restore the profile's previous ui-chat resolution and restart. Historical messages remain untouched.
 

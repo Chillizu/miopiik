@@ -35,13 +35,24 @@ function fixture() {
       return el;
     }
     const React = {createElement:h, useState(v) {return [typeof v==='function'?v():v, ()=>{}]}, useEffect(){}, useMemo(fn){return fn()}, useCallback(fn){return fn()}};
+    const primitives = {
+      SegmentedTabs({items,value,onChange}) {
+        return React.createElement('div',{role:'tablist'}, items.map(item => React.createElement('button',{key:item.value,role:'tab','aria-selected':value===item.value,onClick:()=>onChange(item.value)},item.label)));
+      },
+      Switch({checked,onChange,label}) {
+        return React.createElement('button',{role:'switch','aria-checked':checked,'aria-label':label,onClick:()=>onChange(!checked)});
+      },
+      Button({onClick,children}) { return React.createElement('button',{onClick},children); },
+    };
   `
   const run = `
     const slots=[];
-    const module=plugin.factory(name => {if(name==='react')return React;throw Error('unexpected module '+name)});
+    const module=plugin.factory(name => {if(name==='react')return React;if(name==='@deepseek-ai/dsh-client-ui-primitives')return primitives;throw Error('unexpected module '+name)});
     module.apply({effect(){},slots:{inject(name,callback){if(name!=='plugins.bundle.config')throw Error('wrong slot');callback()},register(meta,render){slots.push({meta,render})}}});
     const form=slots[0].render({view:'page'});
     document.getElementById('root').appendChild(form);
+    const config=slots[0].render({view:'page',initialTab:'configuration'});
+    document.getElementById('root').appendChild(config);
     document.body.dataset.integration=slots.length===1 && slots[0].meta.key==='miopiik-iui'?'ok':'failed';
     document.body.dataset.errors=failures.join('|');
   `
@@ -56,10 +67,14 @@ test('独立 IUI 配置在真实 Chromium DOM 中完整呈现，并使用真实�
   assert.match(html,/data-integration="ok"/u,'插件注册必须成功')
   assert.match(html,/data-errors=""/u,'浏览器不应有运行时错误')
   assert.match(html,/data-iui-plugin-settings="1"/u)
-  assert.match(html,/data-iui-settings-toggle="1"/u)
+  assert.match(html,/role="tablist"/u)
+  assert.match(html,/data-iui-overview="1"/u)
+  assert.match(html,/data-iui-configuration="1"/u)
   assert.match(html,/role="switch"/u)
   assert.match(html,/data-iui-settings-preview="live"/u,'预览必须连接真实 IUI 注册表')
   assert.match(html,/data-iui-output="ok"/u,'预览应通过真正的 AST 渲染器')
   assert.match(html,/data-iui-registry-state="ready"/u)
+  assert.match(html,/data-iui-preview-source="1"/u,'配置页应给出可复制示例')
   assert.doesNotMatch(html,/data-iui-chart-empty="1"/u,'预览图表不应为空')
+  assert.doesNotMatch(html,/linear-gradient/u,'插件页不使用品牌渐变')
 })

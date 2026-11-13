@@ -1275,19 +1275,14 @@ window.__ModuleLoader__.load({
 
 /**
  * MiOpIIk IUI — native DSH Plugins page.
- * Trusted plugin chrome; all styling is theme-aware and independent of model-authored IUI.
+ *
+ * The official plugin manager declares exactly one bundle-configuration slot
+ * (`plugins.bundle.config`). Inside it, this page offers its own Overview /
+ * Configuration navigation; it does not declare or simulate a second slot.
+ * Trusted plugin chrome only: theme tokens, no gradients, no hero, no fake
+ * switches. The one real setting is the browser-local render preference.
  */
 const IUI_PREF_KEY = 'miopiik.markdownEmbeds'
-
-const IUI_THEME = Object.freeze({
-  fg: 'var(--dsw-alias-label-primary, #e8e9e7)',
-  muted: 'var(--dsw-alias-label-secondary, #969e99)',
-  border: 'var(--dsw-alias-border-l1, rgba(120,130,120,.25))',
-  surface: 'var(--dsw-alias-surface-layer-1, rgba(127,127,127,.045))',
-  green: 'var(--dsw-alias-state-success-primary, #78b290)',
-  emerald: '#6eae89',
-  amber: '#c5a66c',
-})
 
 const IUI_PREVIEW_ML = `<ui title="活动概览" fallback="7 日活跃 1,248；30 日活跃 4,826">
   <state name="range" value='{"total":"1,248","change":"+12.6%","points":[["一",92],["二",118],["三",105],["四",148],["五",167],["六",191],["日",220]]}'/>
@@ -1303,59 +1298,326 @@ function iuiIsEnabled() {
   try { return localStorage.getItem(IUI_PREF_KEY) !== '0' } catch { return true }
 }
 
-function IuiSettingsPill(text, active = false) {
-  return h('span', {
-    style: {
-      display: 'inline-flex', alignItems: 'center', gap: 6,
-      borderRadius: 999, padding: '4px 9px', fontSize: 10,
-      fontWeight: 600, lineHeight: '16px', whiteSpace: 'nowrap',
-      border: '1px solid ' + (active ? 'rgba(110,174,137,.30)' : IUI_THEME.border),
-      background: active ? 'rgba(110,174,137,.10)' : IUI_THEME.surface,
-      color: active ? IUI_THEME.green : IUI_THEME.muted,
-    },
-  }, active ? h('span', { 'aria-hidden': true, style: { width: 5, height: 5, borderRadius: '50%', background: IUI_THEME.green } }) : null, text)
+// Official primitives when the running DSH shell exposes them; plain token
+// elements otherwise so the page never breaks on a foreign shell.
+let IUI_PRIMITIVES = null
+try {
+  IUI_PRIMITIVES = require('@deepseek-ai/dsh-client-ui-primitives')
+} catch {
+  IUI_PRIMITIVES = null
+}
+const IuiSegmentedTabs = IUI_PRIMITIVES?.SegmentedTabs
+const IuiSwitch = IUI_PRIMITIVES?.Switch
+const IuiButton = IUI_PRIMITIVES?.Button
+
+const IUI_PAGE = {
+  root: {
+    display: 'flex', flexDirection: 'column', gap: 24,
+    width: '100%', minWidth: 0, boxSizing: 'border-box',
+    color: 'var(--dsw-alias-label-primary)', fontFamily: 'inherit',
+  },
+  section: { display: 'flex', flexDirection: 'column', gap: 10, minWidth: 0 },
+  title: { margin: 0, fontSize: 14, fontWeight: 500, lineHeight: '20px' },
+  body: {
+    margin: 0, fontSize: 14, lineHeight: '22px',
+    color: 'var(--dsw-alias-label-secondary)', overflowWrap: 'anywhere',
+  },
+  hint: {
+    margin: 0, fontSize: 12, lineHeight: '18px',
+    color: 'var(--dsw-alias-label-tertiary)', overflowWrap: 'anywhere',
+  },
+  list: { margin: 0, padding: 0, listStyle: 'none', display: 'flex', flexDirection: 'column', minWidth: 0 },
+  item: {
+    display: 'flex', alignItems: 'baseline', justifyContent: 'space-between',
+    gap: 8, flexWrap: 'wrap', padding: '9px 2px', minWidth: 0,
+    borderTop: '.5px solid var(--dsw-alias-border-l2)',
+  },
+  itemLabel: { flex: 'none', fontSize: 13, fontWeight: 500, lineHeight: '20px' },
+  itemValue: {
+    flex: '0 1 auto', margin: 0, textAlign: 'right', overflowWrap: 'anywhere',
+    fontVariantNumeric: 'tabular-nums', fontSize: 12.5, lineHeight: '18px',
+    color: 'var(--dsw-alias-label-secondary)',
+  },
+  mono: {
+    fontFamily: 'var(--ds-font-family-code, var(--dsw-font-mono, ui-monospace, SFMono-Regular, Menlo, monospace))',
+    fontSize: 11.5, lineHeight: '16px', color: 'var(--dsw-alias-label-tertiary)',
+    overflowWrap: 'anywhere',
+  },
+  pre: {
+    margin: 0, padding: '12px 14px', maxWidth: '100%', overflowX: 'auto',
+    border: '.5px solid var(--dsw-alias-border-l1)',
+    borderRadius: 'var(--dsw-radius-md)',
+    background: 'var(--dsw-alias-bg-module-platform)',
+    fontFamily: 'var(--ds-font-family-code, var(--dsw-font-mono, ui-monospace, SFMono-Regular, Menlo, monospace))',
+    fontSize: 12, lineHeight: '18px', color: 'var(--dsw-alias-label-primary)',
+    whiteSpace: 'pre-wrap', overflowWrap: 'anywhere',
+  },
+  preview: {
+    border: '.5px solid var(--dsw-alias-border-l4)',
+    borderRadius: 'var(--dsw-radius-lg)',
+    background: 'var(--dsw-alias-bg-layer-1)',
+    padding: '12px clamp(9px, 2vw, 17px)', minHeight: 142, minWidth: 0, overflow: 'hidden',
+  },
+  actions: { display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' },
 }
 
-function IuiFeature(name, description, glyph) {
-  return h('div', {
-    style: { display: 'flex', alignItems: 'flex-start', gap: 11, padding: '12px 1px', minWidth: 0 },
-  },
+const IUI_TABS = [
+  { value: 'overview', label: '介绍' },
+  { value: 'configuration', label: '配置' },
+]
+
+function IuiTabs({ value, onChange }) {
+  if (IuiSegmentedTabs) {
+    return h(IuiSegmentedTabs, {
+      id: 'miopiik-iui-settings-tabs',
+      label: 'MiOpIIk IUI 插件页',
+      value,
+      onChange,
+      items: IUI_TABS.map((tab) => ({
+        ...tab,
+        id: 'miopiik-iui-settings-tab-' + tab.value,
+        panelId: 'miopiik-iui-settings-panel-' + tab.value,
+      })),
+    })
+  }
+  return h(
+    'div',
+    {
+      role: 'tablist',
+      'aria-label': 'MiOpIIk IUI 插件页',
+      style: {
+        display: 'inline-flex', gap: 2, padding: 4, width: 'fit-content', maxWidth: '100%',
+        borderRadius: 'var(--dsw-radius-md)', background: 'var(--dsw-alias-interactive-bg-hover)',
+      },
+    },
+    IUI_TABS.map((tab) => {
+      const active = value === tab.value
+      return h(
+        'button',
+        {
+          key: tab.value,
+          type: 'button',
+          role: 'tab',
+          'aria-selected': active,
+          'data-iui-tab': tab.value,
+          onClick: () => onChange(tab.value),
+          style: {
+            height: 28, padding: '0 16px', border: 0,
+            borderRadius: 'var(--dsw-radius-sm)',
+            background: active ? 'var(--dsw-alias-bg-layer-1)' : 'transparent',
+            color: active ? 'var(--dsw-alias-label-primary)' : 'var(--dsw-alias-label-secondary)',
+            font: 'inherit', fontSize: 13, fontWeight: 500, lineHeight: '20px', cursor: 'pointer',
+          },
+        },
+        tab.label,
+      )
+    }),
+  )
+}
+
+function IuiActionButton({ onClick, children }) {
+  if (IuiButton) return h(IuiButton, { variant: 'outline', size: 'sm', onClick }, children)
+  return h(
+    'button',
+    {
+      type: 'button',
+      onClick,
+      style: {
+        height: 28, padding: '0 10px',
+        border: '.5px solid var(--dsw-alias-border-l4)',
+        borderRadius: 'var(--dsw-radius-md)', background: 'transparent',
+        color: 'var(--dsw-alias-label-secondary)', font: 'inherit', fontSize: 12.5, cursor: 'pointer',
+      },
+    },
+    children,
+  )
+}
+
+function IuiToggle({ enabled, onToggle }) {
+  if (IuiSwitch) {
+    return h(IuiSwitch, { checked: enabled, onChange: onToggle, label: '在聊天中显示 IUI', title: '在聊天中显示 IUI' })
+  }
+  return h(
+    'button',
+    {
+      type: 'button',
+      role: 'switch',
+      'aria-checked': enabled,
+      'aria-label': '在聊天中显示 IUI',
+      'data-iui-settings-toggle': '1',
+      onClick: onToggle,
+      style: {
+        boxSizing: 'border-box', position: 'relative', flex: '0 0 auto',
+        width: 36, height: 20, padding: 2, border: 0, borderRadius: 999,
+        background: enabled ? 'var(--dsw-alias-brand-primary)' : 'var(--dsw-alias-border-l3)',
+        cursor: 'pointer',
+      },
+    },
     h('span', {
       'aria-hidden': true,
       style: {
-        fontSize: 17, fontWeight: 600, lineHeight: '28px', textAlign: 'center',
-        color: IUI_THEME.green, background: 'rgba(110,174,137,.09)',
-        width: 30, height: 30, flex: '0 0 30px', borderRadius: 9,
+        display: 'block', width: 16, height: 16, borderRadius: '50%',
+        background: enabled ? 'var(--dsw-alias-label-primary-foreground)' : 'var(--dsw-alias-switch-thumb)',
+        transform: enabled ? 'translateX(16px)' : 'translateX(0)',
+        transition: 'transform .12s ease',
       },
-    }, glyph),
-    h('div', { style: { minWidth: 0 } },
-      h('div', { style: { fontSize: 12, fontWeight: 650, color: IUI_THEME.fg, lineHeight: '17px' } }, name),
-      h('div', { style: { fontSize: 11, color: IUI_THEME.muted, lineHeight: 1.6, marginTop: 3 } }, description),
+    }),
+  )
+}
+
+function IuiFact({ label, value, mono = false, badge = null }) {
+  return h(
+    'div',
+    { style: { ...IUI_PAGE.item } },
+    h('dt', { style: IUI_PAGE.itemLabel }, label),
+    h('dd', { style: { ...(mono ? IUI_PAGE.mono : IUI_PAGE.itemValue), margin: 0, textAlign: 'right' } }, badge ?? value),
+  )
+}
+
+function IuiOverview({ preview, enabled, ready, registry }) {
+  return h(
+    'div',
+    { 'data-iui-overview': '1', style: { display: 'flex', flexDirection: 'column', gap: 32, minWidth: 0 } },
+    h(
+      'section',
+      { style: IUI_PAGE.section },
+      h(
+        'p',
+        { style: IUI_PAGE.body },
+        'IUI 是一种声明式 Markdown 界面：模型在回复里直接书写受控的 iui 围栏或行内标记，DSH 用本地渲染器把它变成状态、可视化与本地交互。它不是工具调用，也不要求模型了解渲染器实现。',
+      ),
+    ),
+    h(
+      'section',
+      { style: IUI_PAGE.section },
+      h('h3', { style: IUI_PAGE.title }, '实时预览'),
+      h('p', { style: IUI_PAGE.hint }, '使用真实的 IUI 渲染器，不截图、不伪造数据。切换周期只改本地状态，不发起模型请求。'),
+      h(
+        'div',
+        { 'data-iui-settings-preview': preview ? 'live' : 'paused', style: IUI_PAGE.preview },
+        preview ??
+          h(
+            'div',
+            { role: 'status', style: { minHeight: 142, display: 'flex', alignItems: 'center', justifyContent: 'center', flexDirection: 'column', gap: 5, color: 'var(--dsw-alias-label-tertiary)' } },
+            h('strong', { style: { fontSize: 12, fontWeight: 650 } }, enabled ? '渲染器未连接' : '预览已暂停'),
+            h('span', { style: { fontSize: 11, textAlign: 'center', overflowWrap: 'anywhere' } }, enabled ? '请检查插件加载状态后刷新页面。' : '在「配置」中开启渲染后即可恢复预览。'),
+          ),
+      ),
+      h(
+        'div',
+        { style: { marginTop: 12, display: 'flex', alignItems: 'center', gap: 7, flexWrap: 'wrap' } },
+        h('span', { style: { fontSize: 10, fontWeight: 650, color: 'var(--dsw-alias-label-tertiary)', letterSpacing: .3 } }, '行内语义'),
+        ready ? registry.renderInline({ type: 'badge', props: { tone: 'success', text: '已完成' } }) : null,
+        ready ? registry.renderInline({ type: 'badge', props: { tone: 'warning', text: '进行中' } }) : null,
+        h('code', { style: { fontSize: 11, color: 'var(--dsw-alias-label-tertiary)', padding: '1px 5px', background: 'var(--dsw-alias-bg-module-platform)', borderRadius: 5 } }, 'iui/1'),
+      ),
+    ),
+    h(
+      'section',
+      { style: IUI_PAGE.section },
+      h('h3', { style: IUI_PAGE.title }, '兼容性与边界'),
+      h(
+        'dl',
+        { style: IUI_PAGE.list },
+        h(IuiFact, { label: '版本', value: 'v' + IUI_PLUGIN_VERSION }),
+        h(IuiFact, { label: '协议', value: 'iui/1 · miopiik-ml', mono: true }),
+        h(IuiFact, {
+          label: '接入方式',
+          value: '实验性 DSH Chat Markdown 补丁（尚未合并进上游 API）',
+        }),
+        h(IuiFact, {
+          label: '渲染器',
+          value: ready ? '已连接' : '未连接',
+          badge: h('span', {
+            'data-iui-registry-state': ready ? 'ready' : 'unavailable',
+            style: { color: ready ? 'var(--dsw-alias-state-success-primary)' : 'var(--dsw-alias-state-warn-primary)' },
+          }, ready ? '已连接' : '未连接'),
+        }),
+        h(IuiFact, {
+          label: '安全边界',
+          value: '仅白名单组件；无任意 HTML/JS/CSS、无网络请求、无工具调用；坏节点只在本地降级',
+        }),
+        h(IuiFact, {
+          label: '与 MiOpIIk Agent 的关系',
+          value: '独立插件；不需要 Mind/Ink/Operator，Agent 也不需要它',
+        }),
+      ),
     ),
   )
 }
 
-function IuiPluginSettings({ view }) {
+function IuiConfiguration({ enabled, ready, error, toggle, copySample, copyMessage }) {
+  return h(
+    'div',
+    { 'data-iui-configuration': '1', style: { display: 'flex', flexDirection: 'column', gap: 32, minWidth: 0 } },
+    h(
+      'section',
+      { style: IUI_PAGE.section },
+      h('h3', { style: IUI_PAGE.title }, '渲染设置'),
+      h(
+        'div',
+        { style: { ...IUI_PAGE.item, borderTop: 0, padding: '4px 2px', alignItems: 'center' } },
+        h(
+          'div',
+          { style: { display: 'flex', flexDirection: 'column', gap: 3, flex: '1 1 240px', minWidth: 0 } },
+          h('span', { style: IUI_PAGE.itemLabel }, '在聊天中显示 IUI'),
+          h('span', { 'data-iui-settings-status': enabled ? 'enabled' : 'disabled', style: { ...IUI_PAGE.hint, color: 'var(--dsw-alias-label-secondary)' } },
+            enabled ? '已开启 · 仅作用于当前浏览器' : '已关闭 · iui 围栏显示为普通代码块'),
+          h('span', { style: IUI_PAGE.hint }, '切换后会刷新页面，让历史消息按新偏好重新渲染；不会改写任何历史数据。'),
+        ),
+        h(IuiToggle, { enabled, onToggle: toggle }),
+      ),
+      error ? h('p', { role: 'alert', style: { margin: 0, fontSize: 12, lineHeight: '18px', color: 'var(--dsw-alias-state-error-primary)' } }, error) : null,
+    ),
+    h(
+      'section',
+      { style: IUI_PAGE.section },
+      h('h3', { style: IUI_PAGE.title }, '诊断'),
+      h(
+        'dl',
+        { style: IUI_PAGE.list },
+        h(IuiFact, {
+          label: '渲染器',
+          value: ready ? '已连接' : '未连接',
+          badge: h('span', {
+            'data-iui-registry-state': ready ? 'ready' : 'unavailable',
+            style: { color: ready ? 'var(--dsw-alias-state-success-primary)' : 'var(--dsw-alias-state-warn-primary)' },
+          }, ready ? '已连接' : '未连接'),
+        }),
+        h(IuiFact, { label: '插件版本', value: 'v' + IUI_PLUGIN_VERSION }),
+        h(IuiFact, { label: '协议', value: 'iui/1 · miopiik-ml', mono: true }),
+        h(IuiFact, { label: '浏览器偏好', value: IUI_PREF_KEY, mono: true }),
+        h(IuiFact, { label: '当前偏好', value: enabled ? '开启' : '关闭' }),
+        h(IuiFact, { label: '接入方式', value: '实验性 DSH Chat Markdown 补丁' }),
+      ),
+      h('p', { style: IUI_PAGE.hint }, '此版本使用实验性 DSH Markdown 接入补丁。开关只控制当前浏览器的渲染，不会停用 Host 的模型输出指引。'),
+    ),
+    h(
+      'section',
+      { style: IUI_PAGE.section },
+      h('h3', { style: IUI_PAGE.title }, '示例与复制'),
+      h('p', { style: IUI_PAGE.hint }, '下面这份 Markdown 可以直接粘贴到 DSH 会话中测试。'),
+      h('pre', { 'data-iui-preview-source': '1', style: IUI_PAGE.pre }, IUI_SAMPLE_MARKDOWN),
+      h(
+        'div',
+        { style: IUI_PAGE.actions },
+        h(IuiActionButton, { onClick: copySample }, '复制示例'),
+        h('span', { role: 'status', 'data-iui-copy-status': '1', style: IUI_PAGE.hint }, copyMessage),
+      ),
+    ),
+  )
+}
+
+function IuiPluginSettings({ view, initialTab }) {
+  const [tab, setTab] = React.useState(initialTab ?? 'overview')
   const [enabled, setEnabled] = React.useState(iuiIsEnabled)
   const [error, setError] = React.useState('')
-  const [showSource, setShowSource] = React.useState(false)
   const [copyMessage, setCopyMessage] = React.useState('')
   if (view !== 'page') return null
 
   const registry = globalThis.__miopiikMarkdownEmbeds
   const ready = typeof registry?.renderBlock === 'function' && typeof registry?.renderInline === 'function'
   const preview = enabled && ready ? registry.renderBlock(IUI_PREVIEW_ML) : null
-  const copySample = async () => {
-    try {
-      if (!globalThis.navigator?.clipboard?.writeText) throw new Error('clipboard unavailable')
-      await globalThis.navigator.clipboard.writeText(IUI_SAMPLE_MARKDOWN)
-      setCopyMessage('已复制可直接发送的 IUI 示例')
-    } catch {
-      setCopyMessage('复制不可用，请手动选择下方文本')
-    }
-  }
-  const card = { border: '1px solid ' + IUI_THEME.border, borderRadius: 15, background: IUI_THEME.surface }
-  const caption = { color: IUI_THEME.muted, fontSize: 11, lineHeight: 1.7 }
 
   const toggle = () => {
     const next = !enabled
@@ -1369,135 +1631,26 @@ function IuiPluginSettings({ view }) {
       setError('无法保存设置。请检查此网站的浏览器存储权限。')
     }
   }
+  const copySample = async () => {
+    try {
+      if (!globalThis.navigator?.clipboard?.writeText) throw new Error('clipboard unavailable')
+      await globalThis.navigator.clipboard.writeText(IUI_SAMPLE_MARKDOWN)
+      setCopyMessage('已复制可直接发送的 IUI 示例')
+    } catch {
+      setCopyMessage('复制不可用，请手动选择下方文本')
+    }
+  }
 
-  return h('div', {
-    'data-iui-plugin-settings': '1',
-    style: {
-      display: 'flex', flexDirection: 'column', gap: 18,
-      width: '100%', maxWidth: 820, minWidth: 0,
-      boxSizing: 'border-box', color: IUI_THEME.fg,
-      padding: '2px 0 22px', fontFamily: 'inherit',
+  return h(
+    'div',
+    {
+      'data-iui-plugin-settings': '1',
+      style: IUI_PAGE.root,
     },
-  },
-    // Editorial header, no competing primary navigation.
-    h('header', {
-      style: {
-        position: 'relative', overflow: 'hidden', borderRadius: 16,
-        border: '1px solid ' + IUI_THEME.border,
-        padding: '23px clamp(17px, 4vw, 28px)',
-        background: 'linear-gradient(115deg, rgba(110,174,137,.085), transparent 74%), ' + IUI_THEME.surface,
-      },
-    },
-      h('div', { style: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, flexWrap: 'wrap', marginBottom: 15 } },
-        h('div', { style: { display: 'inline-flex', alignItems: 'center', gap: 9 } },
-          h('div', { 'aria-hidden': true, style: { width: 24, height: 24, borderRadius: 8, background: 'linear-gradient(140deg, #8bbb9b, #597963)', display: 'grid', placeItems: 'center', color: '#fff', fontSize: 12, fontWeight: 750 } }, 'i'),
-          h('span', { style: { fontSize: 11, fontWeight: 700, letterSpacing: 1.1, color: IUI_THEME.muted } }, 'MIOPIIK  /  IUI'),
-        ),
-        IuiSettingsPill('v' + IUI_PLUGIN_VERSION + ' · RC'),
-      ),
-      h('div', { style: { fontWeight: 710, letterSpacing: '-.035em', lineHeight: 1.25, fontSize: 'clamp(19px, 3.3vw, 26px)', marginBottom: 9 } }, '让界面像文字一样自然。'),
-      h('p', { style: { ...caption, maxWidth: 610, fontSize: 12, margin: 0 } },
-        '在 DSH 原生对话中，按需呈现状态、可视化与本地交互。无需绘图工具，也不需要让模型分心研究渲染器。',
-      ),
-    ),
-
-    // The single authoritative, real setting.
-    h('section', { style: { ...card, padding: '18px clamp(15px, 3vw, 22px)' } },
-      h('div', { style: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 16, flexWrap: 'wrap' } },
-        h('div', { style: { display: 'flex', flexDirection: 'column', gap: 5, flex: '1 1 220px' } },
-          h('span', { style: { fontSize: 11, fontWeight: 650, letterSpacing: .4, color: IUI_THEME.muted } }, '渲染设置'),
-          h('strong', { style: { fontSize: 15, letterSpacing: '-.01em' } }, '在聊天中显示 IUI'),
-          h('span', { 'data-iui-settings-status': enabled ? 'enabled' : 'disabled', style: { ...caption } },
-            enabled ? '已开启 · 仅作用于当前浏览器' : '已关闭 · IUI 围栏将显示为普通代码块'),
-        ),
-        h('button', {
-          type: 'button', role: 'switch',
-          'data-iui-settings-toggle': '1',
-          'aria-label': '在聊天中显示 IUI',
-          'aria-checked': enabled,
-          onClick: toggle,
-          style: {
-            display: 'inline-flex', alignItems: 'center', justifyContent: 'flex-start',
-            flex: '0 0 auto', width: 47, height: 27, borderRadius: 999,
-            border: '1px solid ' + (enabled ? 'rgba(110,174,137,.65)' : IUI_THEME.border),
-            background: enabled ? IUI_THEME.emerald : 'rgba(127,127,127,.22)',
-            padding: 3, cursor: 'pointer', transition: 'background .15s ease',
-          },
-        },
-          h('span', { 'aria-hidden': true, style: { width: 19, height: 19, borderRadius: 999, background: '#fff', boxShadow: '0 1px 3px rgba(0,0,0,.2)', transform: enabled ? 'translateX(19px)' : 'translateX(0)', transition: 'transform .15s ease' } }),
-        ),
-      ),
-      h('div', { style: { height: 1, background: IUI_THEME.border, margin: '17px 0 14px' } }),
-      h('div', { style: { display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 8 } },
-        IuiSettingsPill(ready ? '渲染器已连接' : '渲染器未就绪', ready),
-        IuiSettingsPill('受限声明式组件'),
-        IuiSettingsPill('本地交互'),
-      ),
-      error ? h('p', { role: 'alert', style: { fontSize: 12, color: 'var(--dsw-alias-state-error-primary, #d1242f)', marginBottom: 0 } }, error) : null,
-    ),
-
-    // Preview is the actual IUI renderer, not a fake screenshot.
-    h('section', { style: { ...card, padding: '17px clamp(15px, 3vw, 22px)' } },
-      h('div', { style: { display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', flexWrap: 'wrap', gap: 9, marginBottom: 13 } },
-        h('div', null,
-          h('h3', { style: { fontSize: 14, margin: '0 0 4px', fontWeight: 680 } }, '实时预览'),
-          h('p', { style: { ...caption, margin: 0 } }, '使用真实 IUI 渲染器。点击周期切换，数据会在本地更新。'),
-        ),
-        IuiSettingsPill('无需模型请求'),
-      ),
-      h('div', {
-        'data-iui-settings-preview': preview ? 'live' : 'paused',
-        style: { border: '1px solid ' + IUI_THEME.border, borderRadius: 12, padding: '12px clamp(9px, 2vw, 17px)', background: 'var(--dsw-alias-surface-default, transparent)', minHeight: 142, minWidth: 0, overflow: 'hidden' },
-      },
-        preview ?? h('div', { role: 'status', style: { minHeight: 142, display: 'flex', alignItems: 'center', justifyContent: 'center', flexDirection: 'column', gap: 5, color: IUI_THEME.muted } },
-          h('strong', { style: { fontSize: 12, fontWeight: 650 } }, enabled ? '渲染器未连接' : '预览已暂停'),
-          h('span', { style: { fontSize: 11, textAlign: 'center' } }, enabled ? '请检查插件加载状态后刷新页面。' : '重新开启 IUI，即可恢复实时预览。'),
-        ),
-      ),
-      h('div', { style: { marginTop: 12, display: 'flex', alignItems: 'center', gap: 7, flexWrap: 'wrap' } },
-        h('span', { style: { fontSize: 10, fontWeight: 650, color: IUI_THEME.muted, letterSpacing: .3 } }, '行内语义'),
-        ready ? registry.renderInline({ type: 'badge', props: { tone: 'success', text: '已完成' } }) : null,
-        ready ? registry.renderInline({ type: 'badge', props: { tone: 'warning', text: '进行中' } }) : null,
-        h('code', { style: { fontSize: 11, color: IUI_THEME.muted, padding: '1px 5px', background: IUI_THEME.surface, borderRadius: 5 } }, 'iui/1'),
-      ),
-      h('div', { style: { marginTop: 12, display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 9 } },
-        h('button', { type: 'button', 'data-iui-source-toggle': '1', 'aria-expanded': showSource,
-          onClick: () => setShowSource(!showSource),
-          style: { border: '1px solid ' + IUI_THEME.border, borderRadius: 8, padding: '6px 11px', background: 'transparent', color: IUI_THEME.fg, cursor: 'pointer', fontSize: 11 } },
-          showSource ? '收起声明' : '查看 IUI 声明'),
-        h('span', { style: { ...caption, fontSize: 10 } }, '可以直接在 DSH 会话中测试这份示例'),
-      ),
-      showSource ? h('div', { 'data-iui-preview-source': '1', style: { marginTop: 11, display: 'flex', flexDirection: 'column', gap: 9 } },
-        h('pre', { style: { margin: 0, padding: 12, borderRadius: 10, border: '1px solid ' + IUI_THEME.border, background: IUI_THEME.surface, color: IUI_THEME.fg, overflowX: 'auto', whiteSpace: 'pre-wrap', overflowWrap: 'anywhere', fontSize: 11, lineHeight: 1.65 } }, IUI_SAMPLE_MARKDOWN),
-        h('div', { style: { display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' } },
-          h('button', { type: 'button', 'data-iui-copy-source': '1', onClick: copySample,
-            style: { border: '1px solid ' + IUI_THEME.border, borderRadius: 8, padding: '6px 11px', background: 'transparent', color: IUI_THEME.fg, cursor: 'pointer', fontSize: 11 } }, '复制示例'),
-          h('span', { role: 'status', style: caption }, copyMessage),
-        ),
-      ) : null,
-    ),
-
-    h('section', { style: { padding: '1px 2px' } },
-      h('h3', { style: { fontSize: 13, margin: '0 0 6px', fontWeight: 680 } }, '表达能力'),
-      h('div', { style: { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 210px), 1fr))', gap: '0 18px' } },
-        IuiFeature('自然混排', '状态标签和文字出现在同一条回复中。', 'Aa'),
-        IuiFeature('数据可视化', '图表、指标、表格由统一协议渲染。', '▥'),
-        IuiFeature('本地交互', '切换状态不触发新的模型调用。', '↔'),
-      ),
-    ),
-
-    h('section', { style: { borderTop: '1px solid ' + IUI_THEME.border, padding: '15px 1px 0' } },
-      h('h3', { style: { fontSize: 12, margin: '0 0 11px', fontWeight: 680 } }, '运行信息'),
-      h('div', { style: { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 225px), 1fr))', gap: '9px 20px' } },
-        h('div', { style: { display: 'flex', justifyContent: 'space-between', gap: 9, ...caption } }, h('span', null, '协议'), h('code', { style: { color: IUI_THEME.fg } }, 'iui/1 · miopiik-ml')),
-        h('div', { style: { display: 'flex', justifyContent: 'space-between', gap: 9, ...caption } }, h('span', null, '客户端'), h('span', { 'data-iui-registry-state': ready ? 'ready' : 'unavailable', style: { color: ready ? IUI_THEME.green : IUI_THEME.amber } }, ready ? '已连接' : '未连接')),
-        h('div', { style: { display: 'flex', justifyContent: 'space-between', gap: 9, ...caption } }, h('span', null, '插件'), h('code', { style: { color: IUI_THEME.fg } }, 'miopiik-iui')),
-        h('div', { style: { display: 'flex', justifyContent: 'space-between', gap: 9, ...caption } }, h('span', null, '模式'), h('span', null, 'DSH Web 扩展')),
-      ),
-      h('p', { style: { ...caption, fontSize: 10, margin: '12px 0 0' } },
-        '此版本使用实验性 DSH Markdown 接入补丁。开关仅控制当前浏览器的渲染，不会停用 Host 的模型输出指引。切换会刷新页面，但不会改写历史消息。',
-      ),
-    ),
+    h(IuiTabs, { value: tab, onChange: setTab }),
+    tab === 'configuration'
+      ? h(IuiConfiguration, { enabled, ready, error, toggle, copySample, copyMessage })
+      : h(IuiOverview, { preview, enabled, ready, registry }),
   )
 }
 

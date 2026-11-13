@@ -11,11 +11,30 @@ const text = (file) => readFileSync(new URL(file, path), 'utf8')
 
 function loadStandalonePlugin({ preference = null } = {}) {
   let loaded
+  let copied = ''
   const React = {
     createElement(type, props, ...children) { return { type, props: props ?? {}, children } },
     useMemo(value) { return value() },
     useState(value) { return [typeof value === 'function' ? value() : value, () => {}] },
     useEffect() {},
+    useCallback(value) { return value },
+  }
+  // The page prefers the official primitives; the stub keeps the same contract.
+  const primitives = {
+    SegmentedTabs({ items, value, onChange }) {
+      return React.createElement('div', { role: 'tablist' }, items.map((item) => React.createElement(
+        'button',
+        { key: item.value, role: 'tab', 'aria-selected': value === item.value, onClick: () => onChange(item.value) },
+        item.label,
+      )))
+    },
+    Switch({ checked, onChange, label }) {
+      return React.createElement('button', {
+        role: 'switch', 'aria-checked': checked, 'aria-label': label,
+        onClick: () => onChange(!checked),
+      })
+    },
+    Button({ onClick, children }) { return React.createElement('button', { onClick }, children) },
   }
   const storage = new Map(preference === null ? [] : [['miopiik.markdownEmbeds', preference]])
   let reloads = 0
@@ -23,6 +42,7 @@ function loadStandalonePlugin({ preference = null } = {}) {
     console,
     localStorage: { getItem(key) { return storage.get(key) ?? null }, setItem(key, value) { storage.set(key, value) } },
     location: { reload() { reloads += 1 } },
+    navigator: { clipboard: { writeText(value) { copied = value; return Promise.resolve() } } },
   }
   sandbox.window = sandbox
   sandbox.__ModuleLoader__ = { load(value) { loaded = value } }
@@ -31,6 +51,7 @@ function loadStandalonePlugin({ preference = null } = {}) {
   assert.equal(loaded.id, 'miopiik-iui')
   const plugin = loaded.factory((name) => {
     if (name === 'react') return React
+    if (name === '@deepseek-ai/dsh-client-ui-primitives') return primitives
     throw new Error('unexpected dependency: ' + name)
   })
   assert.equal(Array.from(plugin.inject).join(','), 'slots', 'DSH slot API requires explicit Cordis injection')
@@ -40,7 +61,19 @@ function loadStandalonePlugin({ preference = null } = {}) {
     effect(callback) { dispose = callback() },
     slots: { inject(name, register) { assert.equal(name, 'plugins.bundle.config'); register() }, register(metadata, render) { slots.push({ metadata, render }); return () => {} } },
   })
-  return { sandbox, registry: sandbox.__miopiikMarkdownEmbeds, dispose, slots, storage, getReloads: () => reloads }
+  return { sandbox, registry: sandbox.__miopiikMarkdownEmbeds, dispose, slots, storage, getReloads: () => reloads, getCopied: () => copied }
+}
+
+/** Render host nodes recursively; function components receive their props. */
+function render(node) {
+  if (node === null || node === undefined || typeof node !== 'object') return []
+  if (Array.isArray(node)) return node.flatMap(render)
+  if (typeof node.type === 'function') return render(node.type({ ...node.props, children: node.children }))
+  return [node, ...(node.children ?? []).flatMap(render)]
+}
+
+function renderPage(slots, props = { view: 'page' }) {
+  return render(slots[0].render(props))
 }
 
 test('独立包不依赖 MiOpIIk Agent，也不注册旧工具', () => {
@@ -90,28 +123,52 @@ test('客户端在没有 Mind/Ink/Operator 时可加载、渲染并注销', () =
   assert.equal(sandbox.__miopiikMarkdownEmbeds, undefined)
 })
 
-test('DSH 插件管理页拥有真实配置入口，默认开启且可以在页面中关闭', () => {
-  const { slots, storage, getReloads } = loadStandalonePlugin()
-  assert.equal(slots.length, 1)
-  assert.equal(slots[0].metadata.name, 'plugins.bundle.config')
-  assert.equal(slots[0].metadata.key, 'miopiik-iui')
-  const wrapper = slots[0].render({ view: 'page' })
-  const tree = wrapper.type(wrapper.props)
-  const flatten = (node) => [node, ...(node?.children ?? []).flatMap(flatten)]
-  const elements = flatten(tree)
-  const button = elements.find((item) => item?.props?.['data-iui-settings-toggle'] === '1')
-  assert.ok(button)
-  assert.equal(button.props.role, 'switch')
-  assert.equal(button.props['aria-checked'], true)
-  button.props.onClick()
+test('插件页分为介绍与配置，介绍用真实渲染器预览并说明兼容边界', () => {
+  const { slots } = loadStandalonePlugin()
+  const nodes = renderPage(slots)
+  assert.ok(nodes.some((node) => node.props?.['data-iui-plugin-settings'] === '1'))
+  const tabs = nodes.filter((node) => node.props?.role === 'tab')
+  assert.deepEqual(tabs.map((tab) => tab.children[0]), ['介绍', '配置'])
+  assert.ok(nodes.some((node) => node.props?.['data-iui-overview'] === '1'))
+  assert.equal(nodes.some((node) => node.props?.['data-iui-configuration'] === '1'), false)
+  assert.equal(nodes.find((node) => node.props?.['data-iui-settings-preview'])?.props['data-iui-settings-preview'], 'live')
+  assert.match(nodes.flatMap((node) => node.children ?? []).filter((child) => typeof child === 'string').join(' '), /独立插件/u)
+  const text = nodes.flatMap((node) => node.children ?? []).filter((child) => typeof child === 'string').join(' ')
+  assert.match(text, /兼容性与边界/u)
+  assert.match(text, /MiOpIIk Agent/u)
+  assert.match(text, /无任意 HTML/u)
+})
+
+test('配置页只有一个真实的浏览器渲染开关，并提供诊断与可复制示例', async () => {
+  const { slots, storage, getReloads, getCopied } = loadStandalonePlugin()
+  const nodes = renderPage(slots, { view: 'page', initialTab: 'configuration' })
+  assert.ok(nodes.some((node) => node.props?.['data-iui-configuration'] === '1'))
+  assert.equal(nodes.some((node) => node.props?.['data-iui-overview'] === '1'), false)
+  const switches = nodes.filter((node) => node.props?.role === 'switch')
+  assert.equal(switches.length, 1, '只应有一个真实开关')
+  assert.equal(switches[0].props['aria-checked'], true)
+  assert.equal(nodes.filter((node) => node.type === 'input').length, 0)
+  assert.ok(nodes.some((node) => node.props?.['data-iui-registry-state'] === 'ready'))
+  assert.ok(nodes.some((node) => node.props?.['data-iui-preview-source'] === '1'))
+  const body = nodes.flatMap((node) => node.children ?? []).filter((child) => typeof child === 'string').join(' ')
+  assert.match(body, /仅作用于当前浏览器/u)
+  assert.match(body, /不会改写任何历史数据/u)
+  assert.match(body, /实验性 DSH Chat Markdown 补丁/u)
+
+  switches[0].props.onClick()
   assert.equal(storage.get('miopiik.markdownEmbeds'), '0')
   assert.equal(getReloads(), 1)
+
+  const copy = nodes.find((node) => node.type === 'button' && (node.children ?? []).flat(Infinity).includes('复制示例'))
+  assert.ok(copy)
+  await copy.props.onClick()
+  assert.match(getCopied(), /^```iui\n<ui /u)
+
   const disabled = loadStandalonePlugin({ preference: '0' })
-  const disabledWrapper = disabled.slots[0].render({ view: 'page' })
-  const disabledTree = disabledWrapper.type(disabledWrapper.props)
-  const disabledButton = flatten(disabledTree).find((item) => item?.props?.['data-iui-settings-toggle'] === '1')
-  assert.equal(disabledButton.props['aria-checked'], false)
-  disabledButton.props.onClick()
+  const disabledNodes = renderPage(disabled.slots, { view: 'page', initialTab: 'configuration' })
+  const disabledSwitch = disabledNodes.find((node) => node.props?.role === 'switch')
+  assert.equal(disabledSwitch.props['aria-checked'], false)
+  disabledSwitch.props.onClick()
   assert.equal(disabled.storage.get('miopiik.markdownEmbeds'), '1')
   assert.equal(disabled.getReloads(), 1)
 })
