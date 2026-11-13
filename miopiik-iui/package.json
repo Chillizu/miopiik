@@ -13,9 +13,11 @@
     ".": "./index.js",
     "./client": "./client.js",
     "./package.json": "./package.json",
-    "./locale/*.json": "./locale/*.json"
+    "./locale/*.json": "./locale/*.json",
+    "./icon": "./icon.svg"
   },
   "files": [
+    "icon.svg",
     "index.js",
     "client.js",
     "renderer.js",

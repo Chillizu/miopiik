@@ -1,6 +1,40 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="MiOpIIk">
-  <rect width="64" height="64" rx="14" fill="#11161d"/>
-  <path d="M13 32h37" stroke="#e8eef5" stroke-width="3" stroke-linecap="round"/>
-  <path d="M22 32l-6.5-7.5M22 32l-6.5 7.5M32 32l-6.5-7.5M32 32l-6.5 7.5M42 32l-6.5-7.5M42 32l-6.5 7.5" stroke="#7fd1c4" stroke-width="2.4" stroke-linecap="round" fill="none"/>
-  <path d="M52 25c3.2 4.3 4.8 7.2 4.8 9.3a4.8 4.8 0 0 1-9.6 0c0-2.1 1.6-5 4.8-9.3z" fill="#7fd1c4"/>
+<svg width="36" height="36" viewBox="0 0 36 36" fill="none" xmlns="http://www.w3.org/2000/svg" xmlns:inkscape="http://www.inkscape.org/namespaces/inkscape">
+<g id="layer-left-stem" inkscape:groupmode="layer" inkscape:label="01 · 左侧主干">
+<path id="shape-left-stem" inkscape:label="左侧弯折主干" d="M8 12C8 17 10.25 20 14 20M8 12V31M8 12V5" stroke-width="3.5" stroke="url(#gradient-main-stem)" stroke-opacity="0.8"/>
+</g>
+<g id="layer-center-stem" inkscape:groupmode="layer" inkscape:label="02 · 中央竖线">
+<path id="shape-center-stem" inkscape:label="中央浅蓝直线" d="M17 31L17 5" stroke-width="3.5" stroke="#86BBF5" stroke-opacity="0.8"/>
+</g>
+<g id="layer-branches" inkscape:groupmode="layer" inkscape:label="03 · 右侧三条分支">
+<mask id="mask-branches-right-side" inkscape:label="限定右侧分支可见范围" style="mask-type:alpha" maskUnits="userSpaceOnUse" x="20" y="5" width="10" height="26">
+<path d="M30 5V31H20V5H30Z" fill="url(#gradient-branch-mask)"/>
+</mask>
+<g id="group-branches-clipped" inkscape:label="分支图形（受右侧遮罩约束）" mask="url(#mask-branches-right-side)">
+<path id="shape-branch-upper" inkscape:label="上分支" d="M17 4C17 9 20 12 25 12" stroke-width="3.5" stroke="url(#gradient-upper-branch)" stroke-opacity="0.8"/>
+<path id="shape-branch-lower" inkscape:label="下分支" d="M17 19C17 24.625 21.5 28 29 28" stroke-width="3.5" stroke="url(#gradient-lower-branch)" stroke-opacity="0.8"/>
+<path id="shape-branch-middle" inkscape:label="中分支" d="M20 21C25 21 28 18 28 13" stroke-width="3.5" stroke="url(#gradient-middle-branch)" stroke-opacity="0.8"/>
+</g>
+</g>
+<defs>
+<linearGradient id="gradient-main-stem" inkscape:label="左主干蓝色渐变" x1="8" y1="19" x2="12.875" y2="19" gradientUnits="userSpaceOnUse">
+<stop stop-color="#3650DE"/>
+<stop offset="1" stop-color="#86BBF5"/>
+</linearGradient>
+<linearGradient id="gradient-branch-mask" inkscape:label="遮罩使用的原始渐变" x1="25" y1="19" x2="56.4286" y2="19" gradientUnits="userSpaceOnUse">
+<stop stop-color="#3650DE"/>
+<stop offset="1" stop-color="#86BBF5"/>
+</linearGradient>
+<linearGradient id="gradient-upper-branch" inkscape:label="上分支青蓝渐变" x1="26" y1="14" x2="21" y2="8.5" gradientUnits="userSpaceOnUse">
+<stop stop-color="#41E1AC"/>
+<stop offset="1" stop-color="#86BBF5"/>
+</linearGradient>
+<linearGradient id="gradient-lower-branch" inkscape:label="下分支青蓝渐变" x1="30.5" y1="30.25" x2="25.24" y2="22.5353" gradientUnits="userSpaceOnUse">
+<stop stop-color="#41E1AC"/>
+<stop offset="1" stop-color="#86BBF5"/>
+</linearGradient>
+<linearGradient id="gradient-middle-branch" inkscape:label="中分支蓝色渐变" x1="28" y1="13" x2="20" y2="21" gradientUnits="userSpaceOnUse">
+<stop stop-color="#3650DE"/>
+<stop offset="1" stop-color="#86BBF5"/>
+</linearGradient>
+</defs>
 </svg>
