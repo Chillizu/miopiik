@@ -1,7 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 
-import { makeItem, mergeByLoop, selectView, tierOf, tierName } from '../miopiik-dsh/host/inbox.js'
+import { makeItem, mergeByLoop, selectView, tierOf, tierName } from '../host/inbox.js'
 
 const activeLoopIds = new Set(['L-1'])
 

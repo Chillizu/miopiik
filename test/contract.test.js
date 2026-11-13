@@ -7,7 +7,7 @@ import {
   renderDraftPrompt,
   validateContract,
   validateDraft,
-} from '../miopiik-dsh/host/contract.js'
+} from '../host/contract.js'
 
 
 const complete = {

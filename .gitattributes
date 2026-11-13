@@ -1,2 +1,1 @@
-# Unified diff files necessarily contain context-space plus tab indentation.
-miopiik-iui/patches/*.patch whitespace=-space-before-tab
+* text=auto eol=lf

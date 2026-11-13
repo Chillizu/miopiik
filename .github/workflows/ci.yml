@@ -1,0 +1,50 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: test (node ${{ matrix.node }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        # package.json engines: node >= 23.6 — test the declared minimum,
+        # the current LTS line and the current release line.
+        node: ['23.6.0', '24.x', '26.x']
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+      - name: Unit tests
+        run: npm test
+      - name: Release readiness (npm pack + import graph + syntax)
+        run: npm run check
+      - name: Client bundle / renderer guards
+        run: npm run build:check
+      - name: Icon asset guard
+        run: npm run icon:check
+
+  pack:
+    name: pack + install smoke
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24.x'
+      - name: Pack, unpack and import the published artifact
+        run: node tools/verify-pack.mjs

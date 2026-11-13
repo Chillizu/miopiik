@@ -4,8 +4,8 @@ import { mkdtemp, readFile, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
-import { openStore } from '../miopiik-dsh/host/store.js'
-import { Engine } from '../miopiik-dsh/host/engine.js'
+import { openStore } from '../host/store.js'
+import { Engine } from '../host/engine.js'
 
 const DAY = 24 * 60 * 60 * 1000
 const T0 = Date.UTC(2026, 10, 1, 10, 0, 0)

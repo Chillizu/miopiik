@@ -1,7 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 
-import { parseBackstageCommand } from '../miopiik-dsh/host/commands.js'
+import { parseBackstageCommand } from '../host/commands.js'
 
 test('干预命令：划掉开环 / 标废事实', () => {
   assert.deepEqual(parseBackstageCommand('loop close L-1'), { kind: 'loop', op: 'close', id: 'L-1' })

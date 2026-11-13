@@ -9,7 +9,7 @@ import {
   makeLoop,
   overflowToDormant,
   statusOf,
-} from '../miopiik-dsh/host/loops.js'
+} from '../host/loops.js'
 
 const DAY = 24 * 60 * 60 * 1000
 const BASE_DAY = dayOf(Date.UTC(2026, 10, 1, 10, 0, 0))

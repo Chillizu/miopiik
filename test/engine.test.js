@@ -4,8 +4,8 @@ import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
-import { openStore } from '../miopiik-dsh/host/store.js'
-import { Engine } from '../miopiik-dsh/host/engine.js'
+import { openStore } from '../host/store.js'
+import { Engine } from '../host/engine.js'
 
 const DAY = 24 * 60 * 60 * 1000
 const T0 = Date.UTC(2026, 10, 1, 10, 0, 0)
@@ -528,7 +528,7 @@ test('对话节奏：只给可见信号（长度/确认型/停顿/有无活跃�
 test('预览 claim 不泄漏原文：降级时用契约目标，不是 Operator 报告开头', async () => {
   const ctx = await fixture()
   try {
-    const { fallbackPreview } = await import('../miopiik-dsh/host/compile.js')
+    const { fallbackPreview } = await import('../host/compile.js')
     const note = fallbackPreview(
       { id: 'J-9', loopId: 'L-9', contract: { goal: '确认中间层在这个项目里的名字与职责' } },
       '「确认中间层在这个项目里的名字与职责」有结果了',

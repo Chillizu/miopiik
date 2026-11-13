@@ -1,9 +1,60 @@
 {
-  "name": "miopiik",
-  "private": true,
+  "name": "miopiik-dsh",
+  "version": "0.1.1",
   "type": "module",
-  "description": "MiOpIIk — Mind / Ink / Operator：规格与 DSH 插件",
+  "description": "MiOpIIk Agent for DeepSeek Harness — Mind / Ink / Operator: conversation and background action as two timelines over one log.",
+  "license": "MIT",
+  "main": "index.js",
+  "engines": {
+    "node": ">=23.6"
+  },
   "scripts": {
-    "test": "node --test test/"
+    "test": "node --test",
+    "check": "node tools/check-release.mjs",
+    "build:check": "node tools/build-client-rules.mjs --check",
+    "icon:check": "node tools/icon-check.mjs"
+  },
+  "exports": {
+    ".": "./index.js",
+    "./client": "./client.js",
+    "./locale/*.json": "./locale/*.json",
+    "./icon": "./icon.svg",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "index.js",
+    "host/",
+    "client.js",
+    "cordis.patch.yml",
+    "locale/*.json",
+    "icon.svg"
+  ],
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web",
+      "immediately": true,
+      "inject": [
+        "@deepseek-ai/dsh-client-ui-conversation"
+      ]
+    }
+  },
+  "keywords": [
+    "dsh",
+    "dsh-plugin",
+    "deepseek-harness",
+    "miopiik",
+    "agent",
+    "intelligence-ui"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Chillizu/miopiik.git"
+  },
+  "homepage": "https://github.com/Chillizu/miopiik#readme",
+  "bugs": {
+    "url": "https://github.com/Chillizu/miopiik/issues"
   }
 }

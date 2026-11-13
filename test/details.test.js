@@ -5,10 +5,10 @@ import { existsSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
-import { openStore } from '../miopiik-dsh/host/store.js'
-import { Engine } from '../miopiik-dsh/host/engine.js'
-import { contentHash, extractEntities, searchIndex } from '../miopiik-dsh/host/details.js'
-import { DEFAULTS } from '../miopiik-dsh/host/config-defaults.js'
+import { openStore } from '../host/store.js'
+import { Engine } from '../host/engine.js'
+import { contentHash, extractEntities, searchIndex } from '../host/details.js'
+import { DEFAULTS } from '../host/config-defaults.js'
 
 const DAY = 24 * 60 * 60 * 1000
 let clock = Date.now()

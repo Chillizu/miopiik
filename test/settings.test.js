@@ -4,10 +4,10 @@ import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { dirname, join } from 'node:path'
 
-import { DEFAULTS, KNOB_DOCS } from '../miopiik-dsh/host/config-defaults.js'
+import { DEFAULTS, KNOB_DOCS } from '../host/config-defaults.js'
 
 const here = dirname(fileURLToPath(import.meta.url))
-const clientSource = readFileSync(join(here, '..', 'miopiik-dsh', 'client.js'), 'utf8')
+const clientSource = readFileSync(join(here, '..', 'client.js'), 'utf8')
 
 /** 从 client.js 里抽出 KNOBS 表（避免多维护一份形状）。 */
 function clientKnobs() {
@@ -54,8 +54,8 @@ test('每个可调项都在 KNOB_DOCS 里有中文说明', () => {
 })
 
 test('真正用到的常量来自同一张表（改一处即全站生效）', async () => {
-  const loops = await import('../miopiik-dsh/host/loops.js')
-  const inbox = await import('../miopiik-dsh/host/inbox.js')
+  const loops = await import('../host/loops.js')
+  const inbox = await import('../host/inbox.js')
   assert.equal(loops.ACTIVE_LOOP_CAP, DEFAULTS.activeLoopCap)
   assert.equal(loops.DORMANT_AFTER_DAYS, DEFAULTS.dormantAfterDays)
   assert.equal(loops.FOLDED_AFTER_DAYS, DEFAULTS.foldedAfterDays)

@@ -1,7 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 
-import { danglingRefs, findVerdict, makeNote, validateNote } from '../miopiik-dsh/host/notes.js'
+import { danglingRefs, findVerdict, makeNote, validateNote } from '../host/notes.js'
 
 function baseNote(overrides) {
   return makeNote({

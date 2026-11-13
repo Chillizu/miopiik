@@ -11,8 +11,8 @@ import { mkdtemp, appendFile, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
-import { openStore } from '../miopiik-dsh/host/store.js'
-import { Engine } from '../miopiik-dsh/host/engine.js'
+import { openStore } from '../host/store.js'
+import { Engine } from '../host/engine.js'
 
 const DAY = 24 * 60 * 60 * 1000
 const NOW = Date.now()

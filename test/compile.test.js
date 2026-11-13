@@ -1,8 +1,8 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 
-import { fallbackPreview, parseCompileOutput } from '../miopiik-dsh/host/compile.js'
-import { tierOf } from '../miopiik-dsh/host/inbox.js'
+import { fallbackPreview, parseCompileOutput } from '../host/compile.js'
+import { tierOf } from '../host/inbox.js'
 
 test('编译输出：容忍代码围栏与前后废话', () => {
   const parsed = parseCompileOutput('好的，结果如下：\n```json\n{"kind":"preview","claim":"竞品定位与假设相反","question":"要不要改定位？","conf":"high","detail":"3 家中 2 家提了 X"}\n```\n以上。')
@@ -61,7 +61,7 @@ test('分支上的任务：编译出的预览带分支指针（落在 T1，而�
 })
 
 test('编译失败可审计：降级时 why 里写明失败原因，不静默', async () => {
-  const { compileResult } = await import('../miopiik-dsh/host/compile.js')
+  const { compileResult } = await import('../host/compile.js')
   const llm = {
     async *stream() {
       yield { type: 'text-delta', text: '这不是 JSON，只是一段解说' }

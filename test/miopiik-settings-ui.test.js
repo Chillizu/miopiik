@@ -4,7 +4,7 @@ import { readFileSync } from 'node:fs'
 import { Script, createContext } from 'node:vm'
 
 const root = new URL('../', import.meta.url)
-const clientPath = new URL('miopiik-dsh/client.js', root)
+const clientPath = new URL('client.js', root)
 
 function loadAgentSettings() {
   const source = readFileSync(clientPath, 'utf8')
@@ -13,7 +13,7 @@ function loadAgentSettings() {
   sandbox.window = sandbox
   sandbox.__ModuleLoader__ = { load(value) { module = value } }
   createContext(sandbox)
-  new Script(source, { filename: 'miopiik-dsh/client.js' }).runInContext(sandbox, { timeout: 3000 })
+  new Script(source, { filename: 'client.js' }).runInContext(sandbox, { timeout: 3000 })
   assert.equal(module.id, 'miopiik-dsh')
   const React = {
     createElement(type, props, ...children) { return { type, props: props ?? {}, children } },
@@ -66,7 +66,7 @@ test('MiOpIIk Agent 独立注册 DSH 原生插件页，不和 IUI 混用或占�
 
 test('插件页只有介绍与配置两个视图，介绍覆盖三层架构、版本和与 IUI 的独立关系', () => {
   const { slots } = loadAgentSettings()
-  const packageVersion = JSON.parse(readFileSync(new URL('miopiik-dsh/package.json', root), 'utf8')).version
+  const packageVersion = JSON.parse(readFileSync(new URL('package.json', root), 'utf8')).version
   const nodes = page(slots)
   const tree = nodes[0]
   assert.equal(tree.props['data-miopiik-settings'], '1')
@@ -83,7 +83,7 @@ test('插件页只有介绍与配置两个视图，介绍覆盖三层架构、�
   const body = text(nodes)
   assert.match(body, new RegExp('v?' + packageVersion.replaceAll('.', '\\.'), 'u'), '介绍页应显示版本')
   assert.match(body, /独立插件/u)
-  assert.match(body, /miopiik-iui/u)
+  assert.ok(body.includes('miopiik-iui'), '介绍页应说明与 miopiik-iui 的独立关系')
   assert.match(body, /Mind/iu)
 })
 

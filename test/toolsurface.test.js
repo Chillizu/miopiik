@@ -4,10 +4,10 @@ import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { dirname, join } from 'node:path'
 
-import { INK_TOOL_NAMES } from '../miopiik-dsh/host/engine.js'
+import { INK_TOOL_NAMES } from '../host/engine.js'
 
 const here = dirname(fileURLToPath(import.meta.url))
-const toolsSource = readFileSync(join(here, '..', 'miopiik-dsh', 'host', 'tools.js'), 'utf8')
+const toolsSource = readFileSync(join(here, '..', 'host', 'tools.js'), 'utf8')
 
 /** 工具面里真实注册的所有 ink_* 名字。 */
 function registeredTools() {
@@ -43,7 +43,7 @@ test('拒绝列表里没有未注册的名字（防止拼错后静默无效）',
 
 
 test('真实注册一次：源码里出现的每个 ink_* 都真的注册上了（防止漏包装 register）', async () => {
-  const { registerTools } = await import('../miopiik-dsh/host/tools.js')
+  const { registerTools } = await import('../host/tools.js')
   const names = []
   const ctx = { tools: { register: (definition) => { names.push(definition.name) } } }
   registerTools(ctx, new Map(), {}, {})

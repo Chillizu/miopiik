@@ -1,7 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 
-import { shouldStall } from '../miopiik-dsh/host/operator.js'
+import { shouldStall } from '../host/operator.js'
 import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { dirname, join } from 'node:path'
@@ -31,7 +31,7 @@ test('任务已结束/超时/不存在都不报', () => {
 })
 
 // ── 结构守卫：派发路径的核心部件曾被一次粗糙替换整块删掉，静默坏了很久 ──
-const source = readFileSync(join(here, '..', 'miopiik-dsh', 'host', 'operator.js'), 'utf8')
+const source = readFileSync(join(here, '..', 'host', 'operator.js'), 'utf8')
 
 test('派发路径的守夜与子会话映射不能被误删', () => {
   assert.match(source, /childEngines\.set\(/, '必须登记子会话 → Ink 运行时的映射，否则 ink_report 找不到')
@@ -51,7 +51,7 @@ test('任务板开卡失败不能阻断派发，且归属在中间层模块', ()
 })
 
 test('「做了很多事却没有分支承载」要进 L3 可见性，而不是写成规则', () => {
-  const engineSource = readFileSync(join(here, '..', 'miopiik-dsh', 'host', 'engine.js'), 'utf8')
+  const engineSource = readFileSync(join(here, '..', 'host', 'engine.js'), 'utf8')
   assert.match(engineSource, /this\.lastWorkload = \{ turn, toolCount, coveredByBranch \}/, '要记录上一轮的工具强度')
   assert.match(engineSource, /没有分支承载它——如果这已经是一条要推进的线/, 'L3 要摆出这条事实')
   assert.match(engineSource, /如果只是查一下，忽略这行/, '给 M 留不做判断的自由')

@@ -4,9 +4,9 @@ import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
-import { openStore } from '../miopiik-dsh/host/store.js'
-import { Engine } from '../miopiik-dsh/host/engine.js'
-import { buildArchive, verifyProposal } from '../miopiik-dsh/host/fold.js'
+import { openStore } from '../host/store.js'
+import { Engine } from '../host/engine.js'
+import { buildArchive, verifyProposal } from '../host/fold.js'
 
 async function fixture() {
   const dir = await mkdtemp(join(tmpdir(), 'miopiik-fold-'))

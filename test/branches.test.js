@@ -4,9 +4,9 @@ import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
-import { openStore } from '../miopiik-dsh/host/store.js'
-import { Engine } from '../miopiik-dsh/host/engine.js'
-import { describeBranches } from '../miopiik-dsh/host/branches.js'
+import { openStore } from '../host/store.js'
+import { Engine } from '../host/engine.js'
+import { describeBranches } from '../host/branches.js'
 
 const T0 = Date.UTC(2026, 10, 1, 10, 0, 0)
 
@@ -147,7 +147,7 @@ test('分支切片引用不存在的事实卡时拒收（不静默）', async ()
 test('派发提示带分支切片：Operator 拿到的是这一段的前提，不是整个对话', async () => {
   const ctx = await fixture()
   try {
-    const { renderContractPrompt } = await import('../miopiik-dsh/host/contract.js')
+    const { renderContractPrompt } = await import('../host/contract.js')
     const branch = await ctx.engine.openBranch({ label: '定位验证', summary: '确认假设' })
     await ctx.engine.updateBranchContext(branch.id, { premise: '用户怀疑竞品在防御定价' })
     const slice = ctx.engine.branchSlice(branch.id).text
@@ -171,7 +171,7 @@ test('派发提示带分支切片：Operator 拿到的是这一段的前提，�
 })
 
 test('分支切片跨回放存活，且引用与事实只增不删', async () => {
-  const { openStore: reopen } = await import('../miopiik-dsh/host/store.js')
+  const { openStore: reopen } = await import('../host/store.js')
   const ctx = await fixture()
   try {
     const branch = await ctx.engine.openBranch({ label: 'x' })

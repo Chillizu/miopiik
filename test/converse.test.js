@@ -1,9 +1,9 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 
-import { LOOP_TYPES, buildCandidateNote, parseConversationOutput } from '../miopiik-dsh/host/converse.js'
-import { validateNote } from '../miopiik-dsh/host/notes.js'
-import { TIER, tierOf } from '../miopiik-dsh/host/inbox.js'
+import { LOOP_TYPES, buildCandidateNote, parseConversationOutput } from '../host/converse.js'
+import { validateNote } from '../host/notes.js'
+import { TIER, tierOf } from '../host/inbox.js'
 
 const UTT = [
   { id: 'U-1', role: 'user', text: '就用收件箱吧，给 M 处理更确定。' },

@@ -1,7 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 
-import { makeCase, matchCase, matchFacts, overlap, tokens } from '../miopiik-dsh/host/cases.js'
+import { makeCase, matchCase, matchFacts, overlap, tokens } from '../host/cases.js'
 
 test('token 化：ASCII 词 + 中文二元组', () => {
   const set = tokens('SPEC 的版本号是多少')
