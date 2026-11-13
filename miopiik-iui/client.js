@@ -1483,7 +1483,7 @@ function registerIuiSettings(ctx) {
 }
 
     return {
-      inject: [],
+      inject: ["slots"],
       apply(ctx) {
         const registry = {
           segments: (text) => MARKDOWN_SEGMENTS.splitTrustedMarkdown(text),

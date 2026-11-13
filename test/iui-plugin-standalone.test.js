@@ -33,6 +33,7 @@ function loadStandalonePlugin({ preference = null } = {}) {
     if (name === 'react') return React
     throw new Error('unexpected dependency: ' + name)
   })
+  assert.equal(Array.from(plugin.inject).join(','), 'slots', 'DSH slot API requires explicit Cordis injection')
   let dispose = null
   const slots = []
   plugin.apply({
