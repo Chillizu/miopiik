@@ -9,15 +9,21 @@ import { validateAst } from '../miopiik-iui/shared/iui-ast.js'
 const path = new URL('../miopiik-iui/', import.meta.url)
 const text = (file) => readFileSync(new URL(file, path), 'utf8')
 
-function loadStandalonePlugin() {
+function loadStandalonePlugin({ preference = null } = {}) {
   let loaded
   const React = {
     createElement(type, props, ...children) { return { type, props: props ?? {}, children } },
     useMemo(value) { return value() },
-    useState(value) { return [value, () => {}] },
+    useState(value) { return [typeof value === 'function' ? value() : value, () => {}] },
     useEffect() {},
   }
-  const sandbox = { console }
+  const storage = new Map(preference === null ? [] : [['miopiik.markdownEmbeds', preference]])
+  let reloads = 0
+  const sandbox = {
+    console,
+    localStorage: { getItem(key) { return storage.get(key) ?? null }, setItem(key, value) { storage.set(key, value) } },
+    location: { reload() { reloads += 1 } },
+  }
   sandbox.window = sandbox
   sandbox.__ModuleLoader__ = { load(value) { loaded = value } }
   createContext(sandbox)
@@ -28,8 +34,12 @@ function loadStandalonePlugin() {
     throw new Error('unexpected dependency: ' + name)
   })
   let dispose = null
-  plugin.apply({ effect(callback) { dispose = callback() } })
-  return { sandbox, registry: sandbox.__miopiikMarkdownEmbeds, dispose }
+  const slots = []
+  plugin.apply({
+    effect(callback) { dispose = callback() },
+    slots: { inject(name, register) { assert.equal(name, 'plugins.bundle.config'); register() }, register(metadata, render) { slots.push({ metadata, render }); return () => {} } },
+  })
+  return { sandbox, registry: sandbox.__miopiikMarkdownEmbeds, dispose, slots, storage, getReloads: () => reloads }
 }
 
 test('独立包不依赖 MiOpIIk Agent，也不注册旧工具', () => {
@@ -77,6 +87,32 @@ test('客户端在没有 Mind/Ink/Operator 时可加载、渲染并注销', () =
   assert.equal(output.props['data-iui-degraded'], '0')
   dispose()
   assert.equal(sandbox.__miopiikMarkdownEmbeds, undefined)
+})
+
+test('DSH 插件管理页拥有真实配置入口，默认开启且可以在页面中关闭', () => {
+  const { slots, storage, getReloads } = loadStandalonePlugin()
+  assert.equal(slots.length, 1)
+  assert.equal(slots[0].metadata.name, 'plugins.bundle.config')
+  assert.equal(slots[0].metadata.key, 'miopiik-iui')
+  const wrapper = slots[0].render({ view: 'page' })
+  const tree = wrapper.type(wrapper.props)
+  const flatten = (node) => [node, ...(node?.children ?? []).flatMap(flatten)]
+  const elements = flatten(tree)
+  const button = elements.find((item) => item?.props?.['data-iui-settings-toggle'] === '1')
+  assert.ok(button)
+  assert.equal(button.props.role, 'switch')
+  assert.equal(button.props['aria-checked'], true)
+  button.props.onClick()
+  assert.equal(storage.get('miopiik.markdownEmbeds'), '0')
+  assert.equal(getReloads(), 1)
+  const disabled = loadStandalonePlugin({ preference: '0' })
+  const disabledWrapper = disabled.slots[0].render({ view: 'page' })
+  const disabledTree = disabledWrapper.type(disabledWrapper.props)
+  const disabledButton = flatten(disabledTree).find((item) => item?.props?.['data-iui-settings-toggle'] === '1')
+  assert.equal(disabledButton.props['aria-checked'], false)
+  disabledButton.props.onClick()
+  assert.equal(disabled.storage.get('miopiik.markdownEmbeds'), '1')
+  assert.equal(disabled.getReloads(), 1)
 })
 
 test('无受信标记的 Markdown 不切分，行内标记无执行能力', () => {

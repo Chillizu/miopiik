@@ -32,10 +32,10 @@ const MARK_BEGIN = '\t\t// >>> miopiik:markdown-embeds (fork patch; see docs/UPS
 const MARK_END = '\t\t// <<< miopiik:markdown-embeds'
 
 const HELPER = `${MARK_BEGIN}
-		// 受信嵌入挂钩：没有注册表或开关未打开时返回 null，行为与上游完全一致。
+		// 安装独立 IUI 后默认启用；显式关闭时才交回原生 Markdown。
 		function miopiikSegments(text, streaming) {
 			try {
-				if (typeof localStorage !== "undefined" && localStorage.getItem("miopiik.markdownEmbeds") !== "1") return null;
+				if (typeof localStorage !== "undefined" && localStorage.getItem("miopiik.markdownEmbeds") === "0") return null;
 				const registry = globalThis.__miopiikMarkdownEmbeds;
 				if (registry === undefined || typeof registry.segments !== "function") return null;
 				const parts = registry.segments(text, { streaming });

@@ -30,13 +30,14 @@ test('DSL：同一份内容的字符成本低于 JSON（粗代理）', () => {
   assert.ok(cost.ratio < 0.6, `DSL 应明显更短，实际 ratio=${cost.ratio}（json=${cost.json}, dsl=${cost.dsl}）`)
 })
 
-test('实验入口默认关闭：客户端默认值 + localStorage 键 + 预览面板存在', async () => {
+test('旧 DSL 预览入口从 Agent 页面退场；独立 IUI 配置提供真实预览', async () => {
   const { readFileSync } = await import('node:fs')
-  const source = readFileSync(new URL('../miopiik-dsh/client.js', import.meta.url), 'utf8')
-  assert.ok(source.includes("localStorage.getItem(DSL_PREVIEW_KEY) === '1'"), '实验预览应读 localStorage 且默认关')
-  assert.ok(source.includes("function DslPreview("))
-  assert.ok(source.includes("data-dsl-preview"))
-  assert.ok(source.includes('UI_DSL.compileInlineDsl'), '预览应走共享 DSL 编译器')
+  const agent = readFileSync(new URL('../miopiik-dsh/client.js', import.meta.url), 'utf8')
+  const standalone = readFileSync(new URL('../miopiik-iui/client.js', import.meta.url), 'utf8')
+  assert.doesNotMatch(agent, /function DslPreview|data-dsl-preview|function WidgetCanvas|settings.inlineBody/u)
+  assert.match(standalone, /data-iui-plugin-settings/u)
+  assert.match(standalone, /data-iui-settings-preview/u)
+  assert.match(standalone, /plugins.bundle.config/u)
 })
 
 test('半截/未闭合块与坏数值都只降级为文本', () => {

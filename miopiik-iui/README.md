@@ -2,7 +2,7 @@
 
 **Independent presentation plugin, MiOpIIk family.** A DSH chat message can contain ordinary Markdown, small inline tokens and locally interactive, declarative `iui` blocks. The plugin does not need the MiOpIIk Mind/Ink/Operator agent, its event log, or its tools.
 
-> Version 0.1.0-rc.1 — local release candidate, not an upstream DSH feature or a published package yet.
+> Version 0.1.0-rc.2 — locally installed release candidate, not an upstream DSH feature or a published package yet.
 
 ## What it provides
 
@@ -10,7 +10,8 @@
 - Fenced `iui` containing `miopiik-ml` or a validated `iui/1` JSON AST
 - Metric, card, grid, table, bar/line chart, progress, callout, empty state and local segmented controls
 - Strict schema, bounded state and table data, safe links, local error isolation
-- Own short host output contract, instead of the legacy `ink_view` / `ink_chart` tool surface
+- Own short host output contract, instead of the retired `ink_view` / `ink_chart` tool surface
+- Native DSH **Plugins → Installed → MiOpIIk IUI** configuration page with persistent per-browser switch, renderer status and live component preview
 - No arbitrary HTML, JavaScript, CSS, network calls or model round-trips from IUI controls
 
 Example (actual Markdown with an `iui` code fence):
@@ -36,9 +37,9 @@ This DSH release does not yet provide an official Markdown AST embed API. The pl
 2. Run `node miopiik-iui/tools/build.mjs --check`. On first install, create the patched fork using `node miopiik-iui/tools/fork-chat-embeds.mjs` in a controlled staging environment, then run `node miopiik-iui/tools/fork-chat-embeds.mjs --check`. The `--check` command is read-only and requires the fork to exist.
 3. Point only that profile's `@deepseek-ai/dsh-client-ui-chat` dependency to `miopiik-iui/upstream/dsh-client-ui-chat-embeds`; do not overwrite DSH's global package. Ensure the fork's `node_modules` dependency link is intact.
 4. Back up the original profile configuration and fork; confirm DSH has no active task; restart the DSH Web service.
-5. In that browser, enable the experimental renderer with `localStorage.setItem('miopiik.markdownEmbeds','1')` and refresh.
+5. The renderer is enabled by default after installation. Open **Plugins → Installed → MiOpIIk IUI** to view status and change the per-browser rendering preference. No DevTools command is required.
 
-**Rollback:** set the browser key to `'0'` and refresh, or restore the profile's previous ui-chat resolution and restart. Historical messages remain untouched.
+**Rollback:** use the plugin's configuration page to disable rendering (or set the browser preference key to `'0'` as an emergency fallback), or restore the profile's previous ui-chat resolution and restart. Historical messages remain untouched.
 
 The current client hook splits Markdown into pieces; cross-token formatting, selection/copy semantics, streaming incomplete fences and accessibility require more work. Do not claim that the upstream Markdown AST extension is complete.
 

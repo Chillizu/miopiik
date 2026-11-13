@@ -1,199 +1,72 @@
 #!/usr/bin/env node
 /**
- * 自给自足的 3080 实机 E2E：独立 headless Chromium（Playwright），不复用用户 profile、
- * 不需要 CDP 调试端口、不留常驻进程。token 只在进程内使用，绝不打印。
- *
- *   node tools/e2e-playwright.mjs
- *
- * 退出码：0 = 全部断言通过；1 = 有失败（打印结构化证据，不含认证信息）。
+ * MiOpIIk IUI standalone production-path E2E:
+ * DSH Plugins page + native settings + actual renderer/interaction + browser preference.
+ * Isolated Chromium context; no messages are ever sent to DSH.
  */
 import { execFileSync } from 'node:child_process'
 import { createRequire } from 'node:module'
-
 const require = createRequire('/home/chillizu/.dsh/profiles/web/node_modules/')
 const { chromium } = require('playwright')
-
 const BASE = 'http://127.0.0.1:3080'
-const evidence = { steps: [], errors: [] }
-const record = (name, value) => evidence.steps.push({ name, ...value })
-
+const evidence = { errors: [], checks: [] }
+const record = (name, props) => evidence.checks.push({ name, ...props })
+const assert = (condition, detail) => { if (!condition) evidence.errors.push(detail) }
 function loginUrl() {
-  // token 只在内存里拼接，不写日志、不进证据
-  const log = execFileSync('journalctl', ['--user', '-u', 'dsh-web', '-o', 'cat'], { encoding: 'utf8' })
+  const log = execFileSync('journalctl', ['--user','-u','dsh-web.service','--since','9 hours ago','-o','cat','--no-pager'], {encoding:'utf8'})
   const matches = [...log.matchAll(/http:\/\/127\.0\.0\.1:3080\/\?token=([A-Za-z0-9_-]+)/gu)]
-  if (matches.length === 0) throw new Error('服务日志里没有可用的一次性登录 token')
-  return `${BASE}/?token=${matches[matches.length - 1][1]}`
+  if (matches.length === 0) throw new Error('no local DSH auth entry')
+  return BASE + '/?token=' + matches.at(-1)[1]
 }
-
-async function openViewPage(context) {
+async function openSettings(page) {
+  await page.getByRole('button', { name: '插件', exact: true }).click()
+  await page.waitForTimeout(800)
+  await page.getByRole('button', { name: '查看 miopiik-iui', exact: true }).click()
+  await page.waitForTimeout(650)
+  const panel=page.locator('[data-iui-plugin-settings="1"]')
+  await panel.waitFor({state:'visible',timeout:8000})
+  return panel
+}
+async function run(context,width=1280) {
   const page = await context.newPage()
-  page.on('pageerror', (error) => evidence.errors.push(String(error).slice(0, 200)))
-  page.on('console', (message) => {
-    if (message.type() !== 'error') return
-    const text = message.text()
-    // favicon 之类的静态资源 404 与 IUI 无关，忽略
-    if (/Failed to load resource.*404/u.test(text)) return
-    evidence.errors.push('console: ' + text.slice(0, 200))
-  })
-  await page.goto(loginUrl(), { waitUntil: 'domcontentloaded' })
-  await page.waitForTimeout(1500)
-  await page.goto(BASE + '/', { waitUntil: 'domcontentloaded' })
-  await page.waitForTimeout(2500)
-  // 打开一个已有会话（独立 context 没有"上次打开的会话"状态）
-  const session = page.locator('[role="treeitem"]').filter({ hasText: 'MiOpIIk 架构' }).first()
-  if (await session.count()) {
-    await session.click()
-    await page.waitForTimeout(3000)
+  const jsErrors=[]
+  page.on('pageerror',e=>jsErrors.push(String(e).slice(0,180)))
+  await page.goto(loginUrl(),{waitUntil:'domcontentloaded'})
+  await page.waitForTimeout(1350)
+  const panel=await openSettings(page)
+  const ready=(await panel.locator('[data-iui-registry-state]').getAttribute('data-iui-registry-state'))==='ready'
+  const enabled=(await panel.locator('[data-iui-settings-status]').getAttribute('data-iui-settings-status'))==='enabled'
+  const live=(await panel.locator('[data-iui-settings-preview]').getAttribute('data-iui-settings-preview'))==='live'
+  const count=await panel.locator('[data-iui-output="ok"]').count()
+  const switcher=panel.locator('[data-iui-settings-toggle="1"]')
+  const checked=await switcher.getAttribute('aria-checked')
+  const metrics=()=>panel.locator('[data-iui-metric]').allTextContents()
+  const before=await metrics()
+  const stepBefore=await page.locator('[data-chat-flow-kind="assistant-step"]').count()
+  const opt=panel.getByRole('button',{name:'近 30 天',exact:true})
+  let changed=false
+  if(await opt.count()===1){
+    await opt.click();await page.waitForTimeout(450)
+    const after=await metrics()
+    changed=after.join('|')!==before.join('|')&&after.join('|').includes('4,826')
   }
-  await page.getByText('MiOpIIk', { exact: true }).last().click()
-  await page.waitForTimeout(1500)
-  await page.getByText('视图', { exact: true }).last().click()
-  await page.waitForTimeout(1200)
-  return page
-}
-
-const browser = await chromium.launch({ executablePath: '/usr/bin/chromium', headless: true, args: ['--no-sandbox', '--disable-gpu'] })
-try {
-  const context = await browser.newContext({ viewport: { width: 1280, height: 900 } })
-  const page = await openViewPage(context)
-
-  // 原生优先：接管默认关闭时，不应出现我们的正文接管标记（原生 Markdown/Reasoning 自渲染）
-  record('nativeOwnership', { ourInlineRows: await page.locator('[data-mi-blocks]').count() })
-
-  const panel = page.locator('[data-dsl-preview]')
-  record('defaultState', { state: await panel.getAttribute('data-dsl-preview') })
-
-  if ((await panel.getAttribute('data-dsl-preview')) !== 'on') {
-    await panel.getByRole('button', { name: '关', exact: true }).click()
-    await page.waitForTimeout(500)
-  }
-  record('afterToggle', { state: await panel.getAttribute('data-dsl-preview') })
-
-  const output = page.locator('[data-iui-output]')
-  // 1) miopiik-ml（模型面向格式）样例：结构 + 局部状态
-  await page.getByRole('button', { name: /示例 ML：指标\+趋势\+切换/ }).click()
-  await page.waitForTimeout(800)
-  record('mlInteractive', {
-    format: await output.getAttribute('data-iui-format'),
-    kind: await output.getAttribute('data-iui-output'),
-    degraded: await output.getAttribute('data-iui-degraded'),
-    metrics: await page.locator('[data-iui-metric]').evaluateAll((nodes) => nodes.map((n) => n.textContent.replace(/\s+/g, ' ').trim())),
-  })
-  // 1a) 画廊回归样本：状态 + 对象行表格 + 行内混排
-  await page.getByRole('button', { name: /示例 ML：画廊回归/ }).click()
-  await page.waitForTimeout(800)
-  const galleryMetrics = () => page.locator('[data-iui-metric]').evaluateAll((nodes) => nodes.map((n) => n.textContent.replace(/\s+/g, ' ').trim()))
-  const galleryBefore = await galleryMetrics()
-  const tableText = await page.locator('[data-iui-table]').first().innerText()
-  const tableCols = await page.locator('[data-iui-table]').first().getAttribute('data-iui-table-cols')
-  record('mlGallery', {
-    metrics: galleryBefore,
-    tableHasObjectObject: tableText.includes('[object Object]'),
-    tableHasChannel: tableText.includes('Web 客户端'),
-    tableCols,
-    badges: await page.locator('[data-iui-badge]').count(),
-    safeLinks: await page.locator('[data-iui-output] a[href^="https://"], [data-iui-output] a[href^="/"]').count(),
-  })
-  await page.getByRole('button', { name: '近 30 天', exact: true }).click()
-  await page.waitForTimeout(500)
-  record('mlGalleryAfterSwitch', { metrics: await galleryMetrics(), changed: JSON.stringify(galleryBefore) !== JSON.stringify(await galleryMetrics()) })
-
-  // 1b) 行内混排：文字与 badge 同一行
-  await page.getByRole('button', { name: /示例 ML：行内混排/ }).click()
-  await page.waitForTimeout(700)
-  record('mlInline', {
-    inlineRow: await page.locator('[data-iui-inline]').first().getAttribute('data-iui-inline'),
-    badges: await page.locator('[data-iui-badge]').evaluateAll((nodes) => nodes.map((n) => n.textContent.trim())),
-    safeLink: await page.locator('[data-iui-output] a[href^="https://"]').count(),
-    progressbar: await page.locator('[role="progressbar"]').count(),
-  })
-
-  // 2) ML 组合样例：网格 + 卡片 + 表格
-  await page.getByRole('button', { name: /示例 ML：两列卡片\+表格/ }).click()
-  await page.waitForTimeout(800)
-  record('mlCompare', {
-    cards: await page.locator('[data-iui-container="card"]').count(),
-    grid: await page.locator('[data-iui-container="grid"]').count(),
-    tableRows: await page.locator('[data-iui-table]').first().getAttribute('data-iui-table'),
-  })
-  // 3) ML 局部降级：未知标签只影响自身
-  await page.getByRole('button', { name: /示例 ML：局部降级/ }).click()
-  await page.waitForTimeout(700)
-  record('mlPartial', {
-    kind: await output.getAttribute('data-iui-output'),
-    degraded: await output.getAttribute('data-iui-degraded'),
-    metricStillVisible: (await page.locator('[data-iui-metric]').count()) > 0,
-    text: (await output.innerText()).replace(/\s+/g, ' ').slice(0, 100),
-  })
-
-  await page.getByRole('button', { name: /示例：指标 \+ 趋势 \+ 切换/ }).click()
-  await page.waitForTimeout(700)
-  const readMetrics = () => page.locator('[data-iui-metric]').evaluateAll((nodes) => nodes.map((n) => n.textContent.replace(/\s+/g, ' ').trim()))
-  const before = await readMetrics()
-  const beforePressed = await page.locator('[data-iui-output] button[aria-pressed="true"]').allTextContents()
-  const assistantStepsBefore = await page.locator('[data-chart-flow-kind="assistant-step"], [data-chat-flow-kind="assistant-step"]').count()
-  record('interactiveInitial', {
-    kind: await output.getAttribute('data-iui-output'),
-    metrics: before,
-    pressed: beforePressed,
-    hasChart: (await page.locator('[data-iui-chart]').count()) > 0,
-  })
-
-  await page.getByRole('button', { name: '近30天', exact: true }).click()
-  await page.waitForTimeout(600)
-  const after = await readMetrics()
-  const afterPressed = await page.locator('[data-iui-output] button[aria-pressed="true"]').allTextContents()
-  const assistantStepsAfter = await page.locator('[data-chat-flow-kind="assistant-step"]').count()
-  record('interactiveAfterSwitch', {
-    metrics: after,
-    pressed: afterPressed,
-    changed: JSON.stringify(before) !== JSON.stringify(after),
-    modelTurnsAdded: assistantStepsAfter - assistantStepsBefore,
-  })
-
-  await page.getByRole('button', { name: /示例：两列对比/ }).click()
-  await page.waitForTimeout(600)
-  record('compare', {
-    columns: await page.locator('[data-iui-container="column"]').count(),
-    text: (await output.innerText()).replace(/\s+/g, ' ').slice(0, 120),
-  })
-
-  await page.getByRole('button', { name: /示例：坏 AST 降级/ }).click()
-  await page.waitForTimeout(600)
-  record('brokenAst', { kind: await output.getAttribute('data-iui-output'), text: (await output.innerText()).replace(/\s+/g, ' ').slice(0, 120) })
-
-  // 深色 + 窄屏（同一页切 emulation）
-  await page.emulateMedia({ colorScheme: 'dark' })
-  await page.setViewportSize({ width: 420, height: 860 })
-  await page.getByRole('button', { name: /示例：指标 \+ 趋势 \+ 切换/ }).click()
-  await page.waitForTimeout(600)
-  record('darkNarrow', {
-    dark: await page.evaluate(() => matchMedia('(prefers-color-scheme: dark)').matches),
-    width: await page.evaluate(() => window.innerWidth),
-    metricCount: await page.locator('[data-iui-metric]').count(),
-    overflow: await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth + 2),
-  })
-
+  const added=(await page.locator('[data-chat-flow-kind="assistant-step"]').count())-stepBefore
+  const overflow=await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth+3)
+  const oldView=await page.getByText('视图',{exact:true}).count()
+  const data={width,ready,enabled,live,count,checked,changed,added,overflow,oldView,jsErrors}
+  record('native-settings',data)
+  assert(ready&&enabled&&live&&count>0&&checked==='true','Standalone settings not fully ready')
+  assert(changed&&added===0,'Native preview interaction did not update locally')
+  assert(!overflow&&jsErrors.length===0,'Page overflow or JavaScript error')
   await context.close()
-} finally {
-  await browser.close()
 }
 
-const broken = evidence.steps.find((s) => s.name === 'brokenAst') ?? {}
-const inline = evidence.steps.find((s) => s.name === 'mlInline') ?? {}
-const native = evidence.steps.find((s) => s.name === 'nativeOwnership') ?? {}
-const partial = evidence.steps.find((s) => s.name === 'mlPartial') ?? {}
-const fail = evidence.errors.length > 0 ||
-  evidence.steps.find((s) => s.name === 'interactiveAfterSwitch')?.changed !== true ||
-  evidence.steps.find((s) => s.name === 'interactiveAfterSwitch')?.modelTurnsAdded !== 0 ||
-  // 局部降级后父级仍然渲染（ok），坏节点自己变成文本
-  broken.kind !== 'ok' || broken.text?.includes('无法渲染') !== true ||
-  partial.metricStillVisible !== true || partial.text?.includes('无法渲染') !== true ||
-  // 默认关闭时正文归原生所有；行内混排必须真的在同一行
-  (evidence.steps.find((s) => s.name === 'mlGallery')?.tableHasObjectObject !== false) ||
-  (evidence.steps.find((s) => s.name === 'mlGallery')?.tableHasChannel !== true) ||
-  (evidence.steps.find((s) => s.name === 'mlGalleryAfterSwitch')?.changed !== true) ||
-  native.ourInlineRows !== 0 ||
-  (inline.badges ?? []).length < 2 || inline.progressbar !== 1 || inline.safeLink !== 1
-console.log(JSON.stringify({ ok: !fail, evidence }, null, 2))
-process.exitCode = fail ? 1 : 0
+const browser=await chromium.launch({executablePath:'/usr/bin/chromium',headless:true,args:['--no-sandbox','--disable-gpu']})
+try {
+  const normal=await browser.newContext({viewport:{width:1280,height:900}})
+  await run(normal,1280)
+  const narrow=await browser.newContext({viewport:{width:420,height:860}})
+  await run(narrow,420)
+} finally {await browser.close()}
+console.log(JSON.stringify({ok:evidence.errors.length===0,evidence},null,2))
+process.exitCode=evidence.errors.length===0?0:1

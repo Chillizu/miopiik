@@ -1,6 +1,6 @@
 {
   "name": "miopiik-iui",
-  "version": "0.1.0-rc.1",
+  "version": "0.1.0-rc.2",
   "private": true,
   "type": "module",
   "description": "MiOpIIk IUI — trusted native Markdown embeds for DeepSeek Harness",
@@ -18,6 +18,7 @@
     "index.js",
     "client.js",
     "renderer.js",
+    "settings.js",
     "shared/",
     "tools/",
     "patches/",

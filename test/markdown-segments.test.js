@@ -42,15 +42,15 @@ test('中文与嵌套链接文本不被破坏；HTML 不被解析', () => {
   assert.equal(parts.filter((p) => p.kind === 'inline').length, 1)
 })
 
-test('fork 补丁与当前上游对齐，且默认关闭（localStorage 开关未开时不激活）', async () => {
+test('fork 补丁与当前上游对齐，安装后默认开启，明确关闭时回原生', async () => {
   const { execFileSync } = await import('node:child_process')
   const { readFileSync } = await import('node:fs')
   const out = execFileSync(process.execPath, ['miopiik-iui/tools/fork-chat-embeds.mjs', '--check'], { encoding: 'utf8' })
   assert.match(out, /一致/u)
   const forked = readFileSync(new URL('../miopiik-iui/upstream/dsh-client-ui-chat-embeds/lib/client.js', import.meta.url), 'utf8')
-  // 挂钩必须存在，且必须有默认关闭的开关与 try/catch 降级
+  // 挂钩必须存在，且显式关闭时恢复原生 Markdown；try/catch 确保局部降级。
   assert.match(forked, /__miopiikMarkdownEmbeds/u)
-  assert.match(forked, /miopiik\.markdownEmbeds"\) !== "1"\) return null/u)
+  assert.match(forked, /miopiik\.markdownEmbeds"\) === "0"\) return null/u)
   assert.match(forked, /data-miopiik-embed-fallback/u)
   // 原生 ReasoningRow 仍在（没有被我们替换）
   assert.match(forked, /function ReasoningRow/u)

@@ -6,87 +6,60 @@ import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..', '..')
-const clientPath = join(root, 'miopiik-dsh', 'client.js')
-const outDir = join(root, '.dsh', 'tmp', 'browser-test')
-
+const bundle = readFileSync(join(root, 'miopiik-iui', 'client.js'), 'utf8')
+const folder = join(root, '.dsh', 'tmp', 'browser-test')
 const CHROMIUM = process.env.CHROMIUM_PATH ?? 'chromium'
 
-/** 从 client.js 里抽出「渲染层」那一段（markers 固定，抽取失败直接失败而不是静默跳过）。 */
-function extractRenderer() {
-  const source = readFileSync(clientPath, 'utf8')
-  const start = source.indexOf('    // SVG 画布：viewBox 固定')
-  const end = source.indexOf('    // 对话流里的卡片节点')
-  assert.ok(start > 0 && end > start, 'client.js 渲染层 markers 丢失，测试无法抽取')
-  return source.slice(start, end)
+function fixture() {
+  const setup = `
+    const failures = [];
+    window.addEventListener('error', e => failures.push(String(e.message)));
+    let plugin;
+    window.__ModuleLoader__ = { load(v) { plugin = v } };
+    const SVG = new Set(['svg','g','path','rect','text','defs','marker','polyline','line','circle']);
+    function h(type, props, ...children) {
+      props = props || {};
+      if (typeof type === 'function') return type({...props, children});
+      const el = SVG.has(type) ? document.createElementNS('http://www.w3.org/2000/svg',type) : document.createElement(type);
+      for (const [key,val] of Object.entries(props)) {
+        if (val === null || val === undefined || key === 'key' || key === 'ref') continue;
+        if (key === 'style') { for(const [prop,raw] of Object.entries(val)) el.style[prop] = typeof raw === 'number' && !['opacity','lineHeight','fontWeight','flexGrow','flexShrink','order','zIndex'].includes(prop) ? raw+'px' : raw; continue; }
+        if (key.startsWith('on') && typeof val === 'function') { el.addEventListener(key.slice(2).toLowerCase(),val);continue; }
+        if (key === 'className') { el.className = val; continue; }
+        el.setAttribute(key,String(val));
+      }
+      for (const child of children.flat(Infinity)) {
+        if (child === null || child === undefined || child === false) continue;
+        el.appendChild(child instanceof Node ? child : document.createTextNode(String(child)));
+      }
+      return el;
+    }
+    const React = {createElement:h, useState(v) {return [typeof v==='function'?v():v, ()=>{}]}, useEffect(){}, useMemo(fn){return fn()}, useCallback(fn){return fn()}};
+  `
+  const run = `
+    const slots=[];
+    const module=plugin.factory(name => {if(name==='react')return React;throw Error('unexpected module '+name)});
+    module.apply({effect(){},slots:{inject(name,callback){if(name!=='plugins.bundle.config')throw Error('wrong slot');callback()},register(meta,render){slots.push({meta,render})}}});
+    const form=slots[0].render({view:'page'});
+    document.getElementById('root').appendChild(form);
+    document.body.dataset.integration=slots.length===1 && slots[0].meta.key==='miopiik-iui'?'ok':'failed';
+    document.body.dataset.errors=failures.join('|');
+  `
+  return '<!doctype html><html lang="zh"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><body><main id="root" style="width:650px;max-width:100%"></main><script>' + setup + '\n' + bundle + '\n' + run + '</script></body></html>'
 }
 
-function page(renderer) {
-  return `<!doctype html><meta charset="utf-8"><body><div id="root"></div><script>
-const ERRORS = [];
-window.addEventListener('error', (e) => ERRORS.push(String(e.message)));
-const SVG = new Set(['svg','g','path','rect','text','defs','marker','polyline','line','circle']);
-const CAMEL = new Set(['viewBox','preserveAspectRatio','markerWidth','markerHeight','markerUnits','refX','refY']);
-function attrName(n){ return CAMEL.has(n) ? n : n.replace(/[A-Z]/g, (m) => '-' + m.toLowerCase()); }
-function h(tag, props, ...children) {
-  if (typeof tag === 'function') return tag(props || {});
-  const el = document.createElementNS(SVG.has(tag) ? 'http://www.w3.org/2000/svg' : 'http://www.w3.org/1999/xhtml', tag);
-  for (const [k, v] of Object.entries(props || {})) {
-    if (k === 'key' || v === undefined || v === null) continue;
-    if (k === 'style') { for (const [sk, sv] of Object.entries(v)) el.style[sk] = typeof sv === 'number' ? sv + 'px' : sv; continue; }
-    if (SVG.has(tag)) el.setAttribute(attrName(k), v);
-    else if (k === 'className') el.className = v;
-    else el.setAttribute(k, v);
-  }
-  for (const c of children.flat(Infinity)) {
-    if (c === null || c === undefined || c === false) continue;
-    el.appendChild(typeof c === 'object' ? c : document.createTextNode(String(c)));
-  }
-  return el;
-}
-const C = { base:'#fff', layer1:'#fafafb', border:'#e3e3e6', borderStrong:'#cfd0d4', text:'#1b1b1b', muted:'#77787c', brand:'#4176e6', link:'#8b8d94' };
-${renderer}
-const root = document.getElementById('root');
-const cases = [];
-function add(label, spec) {
-  const wrap = document.createElement('div');
-  const tag = document.createElement('div');
-  tag.textContent = label;
-  wrap.appendChild(tag);
-  try {
-    wrap.appendChild(h(WidgetCard, { spec }));
-    cases.push(label + ':ok');
-  } catch (error) {
-    cases.push(label + ':THROW:' + String(error && error.message));
-  }
-  document.getElementById('root').appendChild(wrap);
-}
-// 1) 正常图表
-add('dataset', { widget:'dataset', preset:'card', title:'t', props:{ chart:true, columns:[{label:'a'},{label:'b'}], rows:[['x',1],['y',2]] }, fallback:'正常图' });
-// 2) 隔离：渲染器内部会抛错的图（null 节点）——必须降级而不是抛穿
-add('nullgraph', { widget:'graph', preset:'card', title:'g', props:{ nodes:[null], edges:[] }, fallback:'FALLBACK-NULL-GRAPH' });
-// 3) 未知形状
-add('unknown', { widget:'mermaid', preset:'card', props:{}, fallback:'FALLBACK-UNKNOWN' });
-document.body.setAttribute('data-cases', cases.join('|'));
-document.body.setAttribute('data-errors', ERRORS.join('|'));
-</script></body>`;
-}
-
-test('浏览器回归：非法 spec 只降级当块，不崩页面、不抛穿', () => {
-  const renderer = extractRenderer()
-  mkdirSync(outDir, { recursive: true })
-  const file = join(outDir, 'renderer.html')
-  writeFileSync(file, page(renderer), 'utf8')
-  const dom = execFileSync(
-    CHROMIUM,
-    ['--headless=new', '--no-sandbox', '--disable-gpu', '--hide-scrollbars', `--user-data-dir=${join(outDir, 'profile')}`, '--dump-dom', `file://${file}`],
-    { encoding: 'utf8', timeout: 60000, stdio: ['ignore', 'pipe', 'ignore'] },
-  )
-  const cases = /data-cases="([^"]*)"/u.exec(dom)?.[1] ?? ''
-  const errors = /data-errors="([^"]*)"/u.exec(dom)?.[1] ?? ''
-  assert.match(cases, /dataset:ok/u)
-  assert.match(cases, /nullgraph:ok/u, '渲染器抛错必须被 WidgetCard 隔离')
-  assert.match(cases, /unknown:ok/u)
-  assert.equal(errors, '', '页面不应有未捕获异常')
-  assert.match(dom, /FALLBACK-NULL-GRAPH/u, '降级时必须显示 fallback 文本')
-  assert.match(dom, /FALLBACK-UNKNOWN/u)
+test('独立 IUI 配置在真实 Chromium DOM 中完整呈现，并使用真实渲染器预览', () => {
+  mkdirSync(folder, {recursive:true})
+  const file=join(folder,'iui-settings.html')
+  writeFileSync(file,fixture())
+  const html=execFileSync(CHROMIUM,['--headless=new','--no-sandbox','--disable-gpu','--hide-scrollbars','--user-data-dir='+join(folder,'settings-profile'),'--dump-dom','file://'+file],{encoding:'utf8',timeout:60000,stdio:['ignore','pipe','ignore']})
+  assert.match(html,/data-integration="ok"/u,'插件注册必须成功')
+  assert.match(html,/data-errors=""/u,'浏览器不应有运行时错误')
+  assert.match(html,/data-iui-plugin-settings="1"/u)
+  assert.match(html,/data-iui-settings-toggle="1"/u)
+  assert.match(html,/role="switch"/u)
+  assert.match(html,/data-iui-settings-preview="live"/u,'预览必须连接真实 IUI 注册表')
+  assert.match(html,/data-iui-output="ok"/u,'预览应通过真正的 AST 渲染器')
+  assert.match(html,/data-iui-registry-state="ready"/u)
+  assert.doesNotMatch(html,/data-iui-chart-empty="1"/u,'预览图表不应为空')
 })
