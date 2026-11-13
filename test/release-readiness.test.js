@@ -63,3 +63,57 @@ test('IUI 设置页会显式告知宿主补丁是否生效（未打补丁时不�
   const fork = readFileSync(join(root, 'miopiik-iui', 'tools', 'fork-chat-embeds.mjs'), 'utf8')
   assert.match(fork, /globalThis\.__miopiikMarkdownEmbedsHost = true/u)
 })
+
+test('安装脚本 tarball 模式 --execute 真的执行：用桩 dsh 验证实际产物路径被传入', async () => {
+  const { mkdtempSync, writeFileSync, readFileSync: read, chmodSync, existsSync: exists } = await import('node:fs')
+  const { tmpdir } = await import('node:os')
+  const stubDir = mkdtempSync(join(tmpdir(), 'miopiik-dsh-stub-'))
+  const stubLog = join(stubDir, 'calls.log')
+  const stub = join(stubDir, 'dsh')
+  writeFileSync(stub, `#!/bin/sh\necho "$@" >> "${stubLog}"\nexit 0\n`, 'utf8')
+  chmodSync(stub, 0o755)
+
+  // tarball 模式：会先 npm pack 出真实 .tgz，再把这个路径交给 dsh
+  execFileSync(process.execPath, ['tools/install-plugin.mjs', '--profile', 'cold-test', '--package', 'all', '--mode', 'tarball', '--execute'], {
+    cwd: root,
+    encoding: 'utf8',
+    env: { ...process.env, DSH_BIN: stub, PATH: `${stubDir}:${process.env.PATH}` },
+    timeout: 180000,
+  })
+  const calls = read(stubLog, 'utf8').trim().split('\n')
+  assert.equal(calls.length, 2, `期望两次安装，实际：\n${calls.join('\n')}`)
+  for (const [index, name] of ['miopiik-dsh', 'miopiik-iui'].entries()) {
+    const manifest = JSON.parse(read(join(root, name, 'package.json'), 'utf8'))
+    const expected = join(root, '.dsh', 'tmp', 'packs', `${manifest.name}-${manifest.version}.tgz`)
+    assert.equal(calls[index].startsWith('plugin --profile cold-test add '), true)
+    assert.equal(calls[index].includes(`${manifest.name}-${manifest.version}.tgz`), true)
+    assert.equal(exists(expected), true, `打包产物不存在：${expected}`)
+  }
+  // 命令里不允许再出现未替换的占位符
+  assert.equal(calls.some((call) => call.includes('<') || call.includes('>')), false)
+})
+
+test('安装脚本 link 模式 --execute 也真的调用 dsh（而不是仅打印）', async () => {
+  const { mkdtempSync, writeFileSync, readFileSync: read, chmodSync } = await import('node:fs')
+  const { tmpdir } = await import('node:os')
+  const stubDir = mkdtempSync(join(tmpdir(), 'miopiik-link-stub-'))
+  const stubLog = join(stubDir, 'calls.log')
+  const stub = join(stubDir, 'dsh')
+  writeFileSync(stub, `#!/bin/sh\necho "$@" >> "${stubLog}"\nexit 0\n`, 'utf8')
+  chmodSync(stub, 0o755)
+  execFileSync(process.execPath, ['tools/install-plugin.mjs', '--profile', 'cold-test', '--package', 'dsh', '--mode', 'link', '--execute'], {
+    cwd: root,
+    encoding: 'utf8',
+    env: { ...process.env, DSH_BIN: stub, PATH: `${stubDir}:${process.env.PATH}` },
+  })
+  const calls = read(stubLog, 'utf8').trim()
+  assert.match(calls, /plugin --profile cold-test add .*miopiik-dsh$/u)
+})
+
+test('README 顶部版本与 package.json 一致，且明确标注 prerelease（防止文档漂移）', () => {
+  const manifest = JSON.parse(readFileSync(join(root, 'miopiik-iui', 'package.json'), 'utf8'))
+  const readme = readFileSync(join(root, 'miopiik-iui', 'README.md'), 'utf8')
+  assert.ok(readme.includes(`Version ${manifest.version}`), `README 顶部版本与 package.json（${manifest.version}）不一致`)
+  assert.match(readme, /prerelease|预发布/iu, 'rc 版本必须在 README 里明确写为预发布')
+  assert.equal(manifest.version.includes('-rc.'), true)
+})

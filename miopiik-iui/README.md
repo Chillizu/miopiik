@@ -2,7 +2,7 @@
 
 **Independent presentation plugin, MiOpIIk family.** A DSH chat message can contain ordinary Markdown, small inline tokens and locally interactive, declarative `iui` blocks. The plugin does not need the MiOpIIk Mind/Ink/Operator agent, its event log, or its tools.
 
-> Version 0.1.0-rc.3 — locally installed release candidate, not an upstream DSH feature or a published package yet.
+> Version 0.1.0-rc.4 — **prerelease** (release candidate), not a stable release, not an upstream DSH feature, and not a published package yet. See `docs/RELEASE-NOTES.md` for the stable-release blockers.
 
 ## What it provides
 

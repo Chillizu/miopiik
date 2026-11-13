@@ -15,6 +15,10 @@
 ## miopiik-iui 0.1.0-rc.4 — pre-release, NOT stable
 
 ### 已修复
+- `README.md` 顶部版本从 `0.1.0-rc.3` 校正为 `0.1.0-rc.4`，并明确标注 prerelease；新增测试防止文档版本与 `package.json` 漂移。
+- `tools/install-plugin.mjs` 的 `--mode tarball --execute` 之前拼出 `${name}-<version>.tgz` 占位符后**静默跳过安装**。
+  现在改为按 `package.json` 版本精确生成产物名、打包后校验产物存在再交给 `dsh plugin add`；
+  任何占位符残留都会直接失败（退出码 3）。新增用桩 `dsh` 的回归测试，确保 `--execute` 真的调用安装命令。
 - 设置页诊断新增宿主补丁状态：打补丁显示"已加载"，未打补丁显示"未检测到补丁 · 仅设置页预览可用"。
 - fork 补丁在加载时广播能力标记（`globalThis.__miopiikMarkdownEmbedsHost`）。
 - 元数据补齐（`repository`/`homepage`/`bugs`/`keywords`），移除 `private`。
