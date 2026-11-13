@@ -60,14 +60,13 @@ try {
       await page.goto(url, { waitUntil: 'domcontentloaded' })
       // The deployment may persist an explicit theme; force only this page's
       // palette attribute so both token sets get exercised without touching settings.
-      const forced = await page.evaluate((wanted) => {
+      await page.evaluate((wanted) => {
         const wantDark = wanted === 'dark'
         const isDark = document.body.hasAttribute('data-ds-dark-theme')
         if (wantDark !== isDark) document.body.toggleAttribute('data-ds-dark-theme', wantDark)
-        return getComputedStyle(document.documentElement).getPropertyValue('--dsw-alias-bg-base').trim()
       }, theme)
       await page.waitForTimeout(150)
-      const token = await page.evaluate(() => getComputedStyle(document.documentElement).getPropertyValue('--dsw-alias-bg-base').trim())
+      const token = await page.evaluate(() => getComputedStyle(document.body).getPropertyValue('--dsw-alias-bg-base').trim())
       tokens[theme] = token
       check(token !== '', `missing --dsw-alias-bg-base at ${width}/${theme}`)
 

@@ -91,6 +91,17 @@ const IUI_TABS = [
   { value: 'configuration', label: '配置' },
 ]
 
+// Native page tabs sit at their content width (min 240px), not stretched.
+function installIuiSettingsStyle(ctx) {
+  if (typeof document === 'undefined') return
+  if (document.querySelector('style[data-miopiik-iui-settings-style]') !== null) return
+  const tag = document.createElement('style')
+  tag.dataset.miopiikIuiSettingsStyle = '1'
+  tag.textContent = '[data-iui-plugin-settings="1"] [role="tablist"]{width:fit-content;max-width:100%;min-width:240px}'
+  document.head.appendChild(tag)
+  if (typeof ctx.effect === 'function') ctx.effect(() => () => tag.remove(), 'miopiik-iui: settings style')
+}
+
 function IuiTabs({ value, onChange }) {
   if (IuiSegmentedTabs) {
     return h(IuiSegmentedTabs, {
@@ -381,6 +392,7 @@ function IuiPluginSettings({ view, initialTab }) {
 
 function registerIuiSettings(ctx) {
   if (!ctx.slots || typeof ctx.slots.inject !== 'function') return
+  installIuiSettingsStyle(ctx)
   ctx.slots.inject('plugins.bundle.config', () => ctx.slots.register({
     name: 'plugins.bundle.config',
     key: 'miopiik-iui',

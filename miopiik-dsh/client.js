@@ -1498,6 +1498,17 @@ window.__ModuleLoader__.load({
       { value: 'configuration', label: '配置' },
     ]
 
+    // Native page tabs sit at their content width (min 240px), not stretched.
+    function installMiopiikSettingsStyle(ctx) {
+      if (typeof document === 'undefined') return
+      if (document.querySelector('style[data-miopiik-settings-style]') !== null) return
+      const tag = document.createElement('style')
+      tag.dataset.miopiikSettingsStyle = '1'
+      tag.textContent = '[data-miopiik-settings="1"] [role="tablist"]{width:fit-content;max-width:100%;min-width:240px}'
+      document.head.appendChild(tag)
+      if (typeof ctx.effect === 'function') ctx.effect(() => () => tag.remove(), 'miopiik: settings style')
+    }
+
     function MioTabs({ value, onChange }) {
       if (MioSegmentedTabs) {
         return h(MioSegmentedTabs, {
@@ -1964,6 +1975,8 @@ window.__ModuleLoader__.load({
         ctx.effect(() => ctx.locale.register(NS, { zh, en }), 'miopiik: dictionaries')
         t = ctx.locale.bind(NS)
 
+
+        installMiopiikSettingsStyle(ctx)
 
         // MiOpIIk 专属设置页归 DSH 插件管理，而不是通用设置第二份入口。
         ctx.slots.inject('plugins.bundle.config', () =>
