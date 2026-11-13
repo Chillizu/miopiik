@@ -1,8 +1,10 @@
 /**
  * Markdown 正文切分：把"受信 token"从普通 Markdown 里切出来，其余原样交给 MarkdownText。
  *
- * 只认两种受控标记，绝不把任意 HTML 当组件：
- *   - 块级：```iui 围栏（Miopiik ML 或 JSON AST）
+ * 只认受控标记，绝不把任意 HTML 当组件：
+ *   - 块级：```iui 围栏（miopiik-ml 或 JSON AST）；```ink-view 仅历史只读兼容
+ *   - 块级容错：模型忘了写围栏时，行首独立出现的顶层 <ui>…</ui> 也按受控 ML 解析
+ *     （仍走同一套 AST 校验；解析失败原样保留为文本，不执行任何 HTML）
  *   - 行内：{{badge:success:已实现}} / {{icon:check}} / {{code:iapi}}
  *
  * 设计约束：
@@ -51,7 +53,39 @@ export function splitTrustedMarkdown(text) {
   return parts.length === 0 ? [{ kind: 'text', text: source }] : parts
 }
 
+/** 其他语言的代码围栏：里面的内容一律原样保留，不识别 UI/行内标记。 */
+const CODE_FENCE = /```[A-Za-z0-9_-]*[ \t]*\r?\n[\s\S]*?```/gu
+/** 行首独立出现的顶层 <ui>…</ui>：模型偶尔忘了写围栏，仍按受控 ML 处理。 */
+const BARE_UI = /(?:^|\n)[ \t]*(<ui\b[\s\S]*?<\/ui>)/gu
+
 function pushTrustedInline(text, pushText, parts) {
+  if (text === '') return
+  let cursor = 0
+  const handlePlain = (plain) => {
+    BARE_UI.lastIndex = 0
+    let bare = BARE_UI.exec(plain)
+    let innerCursor = 0
+    while (bare !== null) {
+      pushInlineTokens(plain.slice(innerCursor, bare.index), pushText, parts)
+      // 保留块前必要的换行，避免把上一段文字粘到块里
+      parts.push({ kind: 'block', raw: bare[1], lang: 'ml-bare' })
+      innerCursor = bare.index + bare[0].length
+      bare = BARE_UI.exec(plain)
+    }
+    pushInlineTokens(plain.slice(innerCursor), pushText, parts)
+  }
+  CODE_FENCE.lastIndex = 0
+  let fence = CODE_FENCE.exec(text)
+  while (fence !== null) {
+    handlePlain(text.slice(cursor, fence.index))
+    pushText(fence[0])
+    cursor = fence.index + fence[0].length
+    fence = CODE_FENCE.exec(text)
+  }
+  handlePlain(text.slice(cursor))
+}
+
+function pushInlineTokens(text, pushText, parts) {
   if (text === '') return
   INLINE_TOKEN.lastIndex = 0
   let cursor = 0

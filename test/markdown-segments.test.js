@@ -64,3 +64,24 @@ test('客户端只注册注册表，不在未打补丁的宿主里做任何替�
   // 不再依赖 assistant-step 接管来渲染 iui：注册表与 IuiSheet 解耦
   assert.match(client, /renderBlock: \(raw\) =>/u)
 })
+
+test('容错：模型漏写围栏时，行首裸 <ui>…</ui> 仍按受控 ML 成为块级片段', () => {
+  const parts = splitTrustedMarkdown('说明文字。\n\n<ui title="概览" fallback="f"><row><metric label="a" value="1"/></row></ui>\n\n后文。')
+  assert.deepEqual(parts.map((part) => part.kind), ['text', 'block', 'text'])
+  assert.equal(parts[1].lang, 'ml-bare')
+  assert.match(parts[1].raw, /^<ui title="概览"/u)
+})
+
+test('容错不越界：代码围栏或行内代码里的 <ui> 不得被当成组件', () => {
+  const fenced = splitTrustedMarkdown('示例：\n```js\nconst x = "<ui title=\\"a\\"></ui>"\n```\n结束')
+  assert.equal(fenced.some((part) => part.kind === 'block'), false)
+  const inline = splitTrustedMarkdown('提到行内代码 `<ui title="a"></ui>` 时不应渲染。')
+  assert.equal(inline.some((part) => part.kind === 'block'), false)
+})
+
+test('容错仍受安全边界：裸 <ui> 解析失败时渲染层回退为文本（切分器不吞内容）', () => {
+  const parts = splitTrustedMarkdown('<ui title="坏" fallback="f"><script>alert(1)</script></ui>')
+  assert.equal(parts[0].kind, 'block')
+  // 内容原样交给受信解析器；不会有任何 HTML/脚本执行路径
+  assert.match(parts[0].raw, /script/u)
+})
