@@ -15,6 +15,8 @@
 ## miopiik-iui 0.1.0-rc.4 — pre-release, NOT stable
 
 ### 已修复
+- 清理旧展示层死代码：删除 Agent 包内已无引用的 `host/widgets.js`、`host/ui-dsl.js`、`shared/*`（旧 spec 校验器/旧 DSL/重复 IUI 模块）与对应测试，移除未使用的旧 IUI i18n 键；旧展示入口不会复活（有回归断言）。
+- 旧数据只读兼容：新增 `miopiik-iui/shared/legacy-widgets.js`，历史 `ink-view` 七 Widget spec 映射为 `iui/1` AST 后回放；实测旧会话 1 个旧 spec 正常渲染、无代码块残留、零降级。
 - `README.md` 顶部版本从 `0.1.0-rc.3` 校正为 `0.1.0-rc.4`，并明确标注 prerelease；新增测试防止文档版本与 `package.json` 漂移。
 - `tools/install-plugin.mjs` 的 `--mode tarball --execute` 之前拼出 `${name}-<version>.tgz` 占位符后**静默跳过安装**。
   现在改为按 `package.json` 版本精确生成产物名、打包后校验产物存在再交给 `dsh plugin add`；

@@ -17,7 +17,7 @@ test('发布检查：两个包都能独立打包，且 tarball 覆盖全部运�
   assert.equal(report.ok, true, JSON.stringify(report.packages.map((pkg) => pkg.problems).flat()))
   const byName = Object.fromEntries(report.packages.map((pkg) => [pkg.name, pkg]))
   // Agent 的打包阻塞修复回归：host/ 与 shared/ 必须在包里
-  assert.ok(byName['miopiik-dsh'].files >= 30, 'miopiik-dsh tarball 文件数异常，host/ 或 shared/ 可能又漏了')
+  assert.ok(byName['miopiik-dsh'].files >= 25, 'miopiik-dsh tarball 文件数异常，host/ 可能又漏了')
   assert.ok(byName['miopiik-dsh'].runtimeDependencies >= 15)
   assert.ok(byName['miopiik-iui'].files >= 15)
   // 体积约束（防止把 upstream fork 或 node_modules 打进包）

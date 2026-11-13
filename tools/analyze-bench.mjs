@@ -2,8 +2,8 @@
 import { execFileSync } from 'node:child_process'
 import { readdirSync, statSync } from 'node:fs'
 import { join } from 'node:path'
-import { parseMiopiikMl } from '../miopiik-dsh/shared/miopiik-ml.js'
-import { validateAst } from '../miopiik-dsh/shared/iui-ast.js'
+import { parseMiopiikMl } from '../miopiik-iui/shared/miopiik-ml.js'
+import { validateAst } from '../miopiik-iui/shared/iui-ast.js'
 
 const ROOT = '/home/chillizu/.dsh/sessions/--home-data-Projects-Mio-MiOpIIk--/'
 const dirs = readdirSync(ROOT)

@@ -1,5 +1,9 @@
 # MiOpIIk Extra：展示层（Intelligent UI 风格）
 
+> **历史设计文档（已退役）**：本文件描述的七 Widget / `ink-view` 协议与 fenced JSON 已从模型面与渲染面移除。
+> 当前唯一主路径是 `miopiik-iui` 的 fenced `iui` + miopiik-ml → 受信 AST → DSH 原生消息渲染；
+> 旧数据由 `miopiik-iui/shared/legacy-widgets.js` 只读映射后回放。保留本文仅作设计史证据。
+
 > 创建：2026-11-06 | 状态：设计稿 v2，待定稿
 > 定位：**附加层**。删掉这一层，MiOpIIk 照样成立。
 > 不碰：两份日志、闸门、L3 预算、开环/事实的数据形状、用户词表。

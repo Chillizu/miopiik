@@ -39,6 +39,7 @@ export function build() {
     closure('iui-ast.js', 'IUI_AST', ['IUI_VERSION', 'REGISTRY', 'LIMITS', 'INLINE_TYPES', 'TONES', 'ICONS', 'readBinding', 'resolveValue', 'validateAst', 'tableMatrix', 'chartMatrix', 'degradeToText']),
     closure('miopiik-ml.js', 'MIOPIIK_ML', ['ML_VERSION', 'ML_TAGS', 'parseMiopiikMl']),
     closure('markdown-segments.js', 'MARKDOWN_SEGMENTS', ['INLINE_TOKEN', 'BLOCK_FENCE', 'splitTrustedMarkdown', 'hasTrustedMarkup']),
+    closure('legacy-widgets.js', 'LEGACY_WIDGETS', ['adoptLegacySpec']),
     read('renderer.js'),
     read('settings.js'),
     '    return {',

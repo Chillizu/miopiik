@@ -12,7 +12,8 @@
  */
 
 export const INLINE_TOKEN = /\{\{(badge|icon|code):([^{}\n]{1,120}?)\}\}/gu
-export const BLOCK_FENCE = /```iui[ \t]*\r?\n([\s\S]*?)```/gu
+// 新主路径是 ```iui；```ink-view 只为历史消息保留只读兼容（渲染前会转成新 AST）。
+export const BLOCK_FENCE = /```(iui|ink-view)[ \t]*\r?\n([\s\S]*?)```/gu
 
 function readInline(kind, payload) {
   if (kind === 'icon') {
@@ -42,7 +43,7 @@ export function splitTrustedMarkdown(text) {
   let fence = BLOCK_FENCE.exec(source)
   while (fence !== null) {
     pushTrustedInline(source.slice(cursor, fence.index), pushText, parts)
-    parts.push({ kind: 'block', raw: fence[1] })
+    parts.push({ kind: 'block', raw: fence[2], lang: fence[1] })
     cursor = fence.index + fence[0].length
     fence = BLOCK_FENCE.exec(source)
   }

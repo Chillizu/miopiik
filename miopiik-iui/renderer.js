@@ -475,13 +475,20 @@
       const text = String(raw ?? '').trim()
       if (text === '') return { ok: false, errors: ['空内容'], format: 'ml' }
       if (text.startsWith('{')) {
+        let parsed = null
         try {
-          const parsed = JSON.parse(text)
-          if (parsed !== null && typeof parsed === 'object') return { ok: true, doc: parsed, format: 'json', degraded: [] }
-          return { ok: false, errors: ['AST 必须是对象'], format: 'json' }
+          parsed = JSON.parse(text)
         } catch {
           return { ok: false, errors: ['不是合法 JSON'], format: 'json' }
         }
+        if (parsed === null || typeof parsed !== 'object') return { ok: false, errors: ['AST 必须是对象'], format: 'json' }
+        // 历史消息：旧 ink-view 的七 Widget spec（{widget,...}）只读映射到新 AST
+        if (typeof parsed.widget === 'string' && parsed.root === undefined) {
+          const adopted = LEGACY_WIDGETS.adoptLegacySpec(parsed)
+          if (!adopted.ok) return { ok: false, errors: adopted.errors, format: 'legacy', degraded: [], fallback: adopted.fallback }
+          return { ok: true, doc: adopted.doc, format: 'legacy', degraded: [] }
+        }
+        return { ok: true, doc: parsed, format: 'json', degraded: [] }
       }
       const parsed = MIOPIIK_ML.parseMiopiikMl(text)
       return parsed.ok

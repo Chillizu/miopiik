@@ -6,6 +6,9 @@
 
 ## What it provides
 
+> 历史兼容：旧会话里的 fenced `ink-view`（七 Widget JSON）不会丢，渲染前由
+> `shared/legacy-widgets.js` 只读映射成 `iui/1` AST 再走同一套校验与渲染；映射不了的旧类型降级为其 fallback 文本。
+
 - Inline: `{{badge:success:完成}}`, `{{icon:check}}`, `{{code:status}}`
 - Fenced `iui` containing `miopiik-ml` or a validated `iui/1` JSON AST
 - Metric, card, grid, table, bar/line chart, progress, callout, empty state and local segmented controls
