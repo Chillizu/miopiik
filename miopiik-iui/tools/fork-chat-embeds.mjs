@@ -32,6 +32,8 @@ const MARK_BEGIN = '\t\t// >>> miopiik:markdown-embeds (fork patch; see docs/UPS
 const MARK_END = '\t\t// <<< miopiik:markdown-embeds'
 
 const HELPER = `${MARK_BEGIN}
+		// 能力标记：补丁被加载时置位，IUI 设置页据此显示"补丁已生效"。
+		globalThis.__miopiikMarkdownEmbedsHost = true;
 		// 安装独立 IUI 后默认启用；显式关闭时才交回原生 Markdown。
 		function miopiikSegments(text, streaming) {
 			try {

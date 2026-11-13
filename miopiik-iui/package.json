@@ -1,7 +1,6 @@
 {
   "name": "miopiik-iui",
-  "version": "0.1.0-rc.3",
-  "private": true,
+  "version": "0.1.0-rc.4",
   "type": "module",
   "description": "MiOpIIk IUI — trusted native Markdown embeds for DeepSeek Harness",
   "license": "MIT",
@@ -41,5 +40,23 @@
         "@deepseek-ai/dsh-client-ui-conversation"
       ]
     }
+  },
+  "keywords": [
+    "dsh",
+    "dsh-plugin",
+    "deepseek-harness",
+    "miopiik",
+    "iui",
+    "markdown",
+    "declarative-ui"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Chillizu/miopiik.git",
+    "directory": "miopiik-iui"
+  },
+  "homepage": "https://github.com/Chillizu/miopiik",
+  "bugs": {
+    "url": "https://github.com/Chillizu/miopiik/issues"
   }
 }

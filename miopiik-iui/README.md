@@ -61,3 +61,17 @@ The protocol source of truth lives in `miopiik-iui/shared/`, the React renderer 
 ## Release gates
 
 Before external release, verify packaging, DSH profile installation from **only this package**, theme and narrow-screen rendering, native reasoning fold, local interactions, error isolation, and compatibility with the exact DSH version claimed. Do not publish the generated fork as a replacement for the official package.
+
+## 版本状态：0.1.0-rc.4（预发布）
+
+本包**未达到 0.1.0 stable**，原因不是代码质量，而是启动条件：
+
+1. 聊天内联渲染依赖对 `@deepseek-ai/dsh-client-ui-chat` 的实验性补丁
+   （`patches/chat-markdown-embeds.patch`，用 `tools/fork-chat-embeds.mjs` 生成）。
+   标准安装流程下 DSH 不会加载这个补丁，聊天里的 `iui` 围栏会按普通代码块显示。
+   设置页"诊断"会明确显示补丁是否已加载，不会静默失效。
+2. 跨 token 的 Markdown 无损混排尚未实现（需要 DSH 官方 Markdown 扩展点）。
+3. 流式为非增量：围栏闭合后才物化。
+
+详细的 blocker 清单与升级条件见仓库根目录 `docs/RELEASE-NOTES.md`；
+兼容性与安装方式见 `docs/SUPPORT-MATRIX.md`。

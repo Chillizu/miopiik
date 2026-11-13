@@ -153,7 +153,7 @@ test('配置页只有一个真实的浏览器渲染开关，并提供诊断与�
   const body = nodes.flatMap((node) => node.children ?? []).filter((child) => typeof child === 'string').join(' ')
   assert.match(body, /仅作用于当前浏览器/u)
   assert.match(body, /不会改写任何历史数据/u)
-  assert.match(body, /实验性 DSH Chat Markdown 补丁/u)
+  assert.match(body, /实验性 DSH Chat Markdown 补丁|未检测到补丁/u)
 
   switches[0].props.onClick()
   assert.equal(storage.get('miopiik.markdownEmbeds'), '0')

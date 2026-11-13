@@ -1,9 +1,8 @@
 {
   "name": "miopiik-dsh",
   "version": "0.1.1",
-  "private": true,
   "type": "module",
-  "description": "MiOpIIk host bundle — Mind / Ink / Operator: conversation and background action as two timelines over one log.",
+  "description": "MiOpIIk Agent for DeepSeek Harness — Mind / Ink / Operator: conversation and background action as two timelines over one log.",
   "license": "MIT",
   "main": "index.js",
   "engines": {
@@ -18,6 +17,8 @@
   },
   "files": [
     "index.js",
+    "shared/",
+    "host/",
     "client.js",
     "cordis.patch.yml",
     "locale/*.json",
@@ -34,5 +35,22 @@
         "@deepseek-ai/dsh-client-ui-conversation"
       ]
     }
+  },
+  "keywords": [
+    "dsh",
+    "dsh-plugin",
+    "deepseek-harness",
+    "miopiik",
+    "agent",
+    "intelligence-ui"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Chillizu/miopiik.git",
+    "directory": "miopiik-dsh"
+  },
+  "homepage": "https://github.com/Chillizu/miopiik",
+  "bugs": {
+    "url": "https://github.com/Chillizu/miopiik/issues"
   }
 }

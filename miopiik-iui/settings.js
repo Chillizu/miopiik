@@ -23,6 +23,15 @@ function iuiIsEnabled() {
   try { return localStorage.getItem(IUI_PREF_KEY) !== '0' } catch { return true }
 }
 
+// 实验补丁是否在宿主侧生效：由 chat 插件 fork 在加载时置位；原生 DSH 不会有这个标记。
+function hostPatchActive() {
+  try {
+    return globalThis.__miopiikMarkdownEmbedsHost === true
+  } catch {
+    return false
+  }
+}
+
 // Official primitives when the running DSH shell exposes them; plain token
 // elements otherwise so the page never breaks on a foreign shell.
 let IUI_PRIMITIVES = null
@@ -324,7 +333,7 @@ function IuiConfiguration({ enabled, ready, error, toggle, copySample, copyMessa
         h(IuiFact, { label: '协议', value: 'iui/1 · miopiik-ml', mono: true }),
         h(IuiFact, { label: '浏览器偏好', value: IUI_PREF_KEY, mono: true }),
         h(IuiFact, { label: '当前偏好', value: enabled ? '开启' : '关闭' }),
-        h(IuiFact, { label: '接入方式', value: '实验性 DSH Chat Markdown 补丁' }),
+        h(IuiFact, { label: '接入方式', value: hostPatchActive() ? '实验性 DSH Chat Markdown 补丁（已加载）' : '未检测到补丁 · 仅设置页预览可用' }),
       ),
       h('p', { style: IUI_PAGE.hint }, '此版本使用实验性 DSH Markdown 接入补丁。开关只控制当前浏览器的渲染，不会停用 Host 的模型输出指引。'),
     ),
