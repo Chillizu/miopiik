@@ -135,6 +135,18 @@ try {
       check(/仅作用于当前浏览器/.test(iuiConfigBody), 'IUI switch must be described as browser-local')
       check(/实验性 DSH Chat Markdown 补丁/.test(iuiConfigBody), 'IUI diagnostics must state the experimental integration')
       check(!iuiConfigOverflow, 'IUI config overflows at ' + width)
+
+      // The one real setting: persistence is browser-local and forces a reload
+      // so historical messages re-render with the new preference.
+      if (width === 1280 && theme === 'light') {
+        const prefBefore = await page.evaluate(() => localStorage.getItem('miopiik.markdownEmbeds'))
+        await iui.getByRole('switch').click()
+        await page.waitForLoadState('domcontentloaded').catch(() => {})
+        await page.waitForTimeout(700)
+        const prefAfter = await page.evaluate(() => localStorage.getItem('miopiik.markdownEmbeds'))
+        check(prefBefore !== '0' && prefAfter === '0', 'IUI real render switch must persist the browser-local preference')
+        outcome.checks.push({ side: 'IUI switch', width, theme, before: prefBefore, after: prefAfter })
+      }
       outcome.checks.push({ side: 'IUI', width, theme, tabs: 2, preview, ready, chart, switches, copyButtons, token })
 
       // ---- Native chat still loads --------------------------------------
