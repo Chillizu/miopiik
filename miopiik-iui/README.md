@@ -2,7 +2,7 @@
 
 **Independent presentation plugin, MiOpIIk family.** A DSH chat message can contain ordinary Markdown, small inline tokens and locally interactive, declarative `iui` blocks. The plugin does not need the MiOpIIk Mind/Ink/Operator agent, its event log, or its tools.
 
-> Version 0.1.0-rc.2 — locally installed release candidate, not an upstream DSH feature or a published package yet.
+> Version 0.1.0-rc.3 — locally installed release candidate, not an upstream DSH feature or a published package yet.
 
 ## What it provides
 
@@ -11,7 +11,8 @@
 - Metric, card, grid, table, bar/line chart, progress, callout, empty state and local segmented controls
 - Strict schema, bounded state and table data, safe links, local error isolation
 - Own short host output contract, instead of the retired `ink_view` / `ink_chart` tool surface
-- Native DSH **Plugins → Installed → MiOpIIk IUI** configuration page with persistent per-browser switch, renderer status and live component preview
+- Native DSH **Plugins → Installed → miopiik-iui** configuration page with persistent per-browser switch, renderer status, live component preview and copyable source example
+- IUI rendering preference is browser-local; disabling the renderer does not disable Host output instructions
 - No arbitrary HTML, JavaScript, CSS, network calls or model round-trips from IUI controls
 
 Example (actual Markdown with an `iui` code fence):

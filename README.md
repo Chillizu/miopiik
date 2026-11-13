@@ -54,8 +54,8 @@ MiOpIIk 的做法是把「对话、记账、干活」拆成三层，并且**只�
 - **所见（透明后台）**：
   虽然 Ink 不对用户说话，但它看到的一切都可以摊开备查：当前 `ink-context` 的折叠头部与活跃尾部、刚编译出的候选、待读收件箱、以及后台任务板的实时状态。
 
-- **Extra 展示层（整层可删）**：
-  当纯文字不方便让人一眼看清对比、结构或趋势时，用同一份受限的 `view spec`（7 种白名单形状 + 4 种预设样式）落向四处——正文内嵌卡片、回合末独立行、侧栏「视图」页快照、或由 Host 直接渲染成 SVG 落盘并以原生 Markdown 图片引用的「画像」。协议 v2 自带容量预算、数据出处（`source` / `note`）、动作安全分级与必填的 `fallback` 纯文本兜底。
+- **IUI 独立界面层（可选安装）**：
+  当纯文字难以呈现比较、趋势或交互时，独立的 `miopiik-iui` 插件让模型直接在 Markdown 中使用受限的 `iui` 围栏和状态标签。IUI 只负责声明式界面和本地交互，不依赖 Agent 的账本或 Operator；旧 Extra/Widget 方案已经退役，历史数据仍保留。
 
 ## 仓库结构
 
@@ -68,7 +68,7 @@ MiOpIIk 的做法是把「对话、记账、干活」拆成三层，并且**只�
 | `SPEC.md` | 架构规格单一真源（十二不变式、数据模型、折叠与治理机制） |
 | `tools/` | 维护与辅助脚本 |
 
-Extra 展示层的早期设计归档在 [`miopiik-extra`](https://github.com/Chillizu/miopiik-extra)；新的 **MiOpIIk IUI** 已提取到本仓 `miopiik-iui/`，可作为独立 DSH bundle 安装。旧 `ink_view`、`ink_chart` 已停止注册，历史账本不删除。安装与已知限制见 [IUI 插件说明](miopiik-iui/README.md)。
+Extra 展示层的早期设计归档在 [`miopiik-extra`](https://github.com/Chillizu/miopiik-extra)。当前 **MiOpIIk Agent** 与 **MiOpIIk IUI** 分别有自己的插件配置页：DSH「插件 → 已安装 → MiOpIIk / miopiik-iui」。前者展示架构和 Host 参数默认值（实际配置仍以 profile 为准）；后者控制本浏览器的 IUI 渲染，并提供实时预览与可复制声明。IUI 的安装和限制见 [插件说明](miopiik-iui/README.md)。
 
 ## 安装（DSH workspace bundle）
 

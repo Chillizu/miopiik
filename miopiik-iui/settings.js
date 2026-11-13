@@ -22,6 +22,7 @@ const IUI_PREVIEW_ML = `<ui title="活动概览" fallback="7 日活跃 1,248；3
     <chart kind="line" series="$state.range.points" source="虚构演示数据"/>
   </column>
 </ui>`
+const IUI_SAMPLE_MARKDOWN = String.fromCharCode(96).repeat(3) + 'iui\n' + IUI_PREVIEW_ML + '\n' + String.fromCharCode(96).repeat(3)
 
 function iuiIsEnabled() {
   try { return localStorage.getItem(IUI_PREF_KEY) !== '0' } catch { return true }
@@ -62,11 +63,22 @@ function IuiFeature(name, description, glyph) {
 function IuiPluginSettings({ view }) {
   const [enabled, setEnabled] = React.useState(iuiIsEnabled)
   const [error, setError] = React.useState('')
+  const [showSource, setShowSource] = React.useState(false)
+  const [copyMessage, setCopyMessage] = React.useState('')
   if (view !== 'page') return null
 
   const registry = globalThis.__miopiikMarkdownEmbeds
   const ready = typeof registry?.renderBlock === 'function' && typeof registry?.renderInline === 'function'
   const preview = enabled && ready ? registry.renderBlock(IUI_PREVIEW_ML) : null
+  const copySample = async () => {
+    try {
+      if (!globalThis.navigator?.clipboard?.writeText) throw new Error('clipboard unavailable')
+      await globalThis.navigator.clipboard.writeText(IUI_SAMPLE_MARKDOWN)
+      setCopyMessage('已复制可直接发送的 IUI 示例')
+    } catch {
+      setCopyMessage('复制不可用，请手动选择下方文本')
+    }
+  }
   const card = { border: '1px solid ' + IUI_THEME.border, borderRadius: 15, background: IUI_THEME.surface }
   const caption = { color: IUI_THEME.muted, fontSize: 11, lineHeight: 1.7 }
 
@@ -121,7 +133,7 @@ function IuiPluginSettings({ view }) {
           h('span', { style: { fontSize: 11, fontWeight: 650, letterSpacing: .4, color: IUI_THEME.muted } }, '渲染设置'),
           h('strong', { style: { fontSize: 15, letterSpacing: '-.01em' } }, '在聊天中显示 IUI'),
           h('span', { 'data-iui-settings-status': enabled ? 'enabled' : 'disabled', style: { ...caption } },
-            enabled ? '已开启 · 仅作用于当前浏览器' : '已暂停 · 聊天仍使用 DSH 原生 Markdown'),
+            enabled ? '已开启 · 仅作用于当前浏览器' : '已关闭 · IUI 围栏将显示为普通代码块'),
         ),
         h('button', {
           type: 'button', role: 'switch',
@@ -173,6 +185,21 @@ function IuiPluginSettings({ view }) {
         ready ? registry.renderInline({ type: 'badge', props: { tone: 'warning', text: '进行中' } }) : null,
         h('code', { style: { fontSize: 11, color: IUI_THEME.muted, padding: '1px 5px', background: IUI_THEME.surface, borderRadius: 5 } }, 'iui/1'),
       ),
+      h('div', { style: { marginTop: 12, display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 9 } },
+        h('button', { type: 'button', 'data-iui-source-toggle': '1', 'aria-expanded': showSource,
+          onClick: () => setShowSource(!showSource),
+          style: { border: '1px solid ' + IUI_THEME.border, borderRadius: 8, padding: '6px 11px', background: 'transparent', color: IUI_THEME.fg, cursor: 'pointer', fontSize: 11 } },
+          showSource ? '收起声明' : '查看 IUI 声明'),
+        h('span', { style: { ...caption, fontSize: 10 } }, '可以直接在 DSH 会话中测试这份示例'),
+      ),
+      showSource ? h('div', { 'data-iui-preview-source': '1', style: { marginTop: 11, display: 'flex', flexDirection: 'column', gap: 9 } },
+        h('pre', { style: { margin: 0, padding: 12, borderRadius: 10, border: '1px solid ' + IUI_THEME.border, background: IUI_THEME.surface, color: IUI_THEME.fg, overflowX: 'auto', whiteSpace: 'pre-wrap', overflowWrap: 'anywhere', fontSize: 11, lineHeight: 1.65 } }, IUI_SAMPLE_MARKDOWN),
+        h('div', { style: { display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' } },
+          h('button', { type: 'button', 'data-iui-copy-source': '1', onClick: copySample,
+            style: { border: '1px solid ' + IUI_THEME.border, borderRadius: 8, padding: '6px 11px', background: 'transparent', color: IUI_THEME.fg, cursor: 'pointer', fontSize: 11 } }, '复制示例'),
+          h('span', { role: 'status', style: caption }, copyMessage),
+        ),
+      ) : null,
     ),
 
     h('section', { style: { padding: '1px 2px' } },
@@ -193,7 +220,7 @@ function IuiPluginSettings({ view }) {
         h('div', { style: { display: 'flex', justifyContent: 'space-between', gap: 9, ...caption } }, h('span', null, '模式'), h('span', null, 'DSH Web 扩展')),
       ),
       h('p', { style: { ...caption, fontSize: 10, margin: '12px 0 0' } },
-        '此版本使用实验性 DSH Markdown 接入补丁。渲染开关保存在当前浏览器，切换时会刷新页面；历史消息不会被改写。',
+        '此版本使用实验性 DSH Markdown 接入补丁。开关仅控制当前浏览器的渲染，不会停用 Host 的模型输出指引。切换会刷新页面，但不会改写历史消息。',
       ),
     ),
   )

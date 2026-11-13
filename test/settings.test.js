@@ -64,9 +64,10 @@ test('真正用到的常量来自同一张表（改一处即全站生效）', as
 
 test('关键客户端注册点都在（防止替换静默失效）', () => {
   for (const needle of [
-    "ctx.slots.inject('settings.section'",
+    "ctx.slots.inject('plugins.bundle.config'",
     "ctx.slots.inject('conversation.view'",
-    "name: 'settings.section'",
+    "name: 'plugins.bundle.config'",
+    "key: 'miopiik-dsh'",
     "name: 'conversation.view'",
     'function SettingsSection(',
   ]) {

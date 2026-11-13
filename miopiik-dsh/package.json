@@ -1,6 +1,6 @@
 {
   "name": "miopiik-dsh",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "private": true,
   "type": "module",
   "description": "MiOpIIk host bundle — Mind / Ink / Operator: conversation and background action as two timelines over one log.",

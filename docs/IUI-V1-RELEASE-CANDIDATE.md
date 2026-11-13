@@ -28,13 +28,14 @@
 
 ```sh
 npm test
-node tools/fork-chat-embeds.mjs --check
+node miopiik-iui/tools/fork-chat-embeds.mjs --check
 node tools/e2e-gallery-replay.mjs
 node tools/e2e-iui-user-sessions.mjs
 node tools/e2e-playwright.mjs
+node tools/e2e-dual-settings.mjs
 ```
 
-后三项需要正在运行的本地 DSH Web、相应的受控测试环境和隔离 Playwright 浏览器。**脚本严禁发送模型测试消息到既有主会话**；画廊回放脚本只读打开旧会话并在测试浏览器内部点击状态控件。
+后四项需要正在运行的本地 DSH Web、相应的受控测试环境和隔离 Playwright 浏览器。**脚本严禁发送模型测试消息到既有主会话**；画廊回放脚本只读打开旧会话并在测试浏览器内部点击状态控件。
 
 ### 交付阻断项（必须全部满足才可称“该 RC 验收通过”）
 
@@ -61,7 +62,7 @@ node tools/e2e-playwright.mjs
 
 ## 4. 保守启用与回滚
 
-- `0.1.0-rc.2` 安装独立插件后默认开启受信 IUI 嵌入；从 **DSH → 插件 → 已安装 → miopiik-iui** 的配置页查看状态、切换开关和测试实时预览。开关保存在当前浏览器。
+- `0.1.0-rc.3` 安装独立插件后默认开启受信 IUI 嵌入；从 **DSH → 插件 → 已安装 → miopiik-iui** 的配置页查看状态、切换开关和测试实时预览。开关保存在当前浏览器。
 - 旧整行正文接管与旧 DSL 预览已从 MiOpIIk Agent 客户端移除；不再提供旧配置开关。
 - **快速撤回**：在 IUI 插件配置页关闭渲染（对应本浏览器 `miopiik.markdownEmbeds=0`），刷新即可回到原生 Markdown，不改历史消息。
 - **完整回滚**：按 [部署说明](UPSTREAM-MARKDOWN-EMBED.md) 恢复 Web profile 的 `ui-chat` 原依赖解析后再做安全服务重启。不要改全局 DSH 安装或其他 profile 的共享依赖链接。

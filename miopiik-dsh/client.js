@@ -1417,60 +1417,123 @@ window.__ModuleLoader__.load({
       ['conversationCompile', '对话编译（回合后产候选）', true],
     ]
 
-    // 正文内嵌：接管 assistant-step 这一行的渲染器（keyed 席位，同 key 即替换），
-    // 把正文里 ```ink-view {spec}``` 的代码块换成卡片，代码块本身不再显示。
-    let primitives = null
-    try {
-      primitives = require('@deepseek-ai/dsh-client-ui-primitives')
-    } catch {
-      primitives = null
+    // MiOpIIk Agent settings: honest read-only defaults and a profile configuration example.
+    const MIO_GROUPS = [
+      ['mind', 'M', 'Mind · 对话', '上下文、简报与交接', ['conversationCompile', 'briefingMaxChars', 'inboxPreviewChars', 'detailInlineMaxChars']],
+      ['ink', 'I', 'Ink · 状态', '账本、事实、开环与草稿', ['stateRoot', 'activeLoopCap', 'dormantAfterDays', 'foldedAfterDays', 'draftExpireDays', 'inkTailLimit', 'inkHeadMaxChars', 'inkModel']],
+      ['operator', 'O', 'Operator · 执行', '后台任务的超时判断', ['operatorTimeoutMs', 'operatorStallMs']],
+    ]
+    const MIO_EXAMPLE = '- id: miopiik-dsh\n  config:\n    activeLoopCap: 12\n    conversationCompile: true'
+    const MIO_COLORS = {
+      text: 'var(--dsw-alias-label-primary, #e9ece8)',
+      muted: 'var(--dsw-alias-label-secondary, #99a39a)',
+      border: 'var(--dsw-alias-border-l1, rgba(127,127,127,.25))',
+      surface: 'var(--dsw-alias-surface-layer-1, rgba(127,127,127,.04))',
+      accent: 'var(--dsw-alias-state-success-primary, #78b290)',
     }
-
-    const INK_FENCE = /```ink-view[ \t]*\r?\n([\s\S]*?)```/g
-    // 新模式：模型写 fenced ```iui，内容是 IUI AST 的 JSON（受同一套 validateAst 约束）
-    function SettingsSection() {
-      return h(
-        'div',
-        { style: { display: 'flex', flexDirection: 'column', gap: 14, padding: '4px 2px', color: C.text } },
-        h(
-          'div',
-          { style: { fontSize: 13, lineHeight: '20px', color: C.muted } },
-          h('div', null, t('settings.intro')),
-          h('div', { style: { marginTop: 6 } }, t('settings.where')),
+    function SettingsSection({ view } = {}) {
+      const [expanded, setExpanded] = React.useState('ink')
+      const [showExample, setShowExample] = React.useState(false)
+      const [copyStatus, setCopyStatus] = React.useState('')
+      if (view !== undefined && view !== 'page') return null
+      const card = { border: '1px solid ' + MIO_COLORS.border, borderRadius: 15, background: MIO_COLORS.surface }
+      const caption = { fontSize: 11, lineHeight: 1.65, color: MIO_COLORS.muted }
+      const button = { border: '1px solid ' + MIO_COLORS.border, background: 'transparent', color: MIO_COLORS.text, borderRadius: 8, padding: '6px 11px', cursor: 'pointer', fontSize: 11 }
+      const defaults = (group) => KNOBS.filter((entry) => group[4].includes(entry[0]))
+      const displayValue = (value) => value === null ? '跟随会话' : typeof value === 'boolean' ? (value ? '开启' : '关闭') : String(value)
+      const copy = async () => {
+        try {
+          if (!globalThis.navigator?.clipboard?.writeText) throw new Error('clipboard unavailable')
+          await globalThis.navigator.clipboard.writeText(MIO_EXAMPLE)
+          setCopyStatus('示例已复制')
+        } catch {
+          setCopyStatus('复制不可用，可手动选择下方文本')
+        }
+      }
+      return h('div', {
+        'data-miopiik-settings': '1',
+        style: { width: '100%', maxWidth: 820, minWidth: 0, boxSizing: 'border-box', padding: '2px 0 22px', display: 'flex', flexDirection: 'column', gap: 18, color: MIO_COLORS.text },
+      },
+        h('header', { style: { ...card, padding: '23px clamp(17px,4vw,28px)', background: 'linear-gradient(115deg,rgba(110,174,137,.085),transparent 74%), ' + MIO_COLORS.surface } },
+          h('div', { style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8, marginBottom: 14 } },
+            h('span', { style: { fontSize: 11, fontWeight: 700, letterSpacing: 1.1, color: MIO_COLORS.muted } }, 'MIOPIIK  /  AGENT'),
+            h('span', { style: { ...caption, border: '1px solid ' + MIO_COLORS.border, borderRadius: 999, padding: '4px 9px' } }, 'v0.1.1 · Agent'),
+          ),
+          h('h2', { style: { fontSize: 'clamp(19px,3.3vw,26px)', fontWeight: 710, letterSpacing: '-.035em', margin: '0 0 9px' } }, '让对话与后台行动协同。'),
+          h('p', { style: { ...caption, fontSize: 12, margin: 0, maxWidth: 630 } }, 'MiOpIIk 是 Agent 的行为架构，负责对话、事实与执行的协作。聊天中的可视化界面由独立的 IUI 插件负责。'),
         ),
-        h(
-          'div',
-          { style: { display: 'flex', flexDirection: 'column', gap: 0, border: `1px solid ${C.border}`, borderRadius: 10, overflow: 'hidden' } },
-          ...KNOBS.map(([key, label, value], index) =>
-            h(
-              'div',
-              {
-                key,
-                style: {
-                  display: 'flex',
-                  alignItems: 'baseline',
-                  justifyContent: 'space-between',
-                  gap: 12,
-                  padding: '9px 12px',
-                  borderTop: index === 0 ? 'none' : `1px solid ${C.border}`,
-                  fontSize: 12,
-                },
-              },
-              h(
-                'div',
-                { style: { display: 'flex', flexDirection: 'column', gap: 2, minWidth: 0 } },
-                h('span', null, label),
-                h('span', { style: { fontSize: 11, color: C.muted } }, key),
+        h('section', { style: { ...card, padding: '18px clamp(15px,3vw,22px)' } },
+          h('h3', { style: { fontSize: 14, fontWeight: 680, margin: '0 0 4px' } }, '三层协作'),
+          h('p', { style: { ...caption, margin: '0 0 14px' } }, '以下是结构说明，并非实时任务或健康状态。'),
+          h('div', { 'data-miopiik-architecture': '1', style: { display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(min(100%,165px),1fr))', gap: 9 } },
+            ...[
+              ['M', 'Mind', '对话主体', '持续理解与交流'],
+              ['I', 'Ink', '状态与记忆', '整理事实、开环及交接'],
+              ['O', 'Operator', '后台行动', '执行有边界的任务'],
+            ].map(([letter, title, subtitle, description]) => h('div', { key: title, style: { padding: 13, border: '1px solid ' + MIO_COLORS.border, borderRadius: 11, minWidth: 0 } },
+              h('div', { style: { display: 'flex', alignItems: 'center', gap: 9, marginBottom: 8 } },
+                h('span', { 'aria-hidden': true, style: { width: 26, height: 26, display: 'grid', placeItems: 'center', borderRadius: 8, background: 'rgba(110,174,137,.13)', color: MIO_COLORS.accent, fontWeight: 700, fontSize: 13 } }, letter),
+                h('strong', { style: { fontSize: 13 } }, title),
               ),
-              h(
-                'span',
-                { style: { flex: 'none', color: C.muted, fontVariantNumeric: 'tabular-nums' } },
-                value === null ? t('settings.followSession') : String(value),
-              ),
-            ),
+              h('div', { style: { fontSize: 11, fontWeight: 650, lineHeight: 1.8 } }, subtitle),
+              h('div', { style: caption }, description),
+            )),
           ),
         ),
-        h('div', { style: { fontSize: 11, color: C.muted, lineHeight: '17px' } }, t('settings.hotReload')),
+        h('section', { style: { ...card, padding: '18px clamp(15px,3vw,22px)' } },
+          h('div', { style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8 } },
+            h('div', null,
+              h('h3', { style: { fontSize: 14, fontWeight: 680, margin: '0 0 4px' } }, '参数参考'),
+              h('p', { style: { ...caption, margin: 0 } }, '展示的是内置默认值，不是实际运行配置。'),
+            ),
+            h('span', { style: { ...caption, border: '1px solid ' + MIO_COLORS.border, borderRadius: 999, padding: '4px 9px' } }, '只读 · 文件为准'),
+          ),
+          h('div', { style: { display: 'flex', flexDirection: 'column', gap: 9, marginTop: 15 } },
+            ...MIO_GROUPS.map((group) => {
+              const open = expanded === group[0]
+              return h('section', { key: group[0], style: { border: '1px solid ' + MIO_COLORS.border, borderRadius: 11, overflow: 'hidden' } },
+                h('button', {
+                  type: 'button', 'data-miopiik-group': group[0], 'aria-expanded': open, onClick: () => setExpanded(open ? '' : group[0]),
+                  style: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, width: '100%', textAlign: 'left', border: 0, padding: '12px 13px', color: MIO_COLORS.text, background: 'transparent', cursor: 'pointer' },
+                },
+                  h('span', { style: { minWidth: 0, display: 'flex', flexDirection: 'column', gap: 4 } },
+                    h('strong', { style: { fontSize: 12 } }, group[2]),
+                    h('span', { style: caption }, group[3]),
+                  ),
+                  h('span', { style: { fontSize: 11, flexShrink: 0, color: MIO_COLORS.muted } }, group[4].length + ' 项  ' + (open ? '−' : '+')),
+                ),
+                open ? h('div', { 'data-miopiik-group-content': group[0], style: { borderTop: '1px solid ' + MIO_COLORS.border, padding: '3px 13px 5px' } },
+                  ...defaults(group).map(([key, label, value], index) =>
+                    h('div', { key, style: { display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', flexWrap: 'wrap', gap: 8, padding: '10px 0', borderTop: index ? '1px solid ' + MIO_COLORS.border : 0 } },
+                      h('span', { style: { minWidth: 0, display: 'flex', flexDirection: 'column', gap: 2 } },
+                        h('span', { style: { fontSize: 12 } }, label),
+                        h('code', { style: { ...caption, fontSize: 10, overflowWrap: 'anywhere' } }, key),
+                      ),
+                      h('span', { 'data-miopiik-default': key, style: { fontSize: 12, color: MIO_COLORS.muted, fontVariantNumeric: 'tabular-nums' } }, displayValue(value)),
+                    )),
+                ) : null,
+              )
+            }),
+          ),
+        ),
+        h('section', { style: { borderTop: '1px solid ' + MIO_COLORS.border, padding: '15px 2px 0' } },
+          h('div', { style: { display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', flexWrap: 'wrap', gap: 10 } },
+            h('div', null,
+              h('h3', { style: { fontSize: 13, margin: '0 0 5px', fontWeight: 680 } }, '配置方式'),
+              h('p', { style: { ...caption, margin: 0 } }, '通过 DSH profile 的 cordis.patch.yml 覆盖配置；此页面不会写入文件。'),
+            ),
+            h('button', { type: 'button', 'data-miopiik-example-toggle': '1', 'aria-expanded': showExample,
+              onClick: () => setShowExample(!showExample), style: button }, showExample ? '收起示例' : '查看示例'),
+          ),
+          showExample ? h('div', { 'data-miopiik-config-example': '1', style: { display: 'flex', flexDirection: 'column', gap: 10, marginTop: 14 } },
+            h('pre', { style: { margin: 0, padding: 13, border: '1px solid ' + MIO_COLORS.border, borderRadius: 10, background: MIO_COLORS.surface, overflowX: 'auto', fontSize: 11, color: MIO_COLORS.text, lineHeight: 1.7 } }, MIO_EXAMPLE),
+            h('div', { style: { display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' } },
+              h('button', { type: 'button', 'data-miopiik-copy': '1', onClick: copy, style: button }, '复制示例'),
+              h('span', { role: 'status', 'data-miopiik-copy-status': '1', style: caption }, copyStatus),
+            ),
+          ) : null,
+          h('p', { style: { ...caption, fontSize: 10, margin: '14px 0 0' } }, '覆盖项需经 DSH 重新加载方可生效；IUI 渲染开关请在独立 miopiik-iui 插件页面调整。'),
+        ),
       )
     }
 
@@ -1589,13 +1652,6 @@ window.__ModuleLoader__.load({
       'audit.back': '收起审计',
       'audit.subtitle': '后台决策记录（审计用途）。',
       'audit.empty': '尚无决策记录。',
-      'settings.title': 'MiOpIIk',
-      'settings.intro': '后台参数配置。默认值通常无需修改；调整前请确认要改变的具体判断。',
-      'settings.where': '修改方式：编辑 profile 的 cordis.patch.yml，在 miopiik-dsh 的 config 段写入覆盖字段，保存后热重载生效。',
-      'settings.followSession': '跟随会话默认',
-      'settings.on': '开',
-      'settings.off': '关',
-      'settings.hotReload': '本页只读：以配置文件为唯一来源，避免界面与文件产生两份不一致的配置。',
     }
 
     const en = {
@@ -1719,13 +1775,6 @@ window.__ModuleLoader__.load({
       'audit.back': 'Hide audit',
       'audit.subtitle': 'Backstage decision records (audit use).',
       'audit.empty': 'No decisions recorded yet.',
-      'settings.title': 'MiOpIIk',
-      'settings.intro': 'Backstage parameters. Defaults usually need no change; confirm the judgement you intend to alter first.',
-      'settings.where': 'To change: edit cordis.patch.yml in your profile, add the field under the miopiik-dsh config block, then save — hot reload applies it.',
-      'settings.followSession': 'follow session',
-      'settings.on': 'on',
-      'settings.off': 'off',
-      'settings.hotReload': 'Read-only on purpose: the config file stays the single source, so the UI cannot disagree with it.',
     }
 
     return {
@@ -1736,16 +1785,11 @@ window.__ModuleLoader__.load({
         t = ctx.locale.bind(NS)
 
 
-        ctx.slots.inject('settings.section', () =>
+        // MiOpIIk 专属设置页归 DSH 插件管理，而不是通用设置第二份入口。
+        ctx.slots.inject('plugins.bundle.config', () =>
           ctx.slots.register(
-            {
-              name: 'settings.section',
-              id: 'miopiik',
-              order: 60,
-              locale: NS,
-              label: () => t('settings.title'),
-            },
-            SettingsSection,
+            { name: 'plugins.bundle.config', key: 'miopiik-dsh' },
+            (props) => h(SettingsSection, props ?? {}),
           ),
         )
 
