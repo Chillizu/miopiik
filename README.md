@@ -1,110 +1,432 @@
-# MiOpIIk
+# MiOpIIk Agent
 
-<img src="docs/images/icon.png" width="96" alt="MiOpIIk icon">
+<img src="icon.svg" width="96" alt="MiOpIIk icon">
 
-[![](https://img.shields.io/badge/powered_by-dsh-4D6BFE?style=flat-square&logo=deepseek&logoColor=white)](https://github.com/deepseek-ai/deepseek-harness)
+**Version 0.1.1** (stable) | English | [简体中文](README.zh-CN.md)
 
-**Mind · Ink · Operator** —— 让持续对话与异步行动各自独立，又能自然咬合的 Agent 架构。
+`MiOpIIk` = `Mi`(nd) + `Op`(erator) + `IIk`(ink). Ink sits in the middle of the word because it sits in the middle of the system.
 
-`MiOpIIk` 取自 `Mi`(nd) + `Op`(erator) + `IIk`(ink)。把 Ink 藏在词尾，是因为它本来就是隐在中间的那一层。
+`miopiik-dsh` is a host-side plugin for [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) (DSH). It turns a DSH Web conversation into a governed agent session: one voice in the foreground, one ledger in the middle, one execution layer in the background. It does not render chat messages and it does not replace the assistant; it changes what the assistant is allowed to remember, dispatch, and commit.
 
-![架构：一个对话，两条时间线，三层分工](docs/images/report-2026-11-10/architecture.png)
+**Current release:** 0.1.1 (stable). Not published to the npm registry; install from the GitHub Release tarball or a local `npm pack`.
 
-## 它是什么
+## What MiOpIIk is
 
-常规的「对话助手 + 工具调用」一旦遇上长耗时或跨回合的工作，往往只能二选一：要么阻塞当前对话让用户干等，要么把任务丢去后台从此失联；要是再引入一个中间管事的角色直接对用户开口，又很容易抢话、编造结论，跟主对话打架。
+A normal "chat assistant plus tool calls" setup handles long or asynchronous work badly. It either blocks the conversation while the user waits, or throws the work into the background and loses track of it. Add a middle manager that talks to the user and it will talk over the main conversation and invent conclusions.
 
-MiOpIIk 的做法是把「对话、记账、干活」拆成三层，并且**只给一层发言权**：
+MiOpIIk splits the job into three layers and gives exactly one of them the right to speak:
 
-- **Mind（对话主干）**：唯一面向用户的角色。负责讨论、权衡、做决定、推进叙事；所有悬而未决的事（开环）只由它亲手闭合，对外提交的改动也由它向用户发起提议。
-- **Ink（中间层）**：退在幕后的外置记忆与编译器。每轮过后，它把原话与回复收进上下文，从中提炼候选结论与未闭开环，维护 T0–T3 分层收件箱，盯着后台任务有没有超时卡死，并在话题切换或跨天时做折叠与简报素材整理。它永不直接对用户开口，也不替对话做决定。
-- **Operator（后台执行）**：纯粹的行动层。它不拿整段冗长的聊天记录，只接手切好的「鱼骨分支切片」（分叉前提、原话引用、依赖事实卡）和一份带验收样例的完整契约；干完之后通过 `ink_report` 把结论或失败原因交回，不在对话里露面。
+- **Mind** is the conversation trunk and the only user-facing role. It discusses, weighs options, decides, and advances the narrative. It alone closes open threads, and it alone asks the user to accept an outward change.
+- **Ink** is the backstage memory and compiler. After each turn it records what was said, distills candidate conclusions and open loops, maintains the tiered inbox, watches background jobs for timeouts and stalls, and prepares folds and handoff material across topics and days. It never speaks to the user and never makes a decision for the conversation.
+- **Operator** is the execution layer. It receives no chat transcript, only a complete contract plus a fishbone slice (fork premise, verbatim quotes, dependent facts). It reports results or failures back through `ink_report` and never appears in the conversation.
 
-于是系统里同时流动着两条时间线：前台对话是一串连续的 turn 序列，后台执行是一串异步的 job 序列，由中间的 Ink 负责把两边的账对齐。**对话不被后台打断，后台也不必借对话证明自己。**
+The result is two timelines flowing at once: the foreground is a sequence of conversation turns, the background is a sequence of asynchronous jobs, and Ink keeps the two sets of books aligned. **The conversation is never interrupted by background work, and background work never has to justify itself through the conversation.**
 
-## 现在能做什么
+That is why this is not a chat-assistant wrapper. The plugin contributes a prompt charter, a narrow tool surface, append-only ledgers, background dispatch, and projections for the UI. The conversation still belongs to Mind.
 
-- **对话主干与记忆治理**：
-  - **开环（Loops）**：不是带日期和指派人的待办表，而是对话里悬着的话（未答之问、待选方案、口头承诺、半成形意图等）。随对话顺手登记，随话题演进自然老化或唤醒；Ink 只能提示「这条看起来被答了」，闭合权始终在 Mind 手里。
-  - **事实卡（Facts）**：已经敲定的结论，每张都带着原文出处（provenance）与失效条件，后续需要自答时必须凭卡引用，无引用即上报，杜绝临场编造。
-  - **鱼骨分支（Branches）**：一件事从对话哪一句长出来，就在哪一轮分叉出一条 `B-n` 分支，挂上前提、原句引用和依赖事实；Operator 沿着分支干活，结束后再把结论汇回主干。
-  - **草稿与提交门（Draft & Commit）**：吃不准的半成品先留在草稿区自然老化；真正对外生效的改动走唯一的 `ink_commit` 闸门，用户只需回答「行」或「不行」，被拒后由系统自行收拾，绝不反问用户「你想怎么改」。
+![Architecture: one conversation, two timelines, three layers](docs/images/report-2026-11-10/architecture.png)
 
-- **全量可回放账本**：
-  所有状态一律落为工作区下的 append-only JSONL，不靠上下文硬记，随时可以重建或回放：
+The diagram above is the repository's real architecture figure. Its lower band ("Extra display layer") is historical: that layer has been retired and archived in [miopiik-extra](https://github.com/Chillizu/miopiik-extra); current display work lives in the separate MiOpIIk IUI plugin. The upper band is this Agent.
 
-  | 账本文件 | 记录内容 | 写入方 | 读取方 |
-  |---|---|---|---|
-  | `ink-context.jsonl` | 每轮原话、回复与判断（保留尾部 24 条，超出折入 2000 字头部） | Ink | 回合后编译、所见面板 |
-  | `facts.jsonl` | 已敲定的结论、出处指针与失效条件 | Mind（经 `ink_facts`） | 每轮 L3 注入、自答校验 |
-  | `loops.jsonl` | 对话中悬而未决的开环及其闭合条件 | Mind（经 `ink_loops`） | 每轮 L3 注入、收件箱关联 |
-  | `inbox.jsonl` | 待 Mind 过目的后台进展与编译预览（分未读 / 历史 / 星标） | Ink | 每轮按预算注入 L3 |
-  | `jobs.jsonl` / `taskboard` | 后台派发契约、认领状态、执行进度与结算回执 | Ink / Operator | 守夜巡检、所见面板 |
-  | `widgets.jsonl` | Extra 展示层渲染过的结构化 `view spec` 快照 | `ink_view` | 视图页归档 |
+## MiOpIIk Agent and MiOpIIk IUI
 
-- **编译线**：
-  每轮对话结束后，Ink 自动扫描近段上下文、活跃开环与事实卡，提炼出带原话引用（`U-n`）的候选结论与候选开环，压成一行预览放进收件箱；当 Operator 交回的实测结果与早先对话里说过的旧话相抵触时，编译线会把矛盾直接指认到具体哪一句话，交由 Mind 挑合适的时机向用户坦白更正。
+The two plugins are independent packages. Each can be installed alone; neither requires the other.
 
-- **后台派发与守夜**：
-  派发前强制做「可验收性自检」——说不清一句话目标、给不出完成样例就不派发，宁可继续聊。契约齐备后拉起子 agent 执行，由 `ink_report` 交回产物或失败原因并在任务板结算；长时间无进展或超时的任务会被守夜机制捕获，生成 `[阻塞]` 预览送入 T0 收件箱。
+| | MiOpIIk Agent (`miopiik-dsh`) | MiOpIIk IUI (`miopiik-iui`) |
+|---|---|---|
+| Role | Host-side agent: Mind / Ink / Operator | Pure presentation layer |
+| Current version | 0.1.1 (stable) | 0.1.0-rc.4 (prerelease) |
+| Repository | https://github.com/Chillizu/miopiik | https://github.com/Chillizu/miopiik-iui |
+| Depends on the other plugin | No | No |
+| Can be installed alone | Yes | Yes |
+| What it renders | No chat rendering; it adds tools, prompt context, a conversation view and a right sidebar panel | Declarative `iui` blocks and inline tokens in Markdown; browser-side rendering |
+| Where it writes | Append-only JSONL ledgers under the workspace | No logs; one browser-local preference in `localStorage` |
+| Host requirement | DSH Web profile | DSH Web profile; inline rendering additionally needs an experimental chat-package patch |
 
-- **两阶段折叠与跨天交接**：
-  折叠不靠字数硬截断，而是由事件驱动（话题切换、收工告别、跨天重开）。先由 Ink 做一份影子折叠，再交由仍握着旧上下文的 Mind 逐条核对「每条活跃开环折完之后还接不接得上」，验收通过才原子替换。隔夜收工时由 Mind 亲手写下五段式交接简报（推进、开环、在跑、草稿、下步打算）；若前一天没打招呼就断了线，第二天开工时会先承认上次断在哪里，再往下接话。
+In short: **IUI is optional presentation, Agent is the working core.** Install only the Agent and you get the full Mind / Ink / Operator machinery with the Agent's own backstage panel. Add IUI when prose is not enough for comparisons, trends, or local controls. IUI never becomes the source of truth, and the Agent never renders its own UI protocol.
 
-- **所见（透明后台）**：
-  虽然 Ink 不对用户说话，但它看到的一切都可以摊开备查：当前 `ink-context` 的折叠头部与活跃尾部、刚编译出的候选、待读收件箱、以及后台任务板的实时状态。
+The older Extra display layer is kept only as a historical archive at [miopiik-extra](https://github.com/Chillizu/miopiik-extra). Its data is not deleted: legacy `ink-view` widget snapshots remain readable in the ledger, and IUI's read-only legacy adapter can replay them. The current Agent no longer creates new widget records.
 
-- **IUI 独立界面层（可选安装）**：
-  当纯文字难以呈现比较、趋势或交互时，独立的 `miopiik-iui` 插件让模型直接在 Markdown 中使用受限的 `iui` 围栏和状态标签。IUI 只负责声明式界面和本地交互，不依赖 Agent 的账本或 Operator；旧 Extra/Widget 方案已经退役，历史数据仍保留。
+## Architecture and data flow
 
-## 仓库结构
+The implementation lives in `host/`, the browser side in `client.js`, and the plugin entry point in `index.js`.
 
-| 路径 | 内容 |
+A turn moves through the system like this:
+
+1. **Observe.** When a turn ends, Ink mechanically records the user's real prompt and the assistant's final message into `observations.jsonl`. Only human-visible input and final assistant text are recorded; reasoning traces are not.
+2. **Compile.** If `conversationCompile` is on, Ink reads its own middle-layer context plus recent utterances and produces candidate notes: one-line claim, a question the user could answer, confidence, evidence, and a contradiction flag.
+3. **Deliver.** Notes become inbox items with tiered previews (T0 blocking, T1 connected to an active loop or branch, T2 new conclusion, T3 the rest). The inbox is the funnel through which compiled work reaches Mind; whether and how to mention it is still Mind's call.
+4. **Act.** Mind updates the ledger through the `ink_*` tools: register or close loops, write fact cards with provenance, open a fishbone branch, drop a draft, or promote a change through the commit gate.
+5. **Dispatch.** `ink_dispatch` validates the six-part contract, opens a `pending-dispatch` loop and a background job, attaches the branch slice, and starts an Operator child agent. The child gets the contract and the slice, not the conversation.
+6. **Report.** The Operator finishes through `ink_report` (one claim plus evidence becomes a fact card) or through its final report. Ink compiles that report into a preview, marks contradictions with an exact `U-n` utterance reference, and puts it in the inbox. Watchdogs turn stalls and timeouts into T0 blocking previews.
+7. **Fold and hand off.** Topic switches advance the epoch; long contexts are folded in two phases; the end of a day can produce a five-part briefing written by Mind. A detected overnight gap is admitted at the start of the next day instead of being silently skipped.
+
+Each turn's prompt context (L3) is assembled from the active loops and the inbox previews. This is prompt context, not chat history: Ink's index never enters the message stream as a user or assistant message.
+
+### Ledger layout
+
+All state is append-only JSONL under the workspace. The source of truth for file names is `host/store.js` (`LOG_NAMES`).
+
+```
+<workspace>/.dsh/miopiik/
+  sessions/<sessionId>/
+    observations.jsonl    facts.jsonl        loops.jsonl
+    notes.jsonl           inbox.jsonl        jobs.jsonl
+    drafts.jsonl          cases.jsonl        branches.jsonl
+    folds.jsonl           briefings.jsonl    details.jsonl
+    ink-context.jsonl     ink-debug.jsonl    widgets.jsonl
+    details/<hash>.txt
+  shared/
+    facts.jsonl
+```
+
+| Ledger file | Contents | Written by | Read by |
+|---|---|---|---|
+| `observations.jsonl` | Turn-by-turn observation log: real user prompts, final assistant messages, turn boundaries, folds | Ink | Compile pass, fold, Seen panel |
+| `notes.jsonl` | Decision ledger and compiled candidate notes | Ink | Inbox delivery, audit view |
+| `loops.jsonl` | Open-loop operations: `create` / `touch` / `status` / `close` / `drop` | Mind via `ink_loops`; user intervention command | L3 context, inbox correlation |
+| `facts.jsonl` | Fact-card operations: `add` / `revise` / `invalidate`, with provenance and scope | Mind via `ink_facts`; Operator via `ink_report` | L3 context, self-answer checks |
+| `inbox.jsonl` | Delivered previews and their status: `read` / `star` / `unstar` / `defer` / `supersede` | Ink | L3 context, Seen panel |
+| `jobs.jsonl` | Background dispatch contracts, child ids, job states, stop reasons | Ink / Operator layer | Watchdog, task board, Seen panel |
+| `drafts.jsonl` | Drafts below the commit gate, with expiry | Mind via `ink_draft` | Commit gate, Seen panel |
+| `cases.jsonl` | Precedents: question, answer, citations | Ink | `ink_ask` citation path |
+| `branches.jsonl` | Fishbone branches: premise, verbatim quotes, dependent facts, merged conclusion | Mind via `ink_branch` | Dispatch slice, Seen panel |
+| `folds.jsonl` | Two-phase fold proposals, review results, application records | Ink | Fold review, Seen panel |
+| `briefings.jsonl` | Cross-day handoff briefings and hard-break records | Mind via `ink_brief` | L3 next morning, Seen panel |
+| `details.jsonl` | Detail index: content hash, entities, pointers attached to loops/branches/jobs | Ink | `ink_recall` |
+| `ink-context.jsonl` | Ink's own middle-layer context: tail entries and head folds | Ink | Compile pass |
+| `ink-debug.jsonl` | Debug records kept for audit | Ink | Diagnostics |
+| `widgets.jsonl` | Legacy display specs written by the retired Extra layer; read-only replay | (legacy data only) | IUI legacy adapter |
+| `shared/facts.jsonl` | Workspace-scoped facts shared by all sessions in the same workspace | Mind via `ink_facts` with `scope: "workspace"` | All sessions |
+| `details/<hash>.txt` | Full detail bodies addressed by content hash | Ink | `ink_recall` with a hash |
+
+The ledgers are plain text and human-auditable. On open, every JSONL file is replayed; a corrupt line is skipped without aborting the replay, and read-time migrations never rewrite the file on disk.
+
+### The tool surface
+
+The model-facing surface is intentionally narrow. Twelve tools belong to Mind; two belong to Operator.
+
+| Tool | Side | Purpose |
+|---|---|---|
+| `ink_status` | Mind | Read backstage state: loops, facts, inbox counts, epoch, day |
+| `ink_loops` | Mind | `list` / `get` / `add` / `touch` / `close` / `drop` open loops |
+| `ink_facts` | Mind | `list` / `add` / `revise` / `invalidate` fact cards |
+| `ink_inbox` | Mind | `list` / `open` / `read` / `star` / `unstar` / `defer` inbox items |
+| `ink_dispatch` | Mind | Hand a contracted job to a background Operator |
+| `ink_commit` | Mind | Open the single outward commit gate |
+| `ink_brief` | Mind | `materials` / `save` / `latest` cross-day briefing |
+| `ink_epoch` | Mind | Advance the topic epoch |
+| `ink_draft` | Mind | `list` / `add` / `drop` drafts |
+| `ink_branch` | Mind | `list` / `open` / `get` / `summary` / `context` / `merge` / `abandon` fishbone branches |
+| `ink_fold` | Mind | `propose` / `review` / `approve` / `reject` / `list` context folds |
+| `ink_recall` | Mind | Search the detail index; read a detail back by hash |
+| `ink_ask` | Operator | Ask Ink a question; Ink answers only by citation, otherwise escalates |
+| `ink_report` | Operator | Hand back one conclusion with evidence, as a fact card |
+
+The split is structural, not a prompt convention. In `index.js` the Operator child agent is denied the twelve Mind tools, while Mind is denied `ink_ask` and `ink_report`. Operator children also never receive the chat transcript. A user can additionally close a loop or invalidate a fact from the UI without involving the model; that path is the `/miopiik loop close L-1`, `/miopiik loop drop L-1`, and `/miopiik fact invalidate F-1` session command and the corresponding buttons.
+
+## What it can do
+
+- **Open loops without a todo list.** A loop is a sentence that is still hanging between Mind and the user: an unanswered question, an awaiting-user item, a pending option, a promise, a pending dispatch, or a forming intent. There are no dates and no owners. Loops age on the day axis: dormant after `dormantAfterDays`, folded to one line after `foldedAfterDays`, revived by a touch. Only Mind closes them; Ink can only hint that one looks answered. The active cap (`activeLoopCap`) keeps the prompt context small.
+- **Fact cards with provenance.** A settled conclusion is stored with its sources, confidence, and validity, plus a scope: session by default, workspace when other conversations must honor it. User-stated facts outrank Operator inference. When Mind has to answer from memory it cites a card or precedent; if it cannot cite, it escalates instead of inventing.
+- **Fishbone branches.** Work grows out of a specific sentence. A branch (`B-n`) records the fork premise, verbatim quotes from the trunk, and dependent fact ids. Operator receives only that slice, so a background agent cannot drift on the whole conversation. When the work concludes, the branch merges back with a one-line claim and the evidence.
+- **Drafts and a single commit gate.** Half-formed work goes to the draft area, where it ages out after `draftExpireDays` and never reaches the user. Outward changes pass through `ink_commit`: one title, one sentence of impact, and a user answer of "行" (OK) or "不行" (No). Low-confidence changes are refused at the gate and stay in drafts; a turn with no real user input cannot commit. A rejected commit settles as rejected; the user is never asked to repair the work.
+- **Compilation line and contradiction naming.** After qualifying turns, Ink compiles candidates from its own context. When a background result contradicts something Mind told the user, the compile pass flags it and names the exact `U-n` utterance. Mind decides whether and when to correct the record; Ink does not rewrite history.
+- **Background dispatch and a night watch.** Dispatch is gated by the contract: goal, deliverables, acceptance criteria, acceptance sample, boundary, budget. If any element is missing, dispatch refuses and lists what is missing, so a half-formed picture stays in the conversation. A `draft: true` dispatch needs only a goal and keeps its output in the draft area. While a job runs, the stall watchdog looks for "running but no new observation" (`operatorStallMs`) and the timeout watchdog catches jobs that exceed `operatorTimeoutMs`; both deliver a blocking T0 preview instead of guessing or rolling back on their own.
+- **Two-phase folding.** Folding is event-driven, not a character cutoff. Ink first builds a shadow fold: an archive plus loop settlement suggestions, replacing nothing. Mind reviews it while it still holds the old context; the only acceptance criterion is that every still-active open thread can be picked up again after the fold. On approval the narrative fold is applied, scheduled for the next turn boundary when the host compaction service is available; if it is not, the proposal is recorded and nothing is silently rewritten.
+- **Cross-day briefing.** At the end of a day, Mind writes a five-part briefing itself: progress, open loops, running background work, drafts, and what it wants to discuss next. A machine-written briefing would make tomorrow's Mind unrecognizable, so Ink only supplies materials (`ink_brief materials`) and the L3 context shows the latest briefing and any detected hard break. If the previous day ended without a goodbye, the next day starts by admitting where the thread broke.
+- **A visible backstage.** The conversation view "MiOpIIk" shows the fishbone graph, a branch stream, and a list pane with open loops, fact cards, running jobs, drafts, and today's handoff record; its "Seen" tab shows Ink's folded head, live tail, and the candidates just compiled. A right sidebar panel "Ink" shows loop counts, inbox previews, and recent decisions. Nothing behind the curtain is hidden from the user; Ink just does not speak.
+- **Plugin pages and a read-only configuration view.** Under DSH `Plugins -> Installed -> MiOpIIk`, the plugin declares one configuration slot with two tabs: an introduction (layers, roles, version, ledger location) and a configuration page. The configuration page lists the built-in defaults for every host knob and a copyable profile YAML example. It is read-only and writes no files; the actual values come from the profile.
+- **Append-only ledger and replay.** Restarting DSH replays the session ledgers. State does not live only in the model context. The agent's own context is a working index over the ledger, not the source of truth.
+- **Historical compatibility.** Old session ledgers are not migrated, rewritten, or deleted. Legacy widget entries stay readable, and the separate IUI plugin can replay them read-only. The current Agent does not create new widget entries.
+
+## Illustrative usage
+
+The examples below are illustrative conversations. **Tool names and parameter names are the real ones from `host/tools.js`; the user wording is invented.** Each example shows: what the user says, what Mind does, and what the system produces.
+
+### 1. A fact that should change future answers
+
+**User:** "We use pnpm in this repository. Don't run npm install here."
+
+**Mind:** records a fact card rather than relying on recall.
+
+```json
+{"action": "add", "claim": "This repository uses pnpm; do not run npm install here.", "provenance": ["user: turn 12"], "conf": "high", "source": "user", "scope": "session"}
+```
+
+**System:** the card is appended to `facts.jsonl`; the next turn's L3 context carries it; later answers cite the card. If the user later says pnpm was abandoned, Mind revises or invalidates the card instead of silently forgetting it.
+
+### 2. A question that stays open
+
+**User:** "Should the settings page keep the raw YAML example, or is the copy button enough?"
+
+**Mind:** registers an open loop and keeps the conversation going without forcing an immediate decision.
+
+```json
+{"action": "add", "text": "Decide whether the settings page keeps the raw YAML example or only the copy button", "type": "pending-option", "pointer": "turn 18", "closureCondition": "The user picks one and the page copy reflects it"}
+```
+
+**System:** `loops.jsonl` gets a `create` record. If the user answers three turns later, Mind closes it with the exact loop id:
+
+```json
+{"action": "close", "id": "L-7", "reason": "user chose the copy button only"}
+```
+
+Ink may have hinted that the loop looked answered, but only Mind performs the close.
+
+### 3. A background job with a real contract
+
+**User:** "Translate the report to English and run the test suite before you're done."
+
+**Mind:** opens a branch so the work is traceable to this sentence, then dispatches with a complete contract.
+
+```json
+{"action": "open", "label": "report-translation", "summary": "Deliver an English report and a green test run", "forkedAtTurn": 34, "premise": "The user wants the existing report translated and verified in one background pass", "quotes": ["Translate the report to English and run the test suite before you're done."], "facts": ["F-4"]}
+```
+
+```json
+{"goal": "Translate the report to English and run the test suite", "deliverables": "An English report file plus the test run output", "acceptance": "The English report exists and the test suite exits 0", "acceptanceSample": "A short English report; a test summary with no failures", "boundary": "Do not change the report's conclusions or the source code", "branch": "report-translation", "budget": "One background pass, no network access"}
+```
+
+**System:** a `pending-dispatch` loop, a job record, a task-board card, and an Operator child agent. The child sees the contract and the branch slice, not the conversation. When it finishes, it hands back a conclusion:
+
+```json
+{"claim": "The English report is complete and the test suite passes", "conf": "high", "evidence": "docs/report.en.md; test run exited 0"}
+```
+
+Ink compiles the result into an inbox preview; Mind opens it with `ink_inbox {"action": "open", "id": "I-6"}`, merges the branch with `ink_branch {"action": "merge", "id": "B-3", "claim": "English report delivered; tests green", "detail": "docs/report.en.md"}` and decides how to tell the user. If the contract had been incomplete, `ink_dispatch` would have refused and named the missing fields.
+
+### 4. The commit gate and the end of a day
+
+**User:** "Ship the shorter settings copy, but ask me before it goes out."
+
+**Mind:** parks the work in a draft, then opens the single commit gate.
+
+```json
+{"action": "add", "title": "Shorter settings page copy", "summary": "Replace the configuration page text with the shorter version", "artifact": "docs/draft/settings-copy.md", "conf": "mid"}
+```
+
+```json
+{"title": "Settings page copy", "summary": "Shorter configuration text; no behavior change.", "confidence": "high", "draftId": "P-3"}
+```
+
+**System:** DSH asks the user one question with the options 行 / 不行. "行" settles the draft as committed; "不行" settles it as rejected, with no follow-up asking the user to repair it. A low-confidence commit is refused before the user is bothered.
+
+At the end of the day Mind writes the handoff itself:
+
+```json
+{"action": "save", "progress": "Settings copy shortened and shipped", "loops": "L-7 closed; L-9 still waiting on the release decision", "running": "No background jobs running", "drafts": "None", "next": "Start from the release decision, not from a summary of the day"}
+```
+
+**System:** the briefing is stored in `briefings.jsonl` and appears in the next session's L3 context and in the backstage panel. If the day ended without a goodbye, the next start reports the hard break before continuing.
+
+## Requirements and support
+
+| Item | Requirement |
 |---|---|
-| `miopiik-dsh/` | MiOpIIk Agent：Ink 账本、Operator、编译与后台视图，不再提供 IUI 客户端注册或旧展示工具 |
-| `miopiik-iui/` | **独立 DSH IUI 插件**：声明式协议、React 渲染器、Markdown 扩展和打包工具 |
-| `test/` | 单元测试套件（`node --test test/`） |
-| `docs/` | 设计文档、实机验证记录、图文技术报告、架构示意图 |
-| `SPEC.md` | 架构规格单一真源（十二不变式、数据模型、折叠与治理机制） |
-| `tools/` | 维护与辅助脚本 |
+| Host | DSH Web (the `web` profile); host-side plugin, not a standalone app |
+| DSH baseline | 0.2.1-rc.5 (the version the test suite and release checks target) |
+| Node | >= 23.6 (`package.json` `engines`) |
+| Runtime dependencies | None; the package has no third-party runtime dependencies |
+| Browser side | `client.js` declares `platform: "web"` and plugs into DSH's conversation view, right sidebar, and `plugins.bundle.config` slot |
+| Other platforms | Not tested; the plugin relies on DSH Web services such as tools, system prompt, session projections, subagents, user questions, and compaction |
 
-Extra 展示层的早期设计归档在 [`miopiik-extra`](https://github.com/Chillizu/miopiik-extra)。当前 **MiOpIIk Agent** 与 **MiOpIIk IUI** 是两个独立插件，各自在 DSH「插件 → 已安装 → MiOpIIk / MiOpIIk IUI」下拥有同一套「介绍 / 配置」页面，风格对齐 DSH 默认插件页。Agent 的介绍说明 Mind / Ink / Operator 与版本，配置页只读列出 Host 参数的内置默认值和可复制的 YAML 示例（实际配置仍以 profile 为准）；IUI 的介绍用真实渲染器做轻量预览并说明兼容边界，配置页只提供本浏览器的真实渲染开关、诊断和可复制示例。IUI 的安装和限制见 [插件说明](miopiik-iui/README.md)。
+DSH is a moving target. The baseline above is what this release was verified against; a DSH upgrade may rename or remove a host service the plugin depends on. Treat `docs/SUPPORT-MATRIX.md` as the maintained compatibility statement.
 
-## 安装（DSH workspace bundle）
+## Install, upgrade, uninstall, rollback
 
-在对应 profile 的 `cordis.patch.yml` 中挂入插件：
+**This package is not published to the npm registry.** A bare `dsh plugin add miopiik-dsh` without a path or tarball will not resolve it; there is no registry install path. Install from the GitHub Release tarball, from a local `npm pack`, or from a checkout path.
+
+### From a GitHub Release (recommended)
+
+1. Download `miopiik-dsh-0.1.1.tgz` and `SHA256SUMS.txt` from
+   https://github.com/Chillizu/miopiik/releases/tag/miopiik-agent-v0.1.1
+2. Verify the download in the download directory with `sha256sum -c SHA256SUMS.txt`.
+3. Install into the target profile with `dsh plugin --profile <profile> add ./miopiik-dsh-0.1.1.tgz`.
+4. Restart the DSH process that serves that profile. A browser refresh is not enough: host plugins load when the DSH process starts.
+
+### From a local checkout
+
+The repository root is the package root (`package.json` and `index.js` are siblings), and the package has no dependencies, so no `npm install` is needed.
+
+```sh
+git clone https://github.com/Chillizu/miopiik.git
+cd miopiik
+npm pack
+dsh plugin --profile <profile> add ./miopiik-dsh-0.1.1.tgz
+```
+
+`npm pack` only builds a local tarball. Do not publish it to any registry.
+
+You can also install a working tree directly (link mode):
+
+```sh
+dsh plugin --profile <profile> add /path/to/miopiik
+```
+
+The helper `tools/install-plugin.mjs` wraps both modes. It is a dry run by default, prints the exact `dsh` command, and refuses to write the running `web` profile unless explicitly allowed:
+
+```sh
+node tools/install-plugin.mjs --profile <profile>            # dry run, link mode
+node tools/install-plugin.mjs --profile <profile> --mode tarball --execute
+node tools/install-plugin.mjs --profile web --execute --allow-running-profile
+```
+
+### Upgrade
+
+1. `dsh plugin --profile <profile> remove miopiik-dsh`
+2. `dsh plugin --profile <profile> add ./miopiik-dsh-<new-version>.tgz`
+3. Restart the DSH process for that profile.
+
+### Rollback
+
+1. `dsh plugin --profile <profile> remove miopiik-dsh`
+2. `dsh plugin --profile <profile> add ./miopiik-dsh-0.1.1.tgz`
+3. Restart the DSH process for that profile.
+
+Session ledgers are not touched by uninstall, upgrade, or rollback: they live in the workspace, not in the plugin directory. Roll back to 0.1.1 whenever a newer version misbehaves; the 0.1.1 tarball is this release's stable artifact.
+
+### Uninstall
+
+```sh
+dsh plugin --profile <profile> remove miopiik-dsh
+```
+
+Restart the profile. Your conversation history stays in the workspace ledgers and, if you reinstall later, the plugin replays it.
+
+## Configuration
+
+Configuration lives in the profile's `cordis.patch.yml`, in the `config` section for this plugin. A patch replaces the entry's `config` as a whole; fields you omit fall back to the built-in defaults below.
 
 ```yaml
 # ~/.dsh/profiles/<profile>/cordis.patch.yml
-- insert:
-    - id: miopiik-dsh
-      name: 'miopiik-dsh'
+- id: miopiik-dsh
+  config:
+    stateRoot: .dsh/miopiik
+    activeLoopCap: 12
+    conversationCompile: true
 ```
 
-将本仓库以软链放进该 profile 的 `plugins` 目录即可；插件目录自身已带好 `cordis.patch.yml`（`miopiik-dsh/cordis.patch.yml`）。
+The defaults come from `host/config-defaults.js` (`DEFAULTS`):
 
-## 设计原则
+| Key | Default | Meaning |
+|---|---|---|
+| `stateRoot` | `.dsh/miopiik` | Ledger directory, relative to the workspace |
+| `activeLoopCap` | `12` | Maximum active open loops before the oldest are folded into dormant in a fixed order |
+| `dormantAfterDays` | `2` | Days without a touch before a loop goes dormant |
+| `foldedAfterDays` | `7` | Days before a loop is folded into one line |
+| `draftExpireDays` | `7` | Days before an untouched draft is discarded |
+| `briefingMaxChars` | `1800` | Character cap for a handoff briefing (one screen) |
+| `inboxPreviewChars` | `220` | Character budget for the previews injected each turn (as many as fit, not a count limit) |
+| `detailInlineMaxChars` | `1200` | Details longer than this become pointers to the detail store |
+| `inkTailLimit` | `24` | Middle-layer context tail entries kept before folding into the head |
+| `inkHeadMaxChars` | `2000` | Character cap for the middle-layer head summary |
+| `operatorTimeoutMs` | `1200000` | Operator timeout in milliseconds (20 minutes) |
+| `operatorStallMs` | `360000` | Time without a new observation before a running job is considered stalled (6 minutes) |
+| `inkModel` | `null` | Model used for Ink compilation (`null` follows the session default; otherwise an object with `provider` and `model`) |
+| `conversationCompile` | `true` | Let Ink read its own context and produce candidates after a turn (`false` means bookkeeping only) |
 
-1. **中间层不发言**：Ink 的一切产物先落账本、进收件箱；说与不说、什么时候说、用什么语气说，全部由 Mind 决定。
-2. **后台可失败**：失败也是合法结果，必须通过交回语义体面收场；宁可明确报废并记入判例，也不让任务在后台悄悄蒸发。
-3. **展示可删**：Extra 展示层与核心账本完全解耦，随时可以整层拆走；拿掉之后，对话主干与后台协作照常运转。
-4. **不把 UI 当审批**：屏幕上画了按钮不代表用户已经授权；卡片上的动作先只做渲染与分级提示，真正改变外部状态的写入仍要回到带权限与审计的通道。
-5. **账本先于对话**：真相留在磁盘上的 append-only 日志里，上下文只是按缓存前缀排布（L0–L5）的一份工作索引。
+The plugin settings page under `Plugins -> Installed -> MiOpIIk` shows these built-in defaults and a copyable YAML example. It is read-only and displays defaults, not live values; the running values are whatever the profile (and higher patch layers) resolve to.
 
-## 文档
+## Security and permissions
 
-- [SPEC.md](SPEC.md) —— 规格（单一真源）
-- [docs/REPORT-2026-11-10.md](docs/REPORT-2026-11-10.md) —— 技术与理念报告（图文）
-- [docs/EXTRA-UI.md](docs/EXTRA-UI.md) —— Extra 展示层：协议、落点、对齐说明
-- [docs/IUI-V1-RELEASE-CANDIDATE.md](docs/IUI-V1-RELEASE-CANDIDATE.md) —— IUI v1 稳定候选：已验收能力、上线门禁、未完事项与回滚
-- [docs/IUI-NATURAL-OUTPUT-AUDIT.md](docs/IUI-NATURAL-OUTPUT-AUDIT.md) —— 两条真实测试会话的失败模式、模型开销与自然输出打磨记录
-- [docs/ALIGNMENT-AUDIT.md](docs/ALIGNMENT-AUDIT.md) —— 自审计与偏差登记
-- [docs/machine-test-2026-11-06.md](docs/machine-test-2026-11-06.md) —— 实机验证记录
+- **One write location.** The plugin writes only under the workspace's ledger root (`<workspace>/.dsh/miopiik` by default, or the configured `stateRoot`, still relative to the workspace). It does not write into the DSH installation, the profile directory, or any other user directory.
+- **Append-only, human-auditable data.** The ledgers are plain-text JSONL. They are not encrypted and there is no automatic redaction: if something is said in the conversation, the observation log may keep it. Treat the conversation as written to disk and do not paste secrets into it.
+- **No credential harvesting, no telemetry.** The plugin has no credential fields and never dumps environment variables or DSH credential files into the ledger. It reads no environment secrets and contains no network calls or analytics. Its own outbound traffic is zero; model calls go through the host's configured LLM service (`ctx.llm` for Ink compilation, the host's subagent service for Operator).
+- **Structural separation of roles.** Operator child agents are denied the twelve Mind tools, receive no chat transcript, and get only the contract plus the branch slice. Mind is denied the Operator-only `ink_ask` and `ink_report`. This is enforced by per-agent tool restrictions in `index.js`, not by a polite instruction.
+- **The commit gate belongs to the user.** Outward changes are proposed through `ink_commit` and answered with "行" or "不行". Low-confidence changes are refused, no-input turns cannot commit, and a rejection settles the draft without asking the user to repair it. UI buttons are proposals, not approvals: the plugin does not treat a rendered control as consent.
+- **Backstage input is untrusted.** Compilation output is parsed as data, not executed. A failed or malformed compile degrades to a preview with the raw report attached; it never invents a conclusion.
+- **User overflow is respected.** Ink does not speak to the user; it only delivers previews and hints. Mind decides what is shown, when, and in what words.
 
-## 状态
+## Tests and development
 
-`v0.1.x`（当前 `v0.1.3`）—— 可直接安装使用，对话编译线、后台派发与交回、跨天简报、所见面板与 Extra 四个落点均已实机跑通；尚未发布到 npm，接口与账本格式仍在演进中。
+```sh
+npm test            # node --test
+npm run check       # tools/check-release.mjs
+npm run build:check # tools/build-client-rules.mjs --check
+npm run icon:check  # tools/icon-check.mjs
+```
+
+| Command | What it checks |
+|---|---|
+| `npm test` | Unit and integration suite using Node's built-in test runner (`node:test`). No third-party test dependencies. |
+| `npm run check` | Release readiness: required metadata, a real `npm pack`, unpacked file list against the runtime import graph, `node --check` on every shipped script, icon rules, and package size limits. Emits a JSON report and exits non-zero on any problem. |
+| `npm run build:check` | Fails if the Agent client re-introduces the retired IUI / Widget renderer. The separate IUI package is the only display renderer. |
+| `npm run icon:check` | Validates the shipped `icon.svg` against the icon rules (SVG, at most 256 KiB, no scripts or external references, 36x36 viewBox) and the `exports["./icon"]` / `files` metadata. Optionally compares byte-for-byte with the designer's original via `--original <path>`. |
+
+The suite is designed to pass in a clean checkout without DSH installed, without `~/.dsh`, without Chromium, and without network access. Checks that need a real host are skipped or conditionally executed instead of being faked. The package has no third-party runtime dependencies, so there is nothing to install before running the tests.
+
+CI: `.github/workflows/ci.yml` runs the commands above on pushes and pull requests.
+
+Repository layout for contributors:
+
+| Path | Content |
+|---|---|
+| `index.js` | Host plugin entry: session init, projection, tool registration, prompt charter |
+| `host/` | Engine, ledgers, compile, fold, dispatch, operator, tools |
+| `client.js` | Browser side: conversation view, right sidebar panel, plugin pages |
+| `SPEC.md` | Architecture specification and invariants (the single source of truth) |
+| `test/` | `node:test` suite |
+| `tools/` | Release checks, icon check, client renderer guard, install helper, dev scripts |
+| `docs/` | Design notes, audits, historical reports, architecture figures |
+| `locale/` | Plugin locale dictionaries |
+
+Key documents:
+
+- [SPEC.md](SPEC.md): architecture specification and invariants, the single source of truth.
+- [docs/ALIGNMENT-AUDIT.md](docs/ALIGNMENT-AUDIT.md): alignment audit against the original design conversation.
+- [docs/SUPPORT-MATRIX.md](docs/SUPPORT-MATRIX.md): supported DSH/Node baseline and known constraints.
+- [LICENSE](LICENSE): MIT license text.
+
+## FAQ
+
+**Is this the same thing as MiOpIIk IUI?**
+No. Agent (`miopiik-dsh`) is the working core: Mind / Ink / Operator, ledgers, dispatch, commit gate. IUI (`miopiik-iui`) is a separate presentation plugin that renders declarative `iui` blocks. Install either or both; neither depends on the other.
+
+**Do I need to restart DSH after installing?**
+Yes. Host plugins are loaded when the DSH process starts. Restart the process for the target profile; refreshing the browser is not enough.
+
+**Where is my data?**
+In the workspace, under `.dsh/miopiik/` (or the configured `stateRoot`): per-session ledgers, workspace-scoped facts, and the detail store. It is plain-text JSONL and stays there after upgrade, rollback, or uninstall.
+
+**Can I use the Agent without IUI?**
+Yes. The Agent does not render chat UI and does not require IUI. Its own backstage panels and plugin pages work without IUI.
+
+**Are old sessions still there after the split?**
+Yes. Session ledgers are not migrated or deleted. Old widget snapshots remain readable; if IUI is installed, its read-only legacy adapter can replay them. This repository does not promise that old widget entries can be edited again.
+
+## Limitations
+
+This list is intentionally not polished.
+
+- **No npm release.** The package is distributed as a GitHub Release tarball, a local `npm pack`, or a checkout. There is no registry package to depend on.
+- **DSH Web only.** The plugin is built and tested against the `web` profile and DSH 0.2.1-rc.5. Other hosts, profiles, and DSH versions are unverified, and host API drift can break it.
+- **Unofficial plugin.** It is not maintained by the DeepSeek Harness project and depends on host services that are not a stability guarantee.
+- **No performance or scale benchmarks.** No load testing, no large-ledger benchmarks, no cost measurements. Compilation adds an extra LLM call after qualifying turns when `conversationCompile` is enabled, and every dispatched job is an extra background agent; budget accordingly.
+- **No secret scanning.** The ledger keeps dialogue text as written. The plugin does not detect or redact secrets.
+- **Old display data is read-only.** Legacy widget snapshots are preserved and replayable, but the current Agent creates no new widget records and does not edit old ones.
+- **Host-service dependencies.** The commit gate needs the host `userQuestions` service; fold application needs the host compaction service. Without them, the gate refuses to open and a fold is recorded but not applied to the context, respectively.
+- **Not a second assistant.** Ink does not answer the user, and the plugin does not auto-commit, auto-send, or run unattended outward actions.
+
+## Repository split
+
+This repository is the continuation of the original MiOpIIk monorepo, which remains at https://github.com/Chillizu/miopiik. The Agent package moved from its subdirectory in the monorepo to the repository root; the git history and the existing tags and releases were preserved.
+
+The presentation plugin was extracted into its own repository, https://github.com/Chillizu/miopiik-iui, with its own history and its own prerelease line (currently 0.1.0-rc.4). The historical Extra display layer stays archived at https://github.com/Chillizu/miopiik-extra. Session data is not migrated between repositories; it stays in the workspace ledgers described above. See [docs/MIGRATION.md](docs/MIGRATION.md) for the detailed mapping.
+
+## Contributing
+
+Issues and pull requests are welcome at https://github.com/Chillizu/miopiik.
+
+- Keep the split honest: the Agent repo must not re-embed the IUI renderer (`npm run build:check` guards this).
+- Match the existing style: Node ESM, relative imports, zero third-party runtime dependencies, no build step for the host code.
+- Put tests in `test/*.test.js` and use `node:test`; tests must be green before a pull request is merged.
+- Run `npm test`, `npm run check`, `npm run build:check`, and `npm run icon:check` locally.
+- Architecture or data-model changes should update `SPEC.md`, the single source of truth, in the same change.
+- Do not add generated tarballs or caches to the repository; `.dsh/` is ignored.
 
 ## License
 
-MIT
+MIT. See [LICENSE](LICENSE).
+
+Copyright (c) 2026 Chillizu.
