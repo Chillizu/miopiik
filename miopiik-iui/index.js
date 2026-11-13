@@ -14,6 +14,9 @@ export function apply(ctx) {
     scope.systemPrompt.section({
       name: 'miopiik-iui:render-contract',
       order: 670,
+      // Inline IUI examples contain literal {{badge:...}} syntax; they are
+      // not DSH prompt variables. Preserve them verbatim.
+      interpolate: false,
       text: IUI_CHARTER,
     })
   })
