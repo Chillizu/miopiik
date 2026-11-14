@@ -228,7 +228,7 @@ At the end of the day Mind writes the handoff itself:
 | DSH baseline | 0.2.1-rc.5 (the version the test suite and release checks target) |
 | Node | >= 23.6 (`package.json` `engines`) |
 | Runtime dependencies | None; the package has no third-party runtime dependencies |
-| Browser side | `client.js` declares `platform: "web"` and plugs into DSH's conversation view, right sidebar, and `plugins.bundle.config` slot |
+| Browser side | `client.js` declares `platform: "web"` and plugs into DSH's conversation view, right sidebar, the plugin page (`plugins.bundle.config`) and the settings page (`settings.plugins.tab`) |
 | Other platforms | Not tested; the plugin relies on DSH Web services such as tools, system prompt, session projections, subagents, user questions, and compaction |
 
 DSH is a moving target. The baseline above is what this release was verified against; a DSH upgrade may rename or remove a host service the plugin depends on. Treat `docs/SUPPORT-MATRIX.md` as the maintained compatibility statement.
@@ -326,7 +326,7 @@ The defaults come from `host/config-defaults.js` (`DEFAULTS`):
 | `inkModel` | `null` | Model used for Ink compilation (`null` follows the session default; otherwise an object with `provider` and `model`) |
 | `conversationCompile` | `true` | Let Ink read its own context and produce candidates after a turn (`false` means bookkeeping only) |
 
-The plugin settings page under `Plugins -> Installed -> MiOpIIk` shows these built-in defaults and a copyable YAML example. It is read-only and displays defaults, not live values; the running values are whatever the profile (and higher patch layers) resolve to.
+The plugin page (`Plugins -> Installed -> MiOpIIk`) only explains the plugin. The built-in defaults and a copyable YAML example live on the settings page under **Settings -> Built-in plugins -> MiOpIIk Agent**. It is read-only and displays defaults, not live values; the running values are whatever the profile (and higher patch layers) resolve to.
 
 ## Security and permissions
 

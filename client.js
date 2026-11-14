@@ -1482,7 +1482,7 @@ window.__ModuleLoader__.load({
       actions: { display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' },
     }
 
-    // 复用官方 primitives 的页签、按钮、标签；加载不到时退回同 token 的普通元素，
+    // 复用官方 primitives 的按钮；加载不到时退回同 token 的普通元素，
     // 页面仍然可用，也不会伪造官方 API。
     let MIO_PRIMITIVES = null
     try {
@@ -1490,73 +1490,7 @@ window.__ModuleLoader__.load({
     } catch {
       MIO_PRIMITIVES = null
     }
-    const MioSegmentedTabs = MIO_PRIMITIVES?.SegmentedTabs
     const MioButton = MIO_PRIMITIVES?.Button
-
-    const MIO_TABS = [
-      { value: 'overview', label: '介绍' },
-      { value: 'configuration', label: '配置' },
-    ]
-
-    // Native page tabs sit at their content width (min 240px), not stretched.
-    function installMiopiikSettingsStyle(ctx) {
-      if (typeof document === 'undefined') return
-      if (document.querySelector('style[data-miopiik-settings-style]') !== null) return
-      const tag = document.createElement('style')
-      tag.dataset.miopiikSettingsStyle = '1'
-      tag.textContent = '[data-miopiik-settings="1"] [role="tablist"]{width:fit-content;max-width:100%;min-width:240px}'
-      document.head.appendChild(tag)
-      if (typeof ctx.effect === 'function') ctx.effect(() => () => tag.remove(), 'miopiik: settings style')
-    }
-
-    function MioTabs({ value, onChange }) {
-      if (MioSegmentedTabs) {
-        return h(MioSegmentedTabs, {
-          id: 'miopiik-settings-tabs',
-          label: 'MiOpIIk 插件页',
-          value,
-          onChange,
-          items: MIO_TABS.map((tab) => ({
-            ...tab,
-            id: 'miopiik-settings-tab-' + tab.value,
-            panelId: 'miopiik-settings-panel-' + tab.value,
-          })),
-        })
-      }
-      return h(
-        'div',
-        {
-          role: 'tablist',
-          'aria-label': 'MiOpIIk 插件页',
-          style: {
-            display: 'inline-flex', gap: 2, padding: 4, width: 'fit-content', maxWidth: '100%',
-            borderRadius: 'var(--dsw-radius-md)', background: 'var(--dsw-alias-interactive-bg-hover)',
-          },
-        },
-        MIO_TABS.map((tab) => {
-          const active = value === tab.value
-          return h(
-            'button',
-            {
-              key: tab.value,
-              type: 'button',
-              role: 'tab',
-              'aria-selected': active,
-              'data-miopiik-tab': tab.value,
-              onClick: () => onChange(tab.value),
-              style: {
-                height: 28, padding: '0 16px', border: 0,
-                borderRadius: 'var(--dsw-radius-sm)',
-                background: active ? 'var(--dsw-alias-bg-layer-1)' : 'transparent',
-                color: active ? 'var(--dsw-alias-label-primary)' : 'var(--dsw-alias-label-secondary)',
-                font: 'inherit', fontSize: 13, fontWeight: 500, lineHeight: '20px', cursor: 'pointer',
-              },
-            },
-            tab.label,
-          )
-        }),
-      )
-    }
 
     function MioActionButton({ onClick, children }) {
       if (MioButton) return h(MioButton, { variant: 'outline', size: 'sm', onClick }, children)
@@ -1589,10 +1523,11 @@ window.__ModuleLoader__.load({
       ['与 IUI 的关系', '独立插件 miopiik-iui；本插件不注册聊天渲染，IUI 也不依赖 Mind/Ink/Operator'],
     ]
 
-    function MioOverview() {
+    // 插件页只做说明：这是什么、怎么分层、和谁独立。配置在设置页。
+    function MioPluginPage() {
       return h(
         'div',
-        { 'data-miopiik-overview': '1', style: { display: 'flex', flexDirection: 'column', gap: 32, minWidth: 0 } },
+        { 'data-miopiik-settings': '1', 'data-miopiik-overview': '1', style: MIO_PAGE.root },
         h(
           'section',
           { style: MIO_PAGE.section },
@@ -1644,6 +1579,7 @@ window.__ModuleLoader__.load({
             ),
           ),
         ),
+        h('p', { style: MIO_PAGE.hint }, 'Host 参数的内置默认值、覆盖方式与复制示例在「设置 → 内置插件 → MiOpIIk Agent」；本页只做说明。'),
       )
     }
 
@@ -1663,7 +1599,8 @@ window.__ModuleLoader__.load({
       )
     }
 
-    function MioConfiguration() {
+    // 设置 → 内置插件：Host 参数的只读默认值、覆盖方式与复制示例。
+    function MioSettingsPanel() {
       const [copyStatus, setCopyStatus] = React.useState('')
       const copy = async () => {
         try {
@@ -1676,7 +1613,7 @@ window.__ModuleLoader__.load({
       }
       return h(
         'div',
-        { 'data-miopiik-configuration': '1', style: { display: 'flex', flexDirection: 'column', gap: 32, minWidth: 0 } },
+        { 'data-miopiik-settings': '1', 'data-miopiik-configuration': '1', style: MIO_PAGE.root },
         h(
           'p',
           { style: MIO_PAGE.body },
@@ -1717,16 +1654,6 @@ window.__ModuleLoader__.load({
       )
     }
 
-    function SettingsSection({ view, initialTab } = {}) {
-      const [tab, setTab] = React.useState(initialTab ?? 'overview')
-      if (view !== undefined && view !== 'page') return null
-      return h(
-        'div',
-        { 'data-miopiik-settings': '1', style: MIO_PAGE.root },
-        h(MioTabs, { value: tab, onChange: setTab }),
-        tab === 'configuration' ? h(MioConfiguration) : h(MioOverview),
-      )
-    }
 
 
     const zh = {
@@ -1741,6 +1668,7 @@ window.__ModuleLoader__.load({
       'tab.drafts': '草稿',
       'tab.letter': '交接记录',
       'view.miopiik': 'MiOpIIk',
+      'settings.tab': 'MiOpIIk Agent',
       'tab.graph': '鱼骨',
       'tab.list': '清单',
       'tab.stream': '流水',
@@ -1871,6 +1799,7 @@ window.__ModuleLoader__.load({
       'tab.drafts': 'Drafts',
       'tab.letter': 'Handoff record',
       'view.miopiik': 'MiOpIIk',
+      'settings.tab': 'MiOpIIk Agent',
       'tab.graph': '鱼骨',
       'tab.list': '清单',
       'tab.stream': '流水',
@@ -1954,13 +1883,23 @@ window.__ModuleLoader__.load({
         t = ctx.locale.bind(NS)
 
 
-        installMiopiikSettingsStyle(ctx)
-
-        // MiOpIIk 专属设置页归 DSH 插件管理，而不是通用设置第二份入口。
+        // 两个面各归其位：插件页只说明这个插件是什么；真正的配置入口在
+        // 「设置 → 内置插件」，和其它插件设置放在同一个地方。
         ctx.slots.inject('plugins.bundle.config', () =>
           ctx.slots.register(
             { name: 'plugins.bundle.config', key: 'miopiik-dsh' },
-            (props) => h(SettingsSection, props ?? {}),
+            () => h(MioPluginPage),
+          ),
+        )
+        ctx.slots.inject('settings.plugins.tab', () =>
+          ctx.slots.register(
+            {
+              name: 'settings.plugins.tab',
+              id: 'miopiik-dsh',
+              order: 30,
+              label: () => t('settings.tab'),
+            },
+            () => h(MioSettingsPanel),
           ),
         )
 

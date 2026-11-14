@@ -6,6 +6,9 @@ import { Script, createContext } from 'node:vm'
 const root = new URL('../', import.meta.url)
 const clientPath = new URL('client.js', root)
 
+// 两个面：插件页只做说明，设置入口在「设置 → 内置插件」。
+const SLOT_NAMES = ['plugins.bundle.config', 'settings.plugins.tab']
+
 function loadAgentSettings() {
   const source = readFileSync(clientPath, 'utf8')
   let module
@@ -29,7 +32,10 @@ function loadAgentSettings() {
     effect() {},
     locale: { bind() { return (key) => key } },
     slots: {
-      inject(name, callback) { if (name === 'plugins.bundle.config') callback() },
+      inject(name, callback) {
+        // 其它插槽（conversation.view 等）在本页测试里不关心。
+        if (SLOT_NAMES.includes(name)) callback()
+      },
       register(meta, render) { slots.push({ meta, render }); return () => {} },
     },
     inject() {},
@@ -45,36 +51,49 @@ function render(node) {
   return [node, ...(node.children ?? []).flatMap(render)]
 }
 
+function slotBy(slots, name) {
+  const entry = slots.find((slot) => slot.meta.name === name)
+  assert.ok(entry !== undefined, 'missing slot: ' + name)
+  return entry
+}
+
 function page(slots, props = { view: 'page' }) {
-  const wrapper = slots[0].render(props)
-  return render(wrapper)
+  return render(slotBy(slots, 'plugins.bundle.config').render(props))
+}
+
+function settingsPage(slots) {
+  return render(slotBy(slots, 'settings.plugins.tab').render({}))
 }
 
 function text(nodes) {
   return nodes.flatMap((node) => (node.children ?? []).filter((child) => typeof child === 'string')).join(' ')
 }
 
-test('MiOpIIk Agent 独立注册 DSH 原生插件页，不和 IUI 混用或占用通用设置', () => {
+test('MiOpIIk Agent 把说明留在插件页，把配置放进「设置 → 内置插件」', () => {
   const { plugin, slots, source } = loadAgentSettings()
   assert.ok(plugin.inject.includes('slots'))
-  assert.equal(slots.length, 1)
-  assert.equal(slots[0].meta.name, 'plugins.bundle.config')
-  assert.equal(slots[0].meta.key, 'miopiik-dsh')
+  assert.equal(slots.length, 2)
+  const bundle = slotBy(slots, 'plugins.bundle.config')
+  assert.equal(bundle.meta.key, 'miopiik-dsh')
+  const tab = slotBy(slots, 'settings.plugins.tab')
+  assert.equal(tab.meta.id, 'miopiik-dsh')
+  assert.equal(tab.meta.order, 30)
+  assert.equal(tab.meta.label(), 'settings.tab')
+  assert.match(source, /'settings\.tab': 'MiOpIIk Agent'/u)
   assert.doesNotMatch(source, /ctx\.slots\.inject\('settings\.section'/u)
   assert.doesNotMatch(source, /globalThis\.__miopiikMarkdownEmbeds\s*=/u)
 })
 
-test('插件页只有介绍与配置两个视图，介绍覆盖三层架构、版本和与 IUI 的独立关系', () => {
+test('插件页只做介绍：覆盖三层架构、版本与和 IUI 的独立关系，不再藏配置', () => {
   const { slots } = loadAgentSettings()
   const packageVersion = JSON.parse(readFileSync(new URL('package.json', root), 'utf8')).version
   const nodes = page(slots)
   const tree = nodes[0]
   assert.equal(tree.props['data-miopiik-settings'], '1')
-  const tabs = nodes.filter((node) => node.props?.role === 'tab')
-  assert.deepEqual(tabs.map((tab) => tab.props['data-miopiik-tab']), ['overview', 'configuration'])
-  assert.deepEqual(tabs.map((tab) => tab.children[0]), ['介绍', '配置'])
+  assert.equal(nodes.filter((node) => node.props?.role === 'tab').length, 0, '插件页不该再有二级页签')
   assert.ok(nodes.some((node) => node.props?.['data-miopiik-overview'] === '1'))
   assert.equal(nodes.some((node) => node.props?.['data-miopiik-configuration'] === '1'), false)
+  assert.match(text(nodes), /设置 → 内置插件 → MiOpIIk Agent/u, '插件页要指出配置入口')
 
   const architecture = nodes.find((node) => node.props?.['data-miopiik-architecture'] === '1')
   assert.ok(architecture)
@@ -87,9 +106,9 @@ test('插件页只有介绍与配置两个视图，介绍覆盖三层架构、�
   assert.match(body, /Mind/iu)
 })
 
-test('配置页只读地列出 Host 参数默认值、分组与有效 YAML 示例，不伪造开关', () => {
+test('设置页只读地列出 Host 参数默认值、分组与有效 YAML 示例，不伪造开关', () => {
   const { slots } = loadAgentSettings()
-  const nodes = page(slots, { view: 'page', initialTab: 'configuration' })
+  const nodes = settingsPage(slots)
   assert.ok(nodes.some((node) => node.props?.['data-miopiik-configuration'] === '1'))
   assert.equal(nodes.some((node) => node.props?.['data-miopiik-overview'] === '1'), false)
 
@@ -129,6 +148,6 @@ test('设置页不使用品牌 Hero、渐变或大型圆角卡片，且只用主
   assert.match(pageSource, /var\(--dsw-alias-/u, '样式应使用 DSH 主题 token')
   assert.doesNotMatch(pageSource, /#[0-9a-fA-F]{3,6}/u, '不应写死颜色')
 
-  const nodes = page(slots)
+  const nodes = [...page(slots), ...settingsPage(slots)]
   assert.ok(nodes.length > 0)
 })

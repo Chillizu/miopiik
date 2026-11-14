@@ -136,7 +136,7 @@ MiOpIIk 的做法是把「对话、记账、干活」拆成三层，并且只给
 - **两阶段折叠。** 折叠由事件驱动，不是字数硬截断。Ink 先做影子折叠：档案与开环结算建议，先不替换任何东西。仍握着旧上下文的 Mind 来验收，唯一判据是「折叠之后每条仍活跃的开环还接得上」。通过后应用叙事折叠；宿主提供压缩服务时排到下一个回合边界执行，没有就只记账，绝不偷偷改上下文。
 - **跨天简报。** 一天收工时由 Mind 亲手写五段：推进、开环、在跑、草稿、下步打算。机器代写的简报会让明天的 Mind 认不出今天的自己，所以 Ink 只提供素材（`ink_brief materials`），L3 上下文展示最新简报与检测到的硬断点。前一天没告别就断了线，第二天开工先承认断在哪里。
 - **看得见的后台。** 会话功能页「MiOpIIk」里有鱼骨图、分支 stream，以及列出活跃开环、事实卡、在跑任务、草稿与当日交接记录的清单；「所见」标签展示 Ink 的折叠头部、活跃尾部与刚编译出的候选。右侧栏「Ink」面板展示开环计数、收件箱预览与最近决定。幕后的一切都对用户开放，只是 Ink 不开口。
-- **插件介绍/配置页与只读默认值。** 在 DSH 的 `插件 -> 已安装 -> MiOpIIk` 下，插件声明一个配置 slot，内含两个标签：介绍（三层、职责、版本、账本位置）与配置。配置页只读列出每个 host 可调项的内置默认值和可复制的 profile YAML 示例，不写任何文件；实际生效值以 profile 为准。
+- **插件页与设置页分开。** `插件 -> 已安装 -> MiOpIIk` 只做介绍（三层、职责、版本、账本位置）。Host 可调项的内置默认值与可复制的 profile YAML 示例在 **设置 → 内置插件 → MiOpIIk Agent**；那一页只读，不写任何文件，实际生效值以 profile 为准。
 - **append-only 账本与回放。** 重启 DSH 即回放会话账本；状态不只活在模型上下文里。agent 自己的上下文只是账本之上的一份工作索引，不是事实来源。
 - **历史兼容。** 旧会话账本不迁移、不改写、不删除。旧 widget 条目仍然可读，独立的 IUI 插件可以只读回放它们；当前 Agent 不再产生新的 widget 条目。
 
@@ -228,7 +228,7 @@ Ink 把结果编译成收件箱预览；Mind 用 `ink_inbox {"action": "open", "
 | DSH 基线 | 0.2.1-rc.5（测试与发布检查所针对的版本） |
 | Node | >= 23.6（`package.json` 的 `engines`） |
 | 运行时依赖 | 无；包没有任何第三方运行时依赖 |
-| 浏览器侧 | `client.js` 声明 `platform: "web"`，接入 DSH 的会话视图、右侧栏与 `plugins.bundle.config` slot |
+| 浏览器侧 | `client.js` 声明 `platform: "web"`，接入 DSH 的会话视图、右侧栏、插件页（`plugins.bundle.config`）与设置页（`settings.plugins.tab`） |
 | 其他平台 | 未验证；插件依赖 tools、system prompt、session projections、subagents、user questions、compaction 等 DSH Web 服务 |
 
 DSH 本身在演进。上面的基线是本版本验证过的版本；升级 DSH 可能重命名或移除插件依赖的宿主服务。兼容性以 `docs/SUPPORT-MATRIX.md` 为准。
@@ -365,7 +365,7 @@ CI：`.github/workflows/ci.yml` 在 push 与 pull request 上跑上面的命令�
 |---|---|
 | `index.js` | host 插件入口：会话初始化、projection、工具注册、章程 |
 | `host/` | 引擎、账本、编译、折叠、派发、Operator、工具面 |
-| `client.js` | 浏览器侧：会话功能页、右栏面板、插件页 |
+| `client.js` | 浏览器侧：会话功能页、右栏面板、插件页与设置页 |
 | `SPEC.md` | 架构规格与不变式（单一真源） |
 | `test/` | `node:test` 测试套件 |
 | `tools/` | 发布检查、图标检查、客户端渲染器防复活、安装辅助、开发脚本 |

@@ -65,11 +65,15 @@ test('真正用到的常量来自同一张表（改一处即全站生效）', as
 test('关键客户端注册点都在（防止替换静默失效）', () => {
   for (const needle of [
     "ctx.slots.inject('plugins.bundle.config'",
+    "ctx.slots.inject('settings.plugins.tab'",
     "ctx.slots.inject('conversation.view'",
     "name: 'plugins.bundle.config'",
+    "name: 'settings.plugins.tab'",
     "key: 'miopiik-dsh'",
+    "id: 'miopiik-dsh'",
     "name: 'conversation.view'",
-    'function SettingsSection(',
+    'function MioPluginPage(',
+    'function MioSettingsPanel(',
   ]) {
     assert.ok(clientSource.includes(needle), `client.js 缺少：${needle}`)
   }
