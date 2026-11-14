@@ -22,9 +22,9 @@ MiOpIIk separates conversation, bookkeeping, and execution into three layers and
 
 Two timelines run in parallel: a foreground sequence of conversation turns and a background sequence of asynchronous jobs. Ink keeps both aligned in the workspace ledger.
 
-![Architecture: one conversation, two timelines, three layers](docs/images/report-2026-11-10/architecture.png)
+![Architecture: three layers across two timelines](docs/images/architecture.svg)
 
-In the repository's architecture figure above, the upper band represents this Agent. The lower band ("Extra display layer") is retired; its design history is recorded in the IUI repository's [docs/EXTRA-UI.md](https://github.com/Chillizu/miopiik-iui/blob/main/docs/EXTRA-UI.md), and current display work lives in the separate MiOpIIk IUI plugin.
+The diagram above shows the Agent's three layers (`Mind`, `Ink`, `Operator`) across the foreground conversation timeline and the background execution timeline. The earlier Extra display layer is retired; its design history is recorded in the IUI repository's [docs/EXTRA-UI.md](https://github.com/Chillizu/miopiik-iui/blob/main/docs/EXTRA-UI.md), and current display work lives in the separate MiOpIIk IUI plugin.
 
 ## MiOpIIk Agent and MiOpIIk IUI
 

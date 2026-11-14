@@ -22,9 +22,9 @@ MiOpIIk 将对话、记账与执行拆为三层，并把面向用户的发言权
 
 系统内并行推进两条时间线：前台是连续的对话 turn 序列，后台是异步的 job 序列，由 Ink 在工作区账本中对齐两侧状态。
 
-![架构：一个对话，两条时间线，三层分工](docs/images/report-2026-11-10/architecture.png)
+![架构：两条时间线与三层分工](docs/images/architecture.svg)
 
-上图中，上方为本 Agent；下方「附加层：Extra」已退役，其设计史保存在 IUI 仓库的 [docs/EXTRA-UI.md](https://github.com/Chillizu/miopiik-iui/blob/main/docs/EXTRA-UI.md)，当前展示能力由独立的 MiOpIIk IUI 插件提供。
+上图展示了本 Agent 在前台对话时间线与后台执行时间线上的三层分工（`Mind`、`Ink`、`Operator`）。早期的「附加层：Extra」已退役，其设计史保存在 IUI 仓库的 [docs/EXTRA-UI.md](https://github.com/Chillizu/miopiik-iui/blob/main/docs/EXTRA-UI.md)，当前展示能力由独立的 MiOpIIk IUI 插件提供。
 
 ## MiOpIIk Agent 与 MiOpIIk IUI
 
