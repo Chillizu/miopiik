@@ -1401,7 +1401,7 @@ window.__ModuleLoader__.load({
 
     // 官方插件管理页只声明 plugins.bundle.config 一个配置 slot；页面内的
     // 「介绍 / 配置」是它自己的二级导航，不冒充额外 slot，也不写入任何文件。
-    const MIO_PLUGIN_VERSION = '0.1.1'
+    const MIO_PLUGIN_VERSION = '0.1.2'
 
     // 可调项（与 host/config-defaults.js 的 DEFAULTS 保持一致；test/settings.test.js 会校验漂移）
     const KNOBS = [

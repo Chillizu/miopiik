@@ -2,13 +2,13 @@
 
 <img src="icon.svg" width="96" alt="MiOpIIk icon">
 
-**Version 0.1.1** (stable) | English | [简体中文](README.zh-CN.md)
+**Version 0.1.2** (stable) | English | [简体中文](README.zh-CN.md)
 
 `MiOpIIk` = `Mi`(nd) + `Op`(erator) + `IIk`(ink).
 
 `miopiik-dsh` is a host-side plugin for [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) (DSH). It structures a DSH Web conversation around three layers: one foreground role (`Mind`), one middle ledger (`Ink`), and one background execution layer (`Operator`). It adds a prompt charter, a scoped tool surface, append-only JSONL ledgers, background dispatch, and session projections.
 
-**Current release:** 0.1.1 (stable). Install from the GitHub Release tarball, a local `npm pack`, or a checkout path; the package is not published to the npm registry.
+**Current release:** 0.1.2 (stable). Install from the GitHub Release tarball, a local `npm pack`, or a checkout path; the package is not published to the npm registry.
 
 ## What MiOpIIk is
 
@@ -33,7 +33,7 @@ The two plugins are independent packages. Each can be installed alone; neither r
 | | MiOpIIk Agent (`miopiik-dsh`) | MiOpIIk IUI (`miopiik-iui`) |
 |---|---|---|
 | Role | Host-side agent: Mind / Ink / Operator | Pure presentation layer |
-| Current version | 0.1.1 (stable) | 0.1.0-rc.4 (prerelease) |
+| Current version | 0.1.2 (stable) | 0.1.0-rc.5 (prerelease) |
 | Repository | https://github.com/Chillizu/miopiik | https://github.com/Chillizu/miopiik-iui |
 | Depends on the other plugin | No | No |
 | Can be installed alone | Yes | Yes |
@@ -237,10 +237,10 @@ See [docs/SUPPORT-MATRIX.md](docs/SUPPORT-MATRIX.md) for the full compatibility 
 
 ### From a GitHub Release (recommended)
 
-1. Download `miopiik-dsh-0.1.1.tgz` and `SHA256SUMS.txt` from
-   https://github.com/Chillizu/miopiik/releases/tag/miopiik-agent-v0.1.1
+1. Download `miopiik-dsh-0.1.2.tgz` and `SHA256SUMS.txt` from
+   https://github.com/Chillizu/miopiik/releases/tag/miopiik-agent-v0.1.2
 2. Verify the checksum: `sha256sum -c SHA256SUMS.txt`.
-3. Install into the target profile: `dsh plugin --profile <profile> add ./miopiik-dsh-0.1.1.tgz`.
+3. Install into the target profile: `dsh plugin --profile <profile> add ./miopiik-dsh-0.1.2.tgz`.
 4. Restart the DSH process serving that profile so the host plugin loads.
 
 ### From a local checkout
@@ -251,7 +251,7 @@ The repository root is the package root (`package.json` and `index.js` are at th
 git clone https://github.com/Chillizu/miopiik.git
 cd miopiik
 npm pack
-dsh plugin --profile <profile> add ./miopiik-dsh-0.1.1.tgz
+dsh plugin --profile <profile> add ./miopiik-dsh-0.1.2.tgz
 ```
 
 `npm pack` produces a local tarball only.
@@ -279,7 +279,7 @@ node tools/install-plugin.mjs --profile web --execute --allow-running-profile
 ### Rollback
 
 1. `dsh plugin --profile <profile> remove miopiik-dsh`
-2. `dsh plugin --profile <profile> add ./miopiik-dsh-0.1.1.tgz`
+2. `dsh plugin --profile <profile> add ./miopiik-dsh-0.1.2.tgz`
 3. Restart the DSH process for that profile.
 
 Session ledgers live under the workspace `.dsh/miopiik/` directory and remain intact across uninstall, upgrade, and rollback.

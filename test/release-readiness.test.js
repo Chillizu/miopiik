@@ -31,8 +31,8 @@ test('发布检查：单包可以独立打包，且 tarball 覆盖全部运行�
   assert.equal(report.package.tarball.startsWith('miopiik-iui'), false, '不应打包出 IUI 包')
 })
 
-test('版本策略：0.1.1 稳定版，可发布且不依赖 IUI', () => {
-  assert.equal(manifest.version, '0.1.1')
+test('版本策略：0.1.x 稳定版，可发布且不依赖 IUI', () => {
+  assert.match(manifest.version, /^0\.\d+\.\d+$/u, '应为稳定版 semver')
   assert.match(manifest.version, /^0\.\d+\.\d+$/u, 'Agent 应为稳定版本号（不带 -rc）')
   assert.equal(manifest.private, undefined, '不应标记 private')
   assert.equal(manifest.name, 'miopiik-dsh')
@@ -43,16 +43,16 @@ test('版本策略：0.1.1 稳定版，可发布且不依赖 IUI', () => {
   }
 })
 
-test('发布文档：RELEASE-NOTES 与 SUPPORT-MATRIX 写明 0.1.1 / DSH 0.2.1-rc.5 / 无宿主补丁依赖', () => {
+test('发布文档：RELEASE-NOTES 与 SUPPORT-MATRIX 写明当前版本 / DSH 0.2.1-rc.5 / 无宿主补丁依赖', () => {
   const notes = read('docs/RELEASE-NOTES.md')
-  assert.match(notes, /miopiik-dsh 0\.1\.1/u, 'RELEASE-NOTES 需写明 miopiik-dsh 0.1.1')
+  assert.match(notes, new RegExp(`miopiik-dsh ${manifest.version.replaceAll('.', '\\.')}`, 'u'), `RELEASE-NOTES 需写明 miopiik-dsh ${manifest.version}`)
   assert.match(notes, /DSH 0\.2\.1-rc\.5/u, 'RELEASE-NOTES 需写明 DSH 测试基线')
   assert.match(notes, /不依赖\s*`?miopiik-iui`?/u, 'RELEASE-NOTES 需写明不依赖 IUI')
   assert.doesNotMatch(notes, /##\s*miopiik-iui /u, '本仓库 release notes 不应包含 IUI 版本段落')
 
   const matrix = read('docs/SUPPORT-MATRIX.md')
   assert.ok(matrix.includes('miopiik-dsh'), 'SUPPORT-MATRIX 需覆盖 Agent 包')
-  assert.match(matrix, /0\.1\.1/u, 'SUPPORT-MATRIX 需写明当前版本')
+  assert.ok(matrix.includes(manifest.version), `SUPPORT-MATRIX 需写明当前版本 ${manifest.version}`)
   assert.match(matrix, /0\.2\.1-rc\.5/u, 'SUPPORT-MATRIX 需写明 DSH 测试基线')
   assert.match(matrix, /无宿主补丁依赖|宿主补丁依赖[^\n]*无/u, 'SUPPORT-MATRIX 需写明无宿主补丁依赖')
   assert.doesNotMatch(matrix, /\|\s*miopiik-iui\s*\(/u, 'SUPPORT-MATRIX 应为 Agent 单列版，不含 IUI 列')
@@ -123,5 +123,5 @@ test('安装脚本 link 模式 --execute 也真的调用 dsh（一次，指向�
 test('README 版本与 package.json 一致（README 作者就绪后生效）', () => {
   const readme = read('README.md')
   assert.ok(readme.includes(manifest.version), `README 未写明当前版本 ${manifest.version}`)
-  assert.match(readme, /0\.1\.1/u, 'README 需写明 Agent 0.1.1')
+  assert.match(readme, new RegExp(manifest.version.replaceAll('.', '\\.'), 'u'), `README 需写明 Agent ${manifest.version}`)
 })

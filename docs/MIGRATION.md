@@ -28,7 +28,7 @@
 | `miopiik-iui/**` | 迁出至独立仓库 |
 | monorepo 根级 CI / 发布脚本 | 按单包结构放在本仓库根（`.github/`、`tools/`） |
 
-包名 `miopiik-dsh`、版本 `0.1.1` 与安装命令保持不变。`miopiik-agent-v0.1.1` Release 及其资产（`miopiik-dsh-0.1.1.tgz`、`SHA256SUMS.txt`）保持有效，仓库地址仍为 `https://github.com/Chillizu/miopiik`。
+包名 `miopiik-dsh` 与安装命令保持不变；版本在拆分后按 patch 递增，当前稳定版为 `0.1.2`，tag `miopiik-agent-v0.1.2`。旧版 `miopiik-agent-v0.1.1` Release 及其资产（`miopiik-dsh-0.1.1.tgz`、`SHA256SUMS.txt`）保持有效，仓库地址仍为 `https://github.com/Chillizu/miopiik`。
 
 ## 另一个仓库（MiOpIIk IUI）的迁移方式
 

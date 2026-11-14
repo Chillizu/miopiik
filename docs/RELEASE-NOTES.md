@@ -2,6 +2,21 @@
 
 本仓库发布单包 `miopiik-dsh`（DSH Web 的 host 侧插件，含 Mind / Ink / Operator 三层）。界面渲染由独立的 `miopiik-iui` 包提供；本包不依赖 `miopiik-iui`，也不内置 IUI 渲染器。
 
+## miopiik-dsh 0.1.2 — stable
+
+**状态**：stable（可独立打包与安装），兼容性不变（DSH 0.2.1-rc.5、Node >= 23.6、仅 DSH Web）。
+
+- **设置页职责调整**：插件页只保留介绍与预览；Host 参数默认值与真实设置移入 DSH「设置 → 内置插件」。
+- **文档细化**：中英文 README 与当前文档改为直接陈述，移除防御性话术与装饰性比喻；新增当前架构矢量图 `docs/images/architecture.svg`（明暗自适应）。
+- **仓库维护**：发布工具链、CI 与打包检查保持原状；包仍不发布到 npm registry。
+- **安装**（安装后需重启对应 profile 的 DSH 进程）：
+
+```
+dsh plugin --profile <name> add ./miopiik-dsh-0.1.2.tgz
+```
+
+- **验证**：`npm test`（148 项）、`npm run check`、`npm run build:check`、`npm run icon:check`。
+
 ## miopiik-dsh 0.1.1 — stable
 
 **状态**：stable（可独立打包与安装）。

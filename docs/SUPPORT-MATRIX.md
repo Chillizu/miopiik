@@ -5,7 +5,7 @@
 | 项 | miopiik-dsh (Agent) |
 |---|---|
 | 包类型 | 独立可安装的 DSH 插件包（host 侧 + web 客户端） |
-| 当前版本 | 0.1.1（stable） |
+| 当前版本 | 0.1.2（stable） |
 | 依赖另一个包 | 否：不依赖 `miopiik-iui`，可单装或与 IUI 同装 |
 | Tarball 安装 | 支持（`files` 含 `host/` 等全部运行时文件） |
 | 运行中 profile 安装 | 安装后需重启该 profile 的 DSH 进程生效 |

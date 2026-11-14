@@ -2,13 +2,13 @@
 
 <img src="icon.svg" width="96" alt="MiOpIIk icon">
 
-**Version 0.1.1**（stable） | [English](README.md) | 简体中文
+**Version 0.1.2**（stable） | [English](README.md) | 简体中文
 
 `MiOpIIk` = `Mi`(nd) + `Op`(erator) + `IIk`(ink)。
 
 `miopiik-dsh` 是 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness)（DSH）的 host 侧插件。它把 DSH Web 会话组织为三层结构：前台对话主干（`Mind`）、中间层账本与编译器（`Ink`）、后台执行层（`Operator`）。插件提供系统章程、受限工具面、append-only JSONL 账本、后台派发与界面 projection。
 
-**当前发布：** 0.1.1（stable）。请从 GitHub Release tarball、本地 `npm pack` 或本地 checkout 路径安装；本包未发布到 npm registry。
+**当前发布：** 0.1.2（stable）。请从 GitHub Release tarball、本地 `npm pack` 或本地 checkout 路径安装；本包未发布到 npm registry。
 
 ## 它是什么
 
@@ -33,7 +33,7 @@ MiOpIIk 将对话、记账与执行拆为三层，并把面向用户的发言权
 | | MiOpIIk Agent（`miopiik-dsh`） | MiOpIIk IUI（`miopiik-iui`） |
 |---|---|---|
 | 定位 | host 侧 agent：Mind / Ink / Operator | 纯表现层 |
-| 当前版本 | 0.1.1（stable） | 0.1.0-rc.4（prerelease） |
+| 当前版本 | 0.1.2（stable） | 0.1.0-rc.5（prerelease） |
 | 仓库 | https://github.com/Chillizu/miopiik | https://github.com/Chillizu/miopiik-iui |
 | 依赖另一个插件 | 否 | 否 |
 | 可单独安装 | 是 | 是 |
@@ -238,10 +238,10 @@ Ink 将结果编译为收件箱预览；Mind 用 `ink_inbox {"action": "open", "
 ### 从 GitHub Release 安装（推荐）
 
 1. 从
-   https://github.com/Chillizu/miopiik/releases/tag/miopiik-agent-v0.1.1
-   下载 `miopiik-dsh-0.1.1.tgz` 与 `SHA256SUMS.txt`。
+   https://github.com/Chillizu/miopiik/releases/tag/miopiik-agent-v0.1.2
+   下载 `miopiik-dsh-0.1.2.tgz` 与 `SHA256SUMS.txt`。
 2. 在下载目录执行 `sha256sum -c SHA256SUMS.txt` 校验。
-3. 执行 `dsh plugin --profile <profile> add ./miopiik-dsh-0.1.1.tgz` 安装到目标 profile。
+3. 执行 `dsh plugin --profile <profile> add ./miopiik-dsh-0.1.2.tgz` 安装到目标 profile。
 4. 重启提供该 profile 的 DSH 进程以加载 host 插件。
 
 ### 从本地 checkout 安装
@@ -252,7 +252,7 @@ Ink 将结果编译为收件箱预览；Mind 用 `ink_inbox {"action": "open", "
 git clone https://github.com/Chillizu/miopiik.git
 cd miopiik
 npm pack
-dsh plugin --profile <profile> add ./miopiik-dsh-0.1.1.tgz
+dsh plugin --profile <profile> add ./miopiik-dsh-0.1.2.tgz
 ```
 
 `npm pack` 仅在本地生成 tarball。
@@ -280,7 +280,7 @@ node tools/install-plugin.mjs --profile web --execute --allow-running-profile
 ### 回滚
 
 1. `dsh plugin --profile <profile> remove miopiik-dsh`
-2. `dsh plugin --profile <profile> add ./miopiik-dsh-0.1.1.tgz`
+2. `dsh plugin --profile <profile> add ./miopiik-dsh-0.1.2.tgz`
 3. 重启该 profile 的 DSH 进程。
 
 会话账本存放在工作区 `.dsh/miopiik/` 下，卸载、升级或回滚均不会修改账本文件。
