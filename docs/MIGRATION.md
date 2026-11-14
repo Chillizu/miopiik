@@ -50,8 +50,23 @@ split 后提交哈希会重写，原始哈希见来源仓库。随后把仓库�
   把旧七 Widget spec 映射成 `iui/1` AST 回放，历史会话不丢。
 - Agent 账本路径不变：workspace 下 `.dsh/miopiik/` 的 append-only JSONL，已安装环境不需要搬家。
 
+## 自托管：把已有 profile 从 monorepo 布局切到本仓库
+
+如果你之前是把 monorepo 的子目录 `link:` 进 DSH profile（而不是从 tarball 安装），
+拆分后需要把 profile 的指向切到独立仓库。两个插件都要切；IUI 侧还要重建 fork，
+步骤见独立仓库的 `docs/MIGRATION.md`。
+
+1. 备份 profile：`cp -a ~/.dsh/profiles/<profile> ~/.dsh/profiles/<profile>.bak`
+2. 改该 profile `package.json` 的依赖声明：
+   `"miopiik-dsh": "link:/path/to/miopiik-agent"`。
+3. 同步 `pnpm-lock.yaml`（或在该 profile 目录执行 `pnpm install`）。**只改软链不改锁文件，
+   下次安装会把链接改回旧路径**。
+4. 重建软链，或执行 `dsh plugin --profile <profile> add /path/to/miopiik-agent`。
+5. 确认该 profile 没有运行中的任务后重启 DSH，验证插件页、设置页与历史会话。
+6. 回滚：把软链与 `link:` 指回旧 monorepo 路径并重启；旧仓库不要删。
+
 ## 回滚
 
-拆分施工期间旧 monorepo 原样保留，未做破坏性改动；
-需要回滚时直接回到旧 monorepo 即可。本仓库的 `origin` 在施工阶段仍指向旧 monorepo 的本地路径，
-最终发布前由维护者改为 GitHub 远程。
+旧 monorepo 原样保留，未做破坏性改动。需要回滚时，把 profile 的 `link:` 与软链指回旧路径并重启即可。
+本仓库的 `origin` 已指向 GitHub（<https://github.com/Chillizu/miopiik>），`main` 已推送，
+`miopiik-agent-v0.1.1` Release 与旧资产继续有效；代码回滚可用旧 monorepo 的历史提交或旧 Release tarball。
