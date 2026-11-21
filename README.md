@@ -226,7 +226,7 @@ At the end of the day Mind saves a handoff briefing:
 | DSH baseline | 0.2.1-rc.5 (verified test and release baseline) |
 | Node | >= 23.6 (`package.json` `engines`) |
 | Runtime dependencies | None (zero third-party runtime dependencies) |
-| Browser side | `client.js` (`platform: "web"`): conversation view, right sidebar, plugin page (`plugins.bundle.config`), and settings page (`settings.plugins.tab`) |
+| Browser side | `client.js` (`platform: "web"`): conversation view, right sidebar, and plugin page (`plugins.bundle.config`, carrying the MiOpIIk overview and live-editable Host settings via the DSH settings service) |
 | Other platforms | Untested; requires DSH Web services (`tools`, `systemPrompt`, `sessionProjections`, `subagents`, `userQuestions`, `compaction`) |
 
 See [docs/SUPPORT-MATRIX.md](docs/SUPPORT-MATRIX.md) for the full compatibility matrix.

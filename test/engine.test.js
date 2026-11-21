@@ -647,3 +647,64 @@ test('鱼骨图数据：只有分叉/汇回/任务产生事件，节点带可展
     await ctx.cleanup()
   }
 })
+
+test('对话编译静默落账：applyConversationCompile 直接写事实与开环、标记疑似已解、记 absorb 笔记且不占收件箱', async () => {
+  const ctx = await fixture()
+  try {
+    const existingLoop = await ctx.engine.addLoop({ text: '是否默认继承会话模型', type: 'pending-option' })
+    const oldFact = await ctx.engine.addFact({ claim: '模型必须手动配置', provenance: ['U-1'], source: 'ink' })
+
+    const note = await ctx.engine.applyConversationCompile({
+      claims: [
+        { claim: '模型默认继承会话，也可单独配置', refs: ['U-2'], conf: 'mid', supersedes: oldFact.id },
+      ],
+      loops: [
+        { type: 'promise', text: '补一份跨天恢复测试', pointer: 'U-3', closureCondition: '测试通过' },
+      ],
+      closedLoops: [existingLoop.id],
+      question: '',
+    })
+
+    assert.equal(note.kind, 'absorb')
+    assert.equal(note.why, 'compile:conversation')
+    assert.equal(ctx.engine.inboxView({ all: true }).previews.length, 0, '静默落账不产生未读收件箱预览')
+
+    const facts = ctx.engine.listFacts()
+    assert.equal(facts.length, 1, '旧事实被取代失效，新事实落账')
+    assert.equal(facts[0].claim, '模型默认继承会话，也可单独配置')
+    assert.equal(facts[0].source, 'ink')
+
+    const activeLoopList = ctx.engine.listLoops().filter((l) => l.status === 'active')
+    assert.equal(activeLoopList.length, 2)
+    assert.equal(ctx.engine.state.loops.get(existingLoop.id).suggestedClose, true, '仅标疑似已解，不越权闭合')
+
+    const l3 = ctx.engine.l3Text()
+    assert.match(l3, /（Ink 提示：看似已解）/)
+    assert.match(l3, /已定结论：\[F-2\] 模型默认继承会话，也可单独配置/)
+  } finally {
+    await ctx.cleanup()
+  }
+})
+
+test('收工告别最后一轮悖论：道别回合当场生成今日盘外素材，不锁死队列', async () => {
+  const ctx = await fixture()
+  try {
+    ctx.engine.observe({ type: 'turn/start', data: { turn: 1 } })
+    ctx.engine.observe({
+      type: 'user/message',
+      data: { turn: 1, source: { kind: 'user' }, content: [{ type: 'text', text: '先这样，我去睡了' }] },
+    })
+    ctx.engine.observe({
+      type: 'assistant/message',
+      data: { turn: 1, message: { content: [{ type: 'text', text: '晚安，明天继续' }] } },
+    })
+    ctx.engine.observe({ type: 'turn/end', data: { turn: 1 } })
+    await ctx.engine.queue
+
+    const materials = ctx.engine.state.briefings.find((record) => record.kind === 'auto-materials')
+    assert.ok(materials !== undefined, '道别回合结束时应立即备好盘外素材')
+    assert.match(materials.progress, /晚安，明天继续/)
+  } finally {
+    await ctx.cleanup()
+  }
+})

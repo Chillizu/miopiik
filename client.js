@@ -1399,42 +1399,23 @@ window.__ModuleLoader__.load({
     }
 
 
-    // 官方插件管理页只声明 plugins.bundle.config 一个配置 slot；页面内的
-    // 「介绍 / 配置」是它自己的二级导航，不冒充额外 slot，也不写入任何文件。
-    const MIO_PLUGIN_VERSION = '0.1.2'
+    // 官方插件管理页只声明 plugins.bundle.config 一个配置 slot；MiOpIIk 的
+    // 介绍与配置都收在这一个 slot 里：上面一句话介绍，下面 4 个真实生效的控件。
+    // 控件数据来自 DSH settings 服务（configForms.get('miopiik-dsh')），保存走
+    // mutate → Host 落盘 profile patch 层 → volatile 引用原位更新，免重启生效。
+    const MIO_PLUGIN_ENTRY = 'miopiik-dsh'
 
-    // 可调项（与 host/config-defaults.js 的 DEFAULTS 保持一致；test/settings.test.js 会校验漂移）
-    const KNOBS = [
-      ['stateRoot', '账本目录（相对工作区）', '.dsh/miopiik'],
-      ['activeLoopCap', '活跃开环上限', 12],
-      ['dormantAfterDays', '几天没被碰到就休眠', 2],
-      ['foldedAfterDays', '几天后折成一行', 7],
-      ['draftExpireDays', '草稿几天没人碰自动丢弃', 7],
-      ['briefingMaxChars', '简报字数上限', 1800],
-      ['inboxPreviewChars', '每轮预览总字数上限', 220],
-      ['detailInlineMaxChars', '多长的详情转成指针', 1200],
-      ['inkTailLimit', '中间层上下文尾部条数', 24],
-      ['inkHeadMaxChars', '中间层头部上限（字）', 2000],
-      ['operatorTimeoutMs', 'Operator 超时（毫秒）', 1200000],
-      ['operatorStallMs', '多久没新观测算卡住（毫秒）', 360000],
-      ['inkModel', 'Ink 编译模型（空=跟随会话）', null],
-      ['conversationCompile', '对话编译（回合后产候选）', true],
+    // 4 个实时生效的配置项；键与 host/config-defaults.js 的 VOLATILE_KEYS 一致，
+    // test/settings.test.js 会校验两边不漂移。
+    const MIO_FIELDS = [
+      ['conversationCompile', '回合结束静默提炼结论与未结事项', 'checkbox'],
+      ['operatorModel', 'Operator 派发模型（provider/model；留空跟随会话）', 'text'],
+      ['activeLoopCap', '活跃未结事项上限', 'number'],
+      ['operatorTimeoutMs', 'Operator 任务超时阈值（毫秒）', 'number'],
     ]
 
-    // Host 参数的归属分组；配置页按这三组列出内置默认值。
-    const MIO_GROUPS = [
-      ['mind', 'Mind · 对话', ['conversationCompile', 'briefingMaxChars', 'inboxPreviewChars', 'detailInlineMaxChars']],
-      ['ink', 'Ink · 状态', ['stateRoot', 'activeLoopCap', 'dormantAfterDays', 'foldedAfterDays', 'draftExpireDays', 'inkTailLimit', 'inkHeadMaxChars', 'inkModel']],
-      ['operator', 'Operator · 执行', ['operatorTimeoutMs', 'operatorStallMs']],
-    ]
-    const MIO_EXAMPLE = [
-      '# ~/.dsh/profiles/<profile>/cordis.patch.yml',
-      '- id: miopiik-dsh',
-      '  config:',
-      '    stateRoot: .dsh/miopiik',
-      '    activeLoopCap: 12',
-      '    conversationCompile: true',
-    ].join('\n')
+    const MIO_INTRO =
+      'MiOpIIk 把状态记账与后台执行从对话中解耦：Mind 只负责与你交流，Ink 在回合边界静默提炼结论与未结事项，Operator 按契约在后台推进长耗时任务。'
 
     // 页面只使用 DSH 的设计 token，浅色/深色由主题决定；没有品牌渐变和大卡片。
     const MIO_PAGE = {
@@ -1443,6 +1424,8 @@ window.__ModuleLoader__.load({
         width: '100%', minWidth: 0, boxSizing: 'border-box',
         color: 'var(--dsw-alias-label-primary)',
       },
+      // 上下两大块（介绍 / 配置）各自的容器，块内节奏与根一致。
+      part: { display: 'flex', flexDirection: 'column', gap: 24, minWidth: 0 },
       section: { display: 'flex', flexDirection: 'column', gap: 10, minWidth: 0 },
       title: { margin: 0, fontSize: 14, fontWeight: 500, lineHeight: '20px' },
       body: {
@@ -1455,7 +1438,7 @@ window.__ModuleLoader__.load({
       },
       list: { margin: 0, padding: 0, listStyle: 'none', display: 'flex', flexDirection: 'column', minWidth: 0 },
       item: {
-        display: 'flex', alignItems: 'baseline', justifyContent: 'space-between',
+        display: 'flex', alignItems: 'center', justifyContent: 'space-between',
         gap: 8, flexWrap: 'wrap', padding: '9px 2px', minWidth: 0,
         borderTop: '.5px solid var(--dsw-alias-border-l2)',
       },
@@ -1466,19 +1449,20 @@ window.__ModuleLoader__.load({
         fontSize: 11.5, lineHeight: '16px', color: 'var(--dsw-alias-label-tertiary)',
         overflowWrap: 'anywhere',
       },
-      itemValue: {
-        flex: '0 1 auto', margin: 0, textAlign: 'right', overflowWrap: 'anywhere',
-        fontVariantNumeric: 'tabular-nums', fontSize: 12.5, lineHeight: '18px',
-        color: 'var(--dsw-alias-label-secondary)',
+      badge: {
+        alignSelf: 'flex-start', flex: 'none',
+        border: '.5px solid var(--dsw-alias-border-l2)', borderRadius: 6,
+        padding: '0 6px', fontSize: 11, lineHeight: '16px',
+        color: 'var(--dsw-alias-label-tertiary)',
       },
-      pre: {
-        margin: 0, padding: '12px 14px', maxWidth: '100%', overflowX: 'auto',
-        border: '.5px solid var(--dsw-alias-border-l1)',
-        borderRadius: 'var(--dsw-radius-md)',
-        background: 'var(--dsw-alias-bg-module-platform)',
-        fontFamily: 'var(--ds-font-family-code, var(--dsw-font-mono, ui-monospace, SFMono-Regular, Menlo, monospace))',
-        fontSize: 12, lineHeight: '18px', color: 'var(--dsw-alias-label-primary)',
+      fieldControls: { display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' },
+      input: {
+        height: 28, padding: '0 8px', minWidth: 160, maxWidth: '100%',
+        border: '.5px solid var(--dsw-alias-border-l4)', borderRadius: 'var(--dsw-radius-md)',
+        background: 'transparent', color: 'var(--dsw-alias-label-primary)',
+        font: 'inherit', fontSize: 12.5,
       },
+      checkbox: { width: 16, height: 16, margin: 0, accentColor: 'var(--dsw-alias-brand-primary)' },
       actions: { display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' },
     }
 
@@ -1492,169 +1476,207 @@ window.__ModuleLoader__.load({
     }
     const MioButton = MIO_PRIMITIVES?.Button
 
-    function MioActionButton({ onClick, children }) {
-      if (MioButton) return h(MioButton, { variant: 'outline', size: 'sm', onClick }, children)
+    function MioActionButton({ onClick, disabled = false, children }) {
+      if (MioButton) return h(MioButton, { variant: 'outline', size: 'sm', onClick, disabled }, children)
       return h(
         'button',
         {
           type: 'button',
           onClick,
+          disabled,
           style: {
             height: 28, padding: '0 10px',
             border: '.5px solid var(--dsw-alias-border-l4)',
             borderRadius: 'var(--dsw-radius-md)', background: 'transparent',
-            color: 'var(--dsw-alias-label-secondary)', font: 'inherit', fontSize: 12.5, cursor: 'pointer',
+            color: 'var(--dsw-alias-label-secondary)', font: 'inherit', fontSize: 12.5,
+            cursor: disabled ? 'default' : 'pointer', opacity: disabled ? 0.6 : 1,
           },
         },
         children,
       )
     }
 
-    const MIO_LAYERS = [
-      ['Mind', '对话主干', '唯一面向用户的角色：讨论、权衡、推进对话；开环的闭合与对外提交都只由它发起。'],
-      ['Ink', '中间层', '退在幕后的外置记忆与编译器：记账、提炼事实与开环、整理收件箱，并在跨话题或跨天时折叠。它不直接对用户说话。'],
-      ['Operator', '后台执行', '只拿切好的鱼骨分支切片与完整契约去干活，通过 ink_report 交回结论或失败原因，不在对话里露面。'],
-    ]
-    const MIO_FACTS = [
-      ['版本', MIO_PLUGIN_VERSION],
-      ['Host 包', 'miopiik-dsh'],
-      ['职责', 'Mind · Ink · Operator'],
-      ['账本', '工作区下的 .dsh/miopiik（默认）'],
-      ['与 IUI 的关系', '独立插件 miopiik-iui；本插件不注册聊天渲染，IUI 也不依赖 Mind/Ink/Operator'],
-    ]
+    // settings 服务接入的落点：formStore 里是 configForms.get('miopiik-dsh')
+    // 返回的 form（snapshot/subscribe/mutate），没有该服务时为 null。
+    const formStore = createStore(null)
 
-    // 插件页只做说明：这是什么、怎么分层、和谁独立。配置在设置页。
-    function MioPluginPage() {
+    function MioFieldRow({ field, value, overridden, disabled, onChange, onReset }) {
+      const [key, label, kind] = field
+      const common = { 'data-miopiik-input': key, disabled, onChange }
+      const control =
+        kind === 'checkbox'
+          ? h('input', {
+              ...common,
+              type: 'checkbox',
+              checked: value === true,
+              style: MIO_PAGE.checkbox,
+            })
+          : h('input', {
+              ...common,
+              type: kind === 'number' ? 'number' : 'text',
+              value: value === undefined || value === null ? '' : String(value),
+              placeholder: kind === 'text' ? '留空跟随会话' : undefined,
+              style: MIO_PAGE.input,
+            })
       return h(
         'div',
-        { 'data-miopiik-settings': '1', 'data-miopiik-overview': '1', style: MIO_PAGE.root },
-        h(
-          'section',
-          { style: MIO_PAGE.section },
-          h(
-            'p',
-            { style: MIO_PAGE.body },
-            'MiOpIIk 把「对话、记账、干活」拆成三层，并且只给 Mind 发言权。前台是一串连续的对话回合，后台是一串异步执行任务，中间的 Ink 负责把两边的账对齐。',
-          ),
-          h(
-            'div',
-            { 'data-miopiik-architecture': '1', style: MIO_PAGE.list },
-            MIO_LAYERS.map(([name, role, description], index) =>
-              h(
-                'div',
-                { key: name, style: { ...MIO_PAGE.item, alignItems: 'flex-start', borderTop: index === 0 ? 0 : MIO_PAGE.item.borderTop } },
-                h(
-                  'div',
-                  { style: MIO_PAGE.itemMain },
-                  h(
-                    'div',
-                    null,
-                    h('span', { style: MIO_PAGE.itemLabel }, name),
-                    h('span', { style: { ...MIO_PAGE.hint, marginLeft: 8 } }, role),
-                  ),
-                  h(
-                    'div',
-                    { style: { fontSize: 12.5, lineHeight: '18px', color: 'var(--dsw-alias-label-secondary)', overflowWrap: 'anywhere' } },
-                    description,
-                  ),
-                ),
-              ),
-            ),
-          ),
-        ),
-        h(
-          'section',
-          { style: MIO_PAGE.section },
-          h('h3', { style: MIO_PAGE.title }, '这个插件'),
-          h(
-            'dl',
-            { style: MIO_PAGE.list },
-            MIO_FACTS.map(([label, value], index) =>
-              h(
-                'div',
-                { key: label, style: { ...MIO_PAGE.item, borderTop: index === 0 ? 0 : MIO_PAGE.item.borderTop } },
-                h('dt', { style: { ...MIO_PAGE.itemLabel, flex: 'none' } }, label),
-                h('dd', { style: MIO_PAGE.itemValue }, value),
-              ),
-            ),
-          ),
-        ),
-        h('p', { style: MIO_PAGE.hint }, 'Host 参数的内置默认值、覆盖方式与复制示例在「设置 → 内置插件 → MiOpIIk Agent」；本页只做说明。'),
-      )
-    }
-
-    function MioKnobRow({ knob, index }) {
-      const [key, label, value] = knob
-      const display = value === null ? '跟随会话' : typeof value === 'boolean' ? (value ? 'true' : 'false') : String(value)
-      return h(
-        'div',
-        { key, style: { ...MIO_PAGE.item, borderTop: index === 0 ? 0 : MIO_PAGE.item.borderTop } },
+        { 'data-miopiik-field': key, style: MIO_PAGE.item },
         h(
           'div',
           { style: MIO_PAGE.itemMain },
           h('span', { style: MIO_PAGE.itemLabel }, label),
           h('code', { style: MIO_PAGE.itemKey }, key),
+          overridden ? h('span', { 'data-miopiik-overridden': key, style: MIO_PAGE.badge }, '已覆盖') : null,
         ),
-        h('span', { 'data-miopiik-default': key, style: MIO_PAGE.itemValue }, display),
+        h(
+          'div',
+          { style: MIO_PAGE.fieldControls },
+          control,
+          overridden && !disabled ? h(MioActionButton, { onClick: onReset }, '恢复默认') : null,
+        ),
       )
     }
 
-    // 设置 → 内置插件：Host 参数的只读默认值、覆盖方式与复制示例。
-    function MioSettingsPanel() {
-      const [copyStatus, setCopyStatus] = React.useState('')
-      const copy = async () => {
+    // 插件页一个面说完：上面一句话介绍（是什么），下面 4 个真实控件（改了就生效）。
+    // hook 次数不随 form 在场与否变化：无服务时挂空订阅，读取保持稳定。
+    const MIO_NULL_SUBSCRIBE = () => () => {}
+    const MIO_NULL_SNAPSHOT = () => null
+
+    function MioPluginPage() {
+      const form = useStore(formStore)
+      const snap = React.useSyncExternalStore(
+        form === null ? MIO_NULL_SUBSCRIBE : form.subscribe,
+        form === null ? MIO_NULL_SNAPSHOT : form.getSnapshot,
+      )
+      const [edits, setEdits] = React.useState({})
+      const [saving, setSaving] = React.useState(false)
+      const [statusLine, setStatusLine] = React.useState('')
+
+      const ready = snap?.status === 'ready'
+      const hasEdit = (key) => Object.prototype.hasOwnProperty.call(edits, key)
+      const valueOf = (key) => (hasEdit(key) ? edits[key] : ready ? snap.value?.[key] : undefined)
+      const overridden = (key) =>
+        ready && snap.user !== null && typeof snap.user === 'object' && Object.prototype.hasOwnProperty.call(snap.user, key)
+      const invalidNumber = MIO_FIELDS.some(([key, , kind]) => kind === 'number' && hasEdit(key) && !Number.isFinite(Number(edits[key])))
+      const dirty = Object.keys(edits).length > 0
+      const writable = snap?.writable === true
+
+      const edit = (key, value) => setEdits((prev) => ({ ...prev, [key]: value }))
+
+      const save = async () => {
+        if (form === null || !writable || saving || invalidNumber || !dirty) return
+        const ops = []
+        for (const [key, , kind] of MIO_FIELDS) {
+          if (!hasEdit(key)) continue
+          if (kind === 'number') {
+            const parsed = Number(edits[key])
+            if (Number.isFinite(parsed)) ops.push({ op: 'set', path: [key], value: parsed })
+          } else if (kind === 'checkbox') {
+            ops.push({ op: 'set', path: [key], value: edits[key] === true })
+          } else {
+            const text = String(edits[key] ?? '').trim()
+            ops.push(text === '' ? { op: 'unset', path: [key] } : { op: 'set', path: [key], value: text })
+          }
+        }
+        if (ops.length === 0) return
+        setSaving(true)
         try {
-          if (!globalThis.navigator?.clipboard?.writeText) throw new Error('clipboard unavailable')
-          await globalThis.navigator.clipboard.writeText(MIO_EXAMPLE)
-          setCopyStatus('已复制')
-        } catch {
-          setCopyStatus('复制不可用，请手动选择下方文本')
+          const accepted = await form.mutate(ops, snap.revision)
+          if (accepted) {
+            setEdits({})
+            setStatusLine('已保存，即时生效')
+          } else {
+            setStatusLine('保存被拒绝，配置已刷新为当前值')
+          }
+        } catch (error) {
+          setStatusLine(`保存失败：${String(error?.message ?? error).slice(0, 80)}`)
+        } finally {
+          setSaving(false)
         }
       }
-      return h(
-        'div',
-        { 'data-miopiik-settings': '1', 'data-miopiik-configuration': '1', style: MIO_PAGE.root },
-        h(
+
+      const resetEdits = () => {
+        setEdits({})
+        setStatusLine('')
+      }
+
+      const resetField = async (key) => {
+        if (form === null || !writable || saving) return
+        setSaving(true)
+        try {
+          const accepted = await form.mutate([{ op: 'unset', path: [key] }], snap.revision)
+          if (accepted) {
+            // 撤掉该字段的本地草稿（真删除，不留 undefined 占位），显示回折后的当前值。
+            setEdits((prev) => {
+              const next = { ...prev }
+              delete next[key]
+              return next
+            })
+          }
+          setStatusLine(accepted ? '已恢复默认值' : '恢复被拒绝，配置已刷新为当前值')
+        } catch (error) {
+          setStatusLine(`恢复默认失败：${String(error?.message ?? error).slice(0, 80)}`)
+        } finally {
+          setSaving(false)
+        }
+      }
+
+      let configuration
+      if (form === null) {
+        configuration = h('p', { style: MIO_PAGE.hint }, '此部署未提供 DSH 设置服务（configForms），无法实时读写配置。')
+      } else if (!ready) {
+        configuration = h(
           'p',
-          { style: MIO_PAGE.body },
-          '下面是 Host 参数的内置默认值，不是当前实际运行值。实际生效值以 DSH profile 的 cordis.patch.yml（以及更高层覆盖）为准；本页面只读，不写入任何文件。',
-        ),
-        ...MIO_GROUPS.map(([id, title, keys]) =>
-          h(
-            'section',
-            { key: id, 'data-miopiik-group': id, style: MIO_PAGE.section },
-            h('h3', { style: MIO_PAGE.title }, title),
-            h(
-              'div',
-              { style: MIO_PAGE.list },
-              keys.map((key, index) => {
-                const knob = KNOBS.find((entry) => entry[0] === key)
-                return knob === undefined ? null : h(MioKnobRow, { key, knob, index })
-              }),
-            ),
-          ),
-        ),
-        h(
-          'section',
+          { style: MIO_PAGE.hint },
+          snap?.status === 'unavailable'
+            ? '当前部署未暴露 miopiik-dsh 的配置命名空间。'
+            : '正在读取当前配置…',
+        )
+      } else {
+        configuration = h(
+          'div',
           { style: MIO_PAGE.section },
-          h('h3', { style: MIO_PAGE.title }, '覆盖配置'),
+          h('p', { style: MIO_PAGE.hint }, '以下改动经 DSH 设置服务实时读写，保存后免重启生效。'),
           h(
-            'p',
-            { style: MIO_PAGE.hint },
-            '写入 profile 的 cordis.patch.yml；patch 会整体替换该条目的 config，未写出的字段回落到内置默认值。修改需 DSH 重新加载后生效。',
+            'div',
+            { style: MIO_PAGE.list },
+            MIO_FIELDS.map((field) => {
+              const [key, , kind] = field
+              return h(MioFieldRow, {
+                key,
+                field,
+                value: valueOf(key),
+                overridden: overridden(key),
+                disabled: saving || !writable,
+                onChange: (event) =>
+                  edit(key, kind === 'checkbox' ? event?.target?.checked === true : (event?.target?.value ?? '')),
+                onReset: () => resetField(key),
+              })
+            }),
           ),
-          h('pre', { 'data-miopiik-config-example': '1', style: MIO_PAGE.pre }, MIO_EXAMPLE),
           h(
             'div',
             { style: MIO_PAGE.actions },
-            h(MioActionButton, { onClick: copy }, '复制示例'),
-            h('span', { role: 'status', 'data-miopiik-copy-status': '1', style: MIO_PAGE.hint }, copyStatus),
+            h(
+              MioActionButton,
+              { onClick: save, disabled: saving || !writable || !dirty || invalidNumber },
+              saving ? '保存中…' : '保存',
+            ),
+            h(MioActionButton, { onClick: resetEdits, disabled: saving || !dirty }, '重置'),
+            statusLine === ''
+              ? null
+              : h('span', { role: 'status', 'data-miopiik-form-status': '1', style: MIO_PAGE.hint }, statusLine),
           ),
-        ),
+        )
+      }
+
+      return h(
+        'div',
+        { 'data-miopiik-settings': '1', style: MIO_PAGE.root },
+        h('div', { 'data-miopiik-overview': '1', style: MIO_PAGE.part }, h('p', { style: MIO_PAGE.body }, MIO_INTRO)),
+        h('div', { 'data-miopiik-configuration': '1', style: MIO_PAGE.part }, configuration),
       )
     }
-
-
 
     const zh = {
       'presence.label': '后台任务',
@@ -1668,23 +1690,10 @@ window.__ModuleLoader__.load({
       'tab.drafts': '草稿',
       'tab.letter': '交接记录',
       'view.miopiik': 'MiOpIIk',
-      'settings.tab': 'MiOpIIk Agent',
       'tab.graph': '鱼骨',
       'tab.list': '清单',
       'tab.stream': '流水',
       'tab.context': '所见',
-      'dsl.title': '实验性 IUI（预览）',
-      'dsl.on': '开',
-      'dsl.off': '关',
-      'dsl.hint': '默认关闭。这是实验入口：DSL 在本地编译成受校验的 AST，只渲染已知组件，不执行任何模型给的脚本或样式；关闭后不影响正常聊天。',
-      'dsl.compile': '编译预览',
-      'dsl.sampleChart': '示例：图表 + 说明',
-      'dsl.sampleCompare': '示例：组合两块',
-      'dsl.sampleBroken': '示例：坏样例',
-      'inline.title': '展示',
-      'inline.preparing': '正在准备展示…',
-      'inline.pending': '这一条不是展示指令。',
-      'view.empty': '还没有展示内容。让我画点东西时会出现在这里。',
       'ctx.head': '折叠头部',
       'ctx.tail': '尾部',
       'ctx.candidates': '对话编译候选',
@@ -1767,18 +1776,6 @@ window.__ModuleLoader__.load({
       'tab.list': 'List',
       'tab.stream': 'Stream',
       'tab.context': 'Seen',
-      'dsl.title': 'Experimental IUI (preview)',
-      'dsl.on': 'on',
-      'dsl.off': 'off',
-      'dsl.hint': 'Off by default. Local compile to a validated AST; only known components render, no model-supplied scripts or styles. Normal chat is unaffected when off.',
-      'dsl.compile': 'Compile preview',
-      'dsl.sampleChart': 'Sample: chart + prose',
-      'dsl.sampleCompare': 'Sample: two blocks',
-      'dsl.sampleBroken': 'Sample: broken input',
-      'inline.title': 'View',
-      'inline.preparing': 'Preparing…',
-      'inline.pending': 'Not a view command.',
-      'view.empty': 'Nothing shown yet.',
       'ctx.head': 'Folded head',
       'ctx.tail': 'Tail',
       'ctx.candidates': 'Conversation candidates',
@@ -1799,7 +1796,6 @@ window.__ModuleLoader__.load({
       'tab.drafts': 'Drafts',
       'tab.letter': 'Handoff record',
       'view.miopiik': 'MiOpIIk',
-      'settings.tab': 'MiOpIIk Agent',
       'tab.graph': '鱼骨',
       'tab.list': '清单',
       'tab.stream': '流水',
@@ -1883,25 +1879,35 @@ window.__ModuleLoader__.load({
         t = ctx.locale.bind(NS)
 
 
-        // 两个面各归其位：插件页只说明这个插件是什么；真正的配置入口在
-        // 「设置 → 内置插件」，和其它插件设置放在同一个地方。
+        // 插件页是唯一说明面：介绍与配置都收在这一个 slot 里，
+        // 不在「设置 → 内置插件」里占坑。
         ctx.slots.inject('plugins.bundle.config', () =>
           ctx.slots.register(
             { name: 'plugins.bundle.config', key: 'miopiik-dsh' },
             () => h(MioPluginPage),
           ),
         )
-        ctx.slots.inject('settings.plugins.tab', () =>
-          ctx.slots.register(
-            {
-              name: 'settings.plugins.tab',
-              id: 'miopiik-dsh',
-              order: 30,
-              label: () => t('settings.tab'),
-            },
-            () => h(MioSettingsPanel),
-          ),
-        )
+
+        // 配置页的数据面：settings 服务在位时接入 configForms（snapshot/subscribe/mutate）。
+        // 包一层稳定闭包（不依赖 this、函数身份不随渲染变化），没有该服务的部署
+        // 照常装载本插件，页面退回为一条静态提示。
+        ctx.inject(['configForms'], (scope) => {
+          try {
+            const raw = scope?.configForms?.get?.(MIO_PLUGIN_ENTRY) ?? null
+            formStore.set(
+              raw === null
+                ? null
+                : {
+                    subscribe: (listener) => raw.subscribe(listener),
+                    getSnapshot: () => raw.getSnapshot(),
+                    mutate: (ops, revision) => raw.mutate(ops, revision),
+                  },
+            )
+          } catch {
+            formStore.set(null)
+          }
+          return () => formStore.set(null)
+        })
 
         // 右栏常驻面板：Ink 的视角。类型注册 + 正文席位 + 控制器引用（按钮用它 openTab）。
         ctx.inject(['sidebarRightTabs'], (inner) => {

@@ -22,6 +22,10 @@ import { registerBackstageCommand } from './host/commands.js'
 import { DEFAULTS } from './host/config-defaults.js'
 import { registerTools } from './host/tools.js'
 
+// cordis 读模块的 Config 导出做配置校验（runtime.Config）；DSH settings 服务
+// 由此自动识别 4 个 volatile 字段，改 cordis.patch.yml 后免重启热生效。
+export { Config } from './host/config-defaults.js'
+
 /** Host 依赖：工具注册是必须的；其余通过 ctx.get 取，缺了也不让插件装不上。 */
 export const inject = ['tools']
 
@@ -169,12 +173,15 @@ export function apply(ctx, config) {
   registerBackstageCommand(ctx, engines)
 
   // 跨插件服务要走 ctx.inject（直接 ctx.get 在没声明依赖时拿不到）。
-  const services = { compaction: null }
+  const services = { compaction: null, subagentModelSelection: null }
   ctx.inject(['compaction'], (scope) => {
     services.compaction = scope.compaction ?? null
   })
+  ctx.inject(['subagentModelSelection'], (scope) => {
+    services.subagentModelSelection = scope.subagentModelSelection ?? null
+  })
 
-  const operator = createOperator({ ctx, engines, config, warn })
+  const operator = createOperator({ ctx, engines, config, warn, services })
   registerTools(ctx, engines, operator, services)
   registerPrompt(ctx, engines)
 }

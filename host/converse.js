@@ -19,11 +19,12 @@ export const LOOP_TYPES = Object.freeze([
   'forming-intent',
 ])
 
-const CONVERSATION_SYSTEM = `You are Ink, the middle layer of MiOpIIk. You are given your own continuous context: the recent dialogue between Mind (the conversational agent) and the user, pushed into it as it happens. You never talk to the user. Your job is to distill what this stretch of conversation actually produced, so Mind can decide whether to record it.
+const CONVERSATION_SYSTEM = `You are Ink, the middle layer of MiOpIIk. You are given your own continuous context: the recent dialogue between Mind (the conversational agent) and the user, pushed into it as it happens. You never talk to the user. Your job is to distill what this stretch of conversation actually produced, so it can be recorded in the ledger without interrupting the conversation.
 
 Output STRICT JSON only, no prose, no markdown fences:
 {"claims":[{"claim":"<=60 chars","refs":["U-n"],"conf":"low"|"mid"|"high","supersedes":"F-n or empty"}],
 "loops":[{"type":"unanswered-question"|"awaiting-user"|"pending-option"|"promise"|"pending-dispatch"|"forming-intent","text":"one sentence","refs":["U-n"],"closureCondition":"what would close it"}],
+"closedLoops":["L-n"],
 "question":"one question Mind can ask the user, in the language of the conversation"}
 
 Rules:
@@ -32,10 +33,11 @@ Rules:
 - A claim must be a conclusion that would change future judgment ("X is the case because Y"), not a summary of what was discussed, and not raw material.
 - Maximum 3 claims and 3 loops. Fewer is better. If nothing solid, return empty arrays.
 - Loops are things still hanging between the user and Mind: an unanswered question, something waiting for the user, an open option, a promise, a draft pending approval, a half-formed intent.
+- closedLoops lists ids ("L-n") of existing Active loops that appear answered or resolved in this stretch of dialogue.
 - Write claim/text in the language of the conversation.`
 
 /** 从模型输出里抽 JSON（容忍代码围栏与前后废话）。 */
-export function parseConversationOutput(text, utterances = []) {
+export function parseConversationOutput(text, utterances = [], activeLoops = []) {
   if (typeof text !== 'string' || text.trim() === '') return null
   const cleaned = text.replace(/```[a-zA-Z]*/gu, '```')
   const start = cleaned.indexOf('{')
@@ -88,15 +90,30 @@ export function parseConversationOutput(text, utterances = []) {
     if (loops.length >= 3) break
   }
 
-  if (claims.length === 0 && loops.length === 0) return null
+  const knownLoopIds = new Set(
+    (Array.isArray(activeLoops) ? activeLoops : [])
+      .map((entry) => (typeof entry === 'string' ? entry : entry?.id))
+      .filter((id) => typeof id === 'string' && /^L-\d+$/u.test(id)),
+  )
+  const closedLoops = []
+  for (const raw of Array.isArray(data.closedLoops) ? data.closedLoops : []) {
+    const id = typeof raw === 'string' ? raw.trim() : typeof raw?.id === 'string' ? raw.id.trim() : ''
+    if (!/^L-\d+$/u.test(id)) continue
+    if (knownLoopIds.size > 0 && !knownLoopIds.has(id)) continue
+    if (closedLoops.includes(id)) continue
+    closedLoops.push(id)
+  }
+
+  if (claims.length === 0 && loops.length === 0 && closedLoops.length === 0) return null
   const question = typeof data.question === 'string' && data.question.trim() !== '' ? data.question.trim() : ''
-  return { claims, loops, question }
+  return { claims, loops, closedLoops, question }
 }
 
 /** 把候选组装成一条 note 输入（交给 engine.deliverNote）。 */
 export function buildCandidateNote(parsed) {
   const claims = parsed?.claims ?? []
   const loops = parsed?.loops ?? []
+  const closedLoops = parsed?.closedLoops ?? []
   const parts = []
   if (claims.length > 0) {
     parts.push('## 候选结论')
@@ -110,15 +127,21 @@ export function buildCandidateNote(parsed) {
       parts.push(`- [${entry.type}] ${entry.text}（出处 ${entry.pointer}${entry.closureCondition === '' ? '' : `；闭合条件：${entry.closureCondition}`}）`)
     }
   }
-  const refs = [...new Set([...claims.flatMap((entry) => entry.refs), ...loops.map((entry) => entry.pointer)])]
+  if (closedLoops.length > 0) {
+    parts.push('', '## 疑似已解开环')
+    for (const loopId of closedLoops) {
+      parts.push(`- ${loopId}`)
+    }
+  }
+  const refs = [...new Set([...claims.flatMap((entry) => entry.refs), ...loops.map((entry) => entry.pointer), ...closedLoops])]
   return {
     kind: 'preview',
     why: 'compile:conversation',
     claim: `这段里像是有 ${claims.length} 条结论、${loops.length} 条悬着的话`,
-    question: parsed.question !== '' ? parsed.question : '要不要把这几条记为已定结论？',
+    question: (parsed?.question ?? '') !== '' ? parsed.question : '要不要把这几条记为已定结论？',
     conf: 'low',
     refs,
-    loops: [],
+    loops: [...closedLoops],
     branch: null,
     newConclusion: true,
     detail: parts.join('\n'),
@@ -195,11 +218,11 @@ export async function compileConversation({ ctx, engine, config, warn, utterance
     onSkip?.(reason)
     return null
   }
-  let parsed = parseConversationOutput(output, utterances)
+  let parsed = parseConversationOutput(output, utterances, loops)
   if (parsed === null) {
     try {
       output = await ask('上一次的输出不是可直接解析的 JSON。只输出那一个 JSON 对象，不要任何其他文字。')
-      parsed = parseConversationOutput(output, utterances)
+      parsed = parseConversationOutput(output, utterances, loops)
     } catch (error) {
       onSkip?.(`retry:${String(error?.message ?? error).slice(0, 60)}`)
       return null

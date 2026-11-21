@@ -244,6 +244,14 @@ export function registerTools(ctx, engines, operator, services = {}) {
             type: 'string',
             description: 'Fishbone branch label: which conversation thread this work grew out of. Reuses an open branch with the same label, otherwise forks a new one at the current turn.',
           },
+          model: {
+            type: 'string',
+            description: 'Optional model route for the Operator (e.g. "opencode-go/glm-5.3" or model id).',
+          },
+          provider: {
+            type: 'string',
+            description: 'Optional LLM provider id when model is not in provider/model form.',
+          },
         },
         required: ['goal'],
         additionalProperties: false,

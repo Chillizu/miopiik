@@ -226,7 +226,7 @@ Ink 将结果编译为收件箱预览；Mind 用 `ink_inbox {"action": "open", "
 | DSH 基线 | 0.2.1-rc.5（测试与发布检查针对的版本） |
 | Node | >= 23.6（`package.json` 的 `engines`） |
 | 运行时依赖 | 无（零第三方运行时依赖） |
-| 浏览器侧 | `client.js`（`platform: "web"`）：接入会话视图、右侧栏、插件页（`plugins.bundle.config`）与设置页（`settings.plugins.tab`） |
+| 浏览器侧 | `client.js`（`platform: "web"`）：接入会话视图、右侧栏、插件页（`plugins.bundle.config`，承载一句话介绍与经 DSH 设置服务实时生效的 Host 配置控件） |
 | 其他平台 | 未验证；依赖 DSH Web 的 tools、system prompt、session projections、subagents、user questions、compaction 服务 |
 
 完整兼容说明见 `docs/SUPPORT-MATRIX.md`。

@@ -73,3 +73,16 @@ test('候选预览进收件箱是 T2（新结论），不是 T3', () => {
   }
   assert.equal(tierOf(item, { currentEpoch: 0, activeLoopIds: new Set() }), TIER.T2)
 })
+
+test('对话编译：解析 closedLoops 并按活跃开环清单过滤', () => {
+  const parsed = parseConversationOutput(
+    '{"claims":[],"loops":[],"closedLoops":["L-1","L-99","BAD"],"question":""}',
+    UTT,
+    [{ id: 'L-1' }, { id: 'L-2' }],
+  )
+  assert.ok(parsed !== null)
+  assert.deepEqual(parsed.closedLoops, ['L-1'])
+  const note = buildCandidateNote(parsed)
+  assert.deepEqual(validateNote(note), [])
+  assert.ok(note.refs.includes('L-1'))
+})

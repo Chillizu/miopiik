@@ -7,7 +7,7 @@
  */
 
 import { renderContractPrompt, renderDraftPrompt, validateContract, validateDraft } from './contract.js'
-import { DEFAULTS } from './config-defaults.js'
+import { DEFAULTS, readConfig } from './config-defaults.js'
 import { compileResult, fallbackPreview } from './compile.js'
 import { openCard, settleCard } from './taskboard.js'
 
@@ -21,9 +21,110 @@ export function shouldStall({ job, observedSeq, lastSeen, lastProgressAt, stallM
   return now - lastProgressAt >= stallMs
 }
 
-export function createOperator({ ctx, engines, config, warn }) {
+/**
+ * 解析 Operator 子会话的模型路由（可用于 request.agentOptions）。
+ * 支持：
+ * - input.model = "opencode-go/glm-5.3"（自动拆 provider/model）
+ * - input.provider + input.model
+ * - config.operatorModel 为 volatile 引用或普通值：
+ *   - 字符串 "provider/model" 或裸模型名（默认 provider: opencode-go）
+ *   - 对象 { provider, model }
+ */
+export function resolveOperatorModel(input, config) {
+  if (typeof input?.model === 'string' && input.model.trim() !== '') {
+    const raw = input.model.trim()
+    const explicitProvider =
+      typeof input?.provider === 'string' && input.provider.trim() !== '' ? input.provider.trim() : null
+    if (raw.includes('/') && explicitProvider === null) {
+      const slash = raw.indexOf('/')
+      const provider = raw.slice(0, slash).trim()
+      const model = raw.slice(slash + 1).trim()
+      if (provider !== '' && model !== '') return { provider, model }
+    }
+    const provider = explicitProvider ?? config?.operatorModel?.provider ?? 'opencode-go'
+    return { provider: String(provider), model: raw }
+  }
+  // config.operatorModel 走 readConfig：volatile 引用解包成当前值（设置页热生效）。
+  const configured = readConfig(config, 'operatorModel')
+  if (typeof configured === 'string' && configured.trim() !== '') {
+    const raw = configured.trim()
+    if (raw.includes('/')) {
+      const slash = raw.indexOf('/')
+      const provider = raw.slice(0, slash).trim()
+      const model = raw.slice(slash + 1).trim()
+      if (provider !== '' && model !== '') return { provider, model }
+    }
+    return { provider: 'opencode-go', model: raw }
+  }
+  if (configured?.provider && configured?.model) {
+    return {
+      provider: String(configured.provider),
+      model: String(configured.model),
+    }
+  }
+  return null
+}
+
+export function assertAllowedOperatorModel({ agentOptions, agent, ctx, services } = {}) {
+  if (agentOptions === null || agentOptions === undefined) return
+
+  const parentProvider = agent?.options?.provider
+  const parentModel = agent?.options?.model
+  if (
+    parentProvider !== undefined &&
+    parentModel !== undefined &&
+    parentProvider === agentOptions.provider &&
+    parentModel === agentOptions.model
+  ) {
+    return
+  }
+
+  const selectionService =
+    services?.subagentModelSelection ??
+    (() => {
+      try {
+        return ctx?.get?.('subagentModelSelection')
+      } catch {
+        return undefined
+      }
+    })()
+
+  if (selectionService === undefined || typeof selectionService?.current !== 'function') {
+    return
+  }
+
+  const current = selectionService.current()
+  const enabled = current?.enabled === true
+  const allowedModels = Array.isArray(current?.allowedModels) ? current.allowedModels : []
+
+  if (!enabled) {
+    throw new Error(
+      `Operator 模型选择未启用（subagent-model-selection-settings.enabled=false），不允许指定 "${agentOptions.provider}/${agentOptions.model}"；省略 model 以跟随当前会话模型。`,
+    )
+  }
+
+  if (!allowedModels.some((r) => r.provider === agentOptions.provider && r.model === agentOptions.model)) {
+    const allowedList = allowedModels.map((r) => `${r.provider}/${r.model}`).join(', ') || '（无）'
+    throw new Error(
+      `Operator 模型 "${agentOptions.provider}/${agentOptions.model}" 不在 DSH 子智能体模型白名单（allowedModels）中；当前允许：${allowedList}`,
+    )
+  }
+}
+
+export function createOperator({ ctx, engines, config, warn, services = {} }) {
   const running = new Map()
   const childEngines = new Map()
+  const childProgress = new Map()
+  const hasSessionEventBus = typeof ctx?.on === 'function'
+
+  if (hasSessionEventBus) {
+    ctx.on('session/event', (session) => {
+      const id = String(session?.id ?? '')
+      if (childProgress.has(id)) {
+        childProgress.set(id, (childProgress.get(id) ?? 0) + 1)
+      }
+    })
+  }
 
   const subagents = () => {
     try {
@@ -60,6 +161,8 @@ export function createOperator({ ctx, engines, config, warn }) {
     const provider = providerName()
     if (provider === undefined) throw new Error('没有可用的 subagent provider')
 
+    const agentOptions = resolveOperatorModel(input, config)
+    assertAllowedOperatorModel({ agentOptions, agent, ctx, services })
     const jobId = `J-${engine.state.counters.job + 1}`
     const loop = await engine.addLoop({
       text: `O-${jobId}：${input.goal}`,
@@ -78,6 +181,7 @@ export function createOperator({ ctx, engines, config, warn }) {
         boundary: input.boundary,
         budget: input.budget,
       },
+      model: agentOptions ? `${agentOptions.provider}/${agentOptions.model}` : null,
       loopId: loop.id,
       branchId,
       childId: null,
@@ -105,6 +209,7 @@ export function createOperator({ ctx, engines, config, warn }) {
         label: `O-${jobId} ${input.goal.slice(0, 24)}`,
         request: {
           parent: agent,
+          ...(agentOptions !== null ? { agentOptions } : {}),
           prompt: [{ type: 'text', text: draft ? renderDraftPrompt(input) : renderContractPrompt(input, branchSlice) }],
         },
         signal: controller.signal,
@@ -118,16 +223,21 @@ export function createOperator({ ctx, engines, config, warn }) {
     await engine.updateJob(jobId, { childId: String(activation.childId) })
     if (branchId !== null) await engine.attachJobToBranch(branchId, jobId)
     childEngines.set(String(activation.childId), engine)
+    childProgress.set(String(activation.childId), 0)
 
     // 无进展守夜（SPEC §3.4）：不是「跑太久」，而是「跑着但没动静」。
-    // 判据是观测日志里有没有新事件（工具结果、回合边界都算），不是猜它在想什么。
-    const stallMs = Number(config?.operatorStallMs ?? DEFAULTS.operatorStallMs)
-    let lastSeen = engine.state.counters.obs
+    // 判据是子会话观测计数有没有新事件（工具结果、回合边界、ink_ask/ink_report 都算），不受父会话闲聊干扰。
+    const readObservedSeq = () =>
+      hasSessionEventBus ? (childProgress.get(String(activation.childId)) ?? 0) : engine.state.counters.obs
+    const stallMs = Number(readConfig(config, 'operatorStallMs') ?? DEFAULTS.operatorStallMs)
+    const stallPollMs =
+      stallMs < 30_000 ? Math.max(10, Math.floor(stallMs / 3)) : Math.max(30_000, Math.floor(stallMs / 3))
+    let lastSeen = readObservedSeq()
     let lastProgressAt = Date.now()
     let stalled = false
     const stallTimer = setInterval(async () => {
       try {
-        const now = engine.state.counters.obs
+        const now = readObservedSeq()
         const job = engine.state.jobs.get(jobId)
         if (job === undefined || job.state !== 'running') return
         if (now !== lastSeen) {
@@ -159,10 +269,11 @@ export function createOperator({ ctx, engines, config, warn }) {
       } catch (error) {
         warn(`无进展守夜失败：${error?.message ?? error}`)
       }
-    }, Math.max(30_000, Math.floor(stallMs / 3)))
+    }, stallPollMs)
     if (typeof stallTimer.unref === 'function') stallTimer.unref()
 
-    const timeoutMs = Number(config?.operatorTimeoutMs ?? DEFAULTS.operatorTimeoutMs)
+    // 每次派发都按当前值读：设置页改完 operatorTimeoutMs 后，新任务即按新阈值守夜。
+    const timeoutMs = Number(readConfig(config, 'operatorTimeoutMs') ?? DEFAULTS.operatorTimeoutMs)
     const timer = setTimeout(() => {
       clearInterval(stallTimer)
       // 超时守夜：只投递 [阻塞] 预览，不替 Mind/用户做回滚决定（SPEC §3.4）。
@@ -195,6 +306,7 @@ export function createOperator({ ctx, engines, config, warn }) {
         clearInterval(stallTimer)
         running.delete(jobId)
         childEngines.delete(String(activation.childId))
+        childProgress.delete(String(activation.childId))
         const text = (result?.output ?? [])
           .filter((block) => block?.type === 'text')
           .map((block) => block.text ?? '')
@@ -227,6 +339,7 @@ export function createOperator({ ctx, engines, config, warn }) {
         clearInterval(stallTimer)
         running.delete(jobId)
         childEngines.delete(String(activation.childId))
+        childProgress.delete(String(activation.childId))
         try {
           await engine.updateJob(jobId, { state: 'failed', endedAt: Date.now(), stopReason: 'settle-threw' })
           const job = { id: jobId, loopId: loop.id, branchId, label: input.goal.slice(0, 40) }
@@ -243,7 +356,13 @@ export function createOperator({ ctx, engines, config, warn }) {
   }
 
   const list = () => [...running.keys()]
-  const engineForChild = (sessionId) => childEngines.get(String(sessionId))
+  const engineForChild = (sessionId) => {
+    const id = String(sessionId)
+    if (childProgress.has(id)) {
+      childProgress.set(id, (childProgress.get(id) ?? 0) + 1)
+    }
+    return childEngines.get(id)
+  }
 
   return { start, list, engineForChild }
 }

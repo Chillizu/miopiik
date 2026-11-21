@@ -10,13 +10,13 @@
  * 不做叙事、不编写答案、不向对话写内容。
  */
 
-import { DORMANT_AFTER_DAYS, FOLDED_AFTER_DAYS, LOOP_TYPES, ACTIVE_LOOP_CAP, activeLoops, ageLoops, asQuestion, dayOf, makeLoop, overflowToDormant } from './loops.js'
+import { DORMANT_AFTER_DAYS, FOLDED_AFTER_DAYS, LOOP_TYPES, activeLoops, ageLoops, asQuestion, dayOf, makeLoop, overflowToDormant } from './loops.js'
 import { makeItem, selectView } from './inbox.js'
 import { makeNote, validateNote } from './notes.js'
 import { activeFacts, makeFact, validateFact } from './facts.js'
 import { makeCase, matchCase, matchFacts, similarity } from './cases.js'
 import { buildArchive, makeProposal, settlementDraft, verifyProposal } from './fold.js'
-import { DEFAULTS } from './config-defaults.js'
+import { DEFAULTS, readConfig } from './config-defaults.js'
 import { gcDetails, putDetail, readDetail, searchIndex, extractEntities } from './details.js'
 import { describeBranches, makeBranch, renderBranchSlice } from './branches.js'
 import { appendRecord, appendSharedFact, applyRecord, readSharedFactsSince } from './store.js'
@@ -33,7 +33,7 @@ export function lossless(value) {
 
 export const INK_TOOL_NAMES = Object.freeze(['ink_status', 'ink_loops', 'ink_facts', 'ink_inbox', 'ink_dispatch', 'ink_commit', 'ink_brief', 'ink_epoch', 'ink_draft', 'ink_branch', 'ink_fold', 'ink_recall'])
 
-const MAX_L3_LINES = 14
+const MAX_L3_LINES = 20
 
 /** 从内容块里取纯文本（观测只收真人提示与助手最终消息，不碰思维链）。 */
 export function textOf(content) {
@@ -173,7 +173,7 @@ export class Engine {
       const covered = this.state.briefings.some(
         (record) => record.day === this.lastTurnDay && (record.kind === undefined || record.kind === 'auto-materials'),
       )
-      if (!covered) await this.foldDay(this.lastTurnDay)
+      if (!covered) await this.foldDayNow(this.lastTurnDay)
       await this.foldInkContextNow('day')
     }
     this.lastTurnDay = this.lastTurnDay === null ? today : Math.max(this.lastTurnDay, today)
@@ -187,7 +187,7 @@ export class Engine {
       this.lastWorkload = null
     }
 
-    for (const id of overflowToDormant([...this.state.loops.values()], ACTIVE_LOOP_CAP)) {
+    for (const id of overflowToDormant([...this.state.loops.values()], this.loopCap())) {
       await appendRecord(this.store, 'loops', { op: 'status', loopId: id, status: 'dormant', at: now })
     }
 
@@ -202,6 +202,10 @@ export class Engine {
         turn,
         quote: String(lastUser.text ?? '').slice(0, 120),
       })
+      const hasMaterials = this.state.briefings.some(
+        (record) => record.day === today && (record.kind === undefined || record.kind === null || record.kind === 'auto-materials'),
+      )
+      if (!hasMaterials) await this.foldDayNow(today)
       await this.foldInkContextNow('closing')
     }
 
@@ -262,7 +266,7 @@ export class Engine {
     })
     await this.enqueue(() => appendRecord(this.store, 'loops', { op: 'create', loop }))
     // 超限时按固定顺序折叠，不让模型裁量。
-    for (const id of overflowToDormant([...this.state.loops.values()], ACTIVE_LOOP_CAP)) {
+    for (const id of overflowToDormant([...this.state.loops.values()], this.loopCap())) {
       await this.enqueue(() => appendRecord(this.store, 'loops', { op: 'status', loopId: id, status: 'dormant', at }))
     }
     return loop
@@ -423,18 +427,67 @@ export class Engine {
   }
 
   /**
-   * 回合结束后的一次对话编译（SPEC §3.1 对话侧）：读自己的上下文，产候选，出口是收件箱。
-   * 三条硬约束：没有可引用的原话不跑；已有待读候选不叠投；失败静默（候选是增量，不打扰）。
+   * 对话编译产出的结论与开环静默落账，不投收件箱待读预览（避免收件箱堵塞与 Mind 手工记账负担）。
+   * 开环闭合权限仍在 Mind：疑似已解的开环只挂 suggestedClose 提示，由 L3 呈现给 Mind 决定。
+   */
+  async applyConversationCompile(parsed) {
+    if (parsed === null || typeof parsed !== 'object') return null
+    for (const entry of parsed.claims ?? []) {
+      const sup = typeof entry.supersedes === 'string' ? entry.supersedes.trim() : ''
+      if (/^F-\d+$/u.test(sup) && this.state.facts.has(sup) && this.state.facts.get(sup)?.stale !== true) {
+        await this.invalidateFact(sup, `被对话新结论取代：${entry.claim}`)
+      }
+      const duplicate = this.listFacts().some((existing) => similarity(entry.claim, existing.claim) >= 0.6)
+      if (duplicate) continue
+      await this.addFact({
+        claim: entry.claim,
+        provenance: Array.isArray(entry.refs) && entry.refs.length > 0 ? entry.refs : ['compile:conversation'],
+        conf: entry.conf ?? 'low',
+        source: 'ink',
+        scope: 'session',
+      })
+    }
+    for (const entry of parsed.loops ?? []) {
+      const active = this.listLoops().filter((loop) => loop.status === 'active')
+      const duplicate = active.some((existing) => similarity(entry.text, existing.text) >= 0.6)
+      if (duplicate) continue
+      await this.addLoop({
+        text: entry.text,
+        type: entry.type,
+        pointer: entry.pointer ?? null,
+        closureCondition: entry.closureCondition || null,
+      })
+    }
+    for (const loopId of parsed.closedLoops ?? []) {
+      const loop = this.state.loops.get(loopId)
+      if (loop !== undefined && loop.status === 'active') {
+        loop.suggestedClose = true
+      }
+    }
+    const candidate = buildCandidateNote(parsed)
+    return this.deliverNote({
+      ...candidate,
+      kind: 'absorb',
+      why: 'compile:conversation',
+    })
+  }
+
+  /**
+   * 当前生效的活跃开环上限：走 readConfig 解包 volatile 引用，
+   * 设置页改完后无需重启即对后续判断生效。
+   */
+  loopCap() {
+    const cap = Number(readConfig(this.config, 'activeLoopCap') ?? DEFAULTS.activeLoopCap)
+    return Number.isFinite(cap) && cap > 0 ? cap : DEFAULTS.activeLoopCap
+  }
+
+  /**
+   * 回合结束后的一次对话编译（SPEC §3.1 对话侧）：读自己的上下文，静默落账并记一条 absorb note。
+   * 硬约束：没有可引用的原话不跑；失败静默（候选是增量，不打扰）。
    */
   scheduleConversationPass(turn) {
-    if (this.ctx === null || this.config?.conversationCompile === false) return
+    if (this.ctx === null || readConfig(this.config, 'conversationCompile') === false) return
     if (this._conversationPassBusy === true) return
-    const pending = [...this.state.inbox.values()].some((item) => {
-      if (item.status !== 'unread' && item.status !== 'deferred') return false
-      const note = item.noteId === null ? undefined : this.state.notes.find((entry) => entry.id === item.noteId)
-      return note?.why === 'compile:conversation'
-    })
-    if (pending) return
     const utterances = this.state.inkTail
       .filter((entry) => /^U-\d+$/u.test(String(entry.refs?.[0] ?? '')))
       .map((entry) => ({ id: entry.refs[0], role: entry.kind, text: entry.text }))
@@ -464,8 +517,8 @@ export class Engine {
           onSkip,
         })
         if (parsed === null) return
-        this.debugRecord('conversation-compile', `ok:${parsed.claims.length}:${parsed.loops.length}`)
-        await this.deliverNote(buildCandidateNote(parsed))
+        this.debugRecord('conversation-compile', `ok:${parsed.claims.length}:${parsed.loops.length}:${(parsed.closedLoops ?? []).length}`)
+        await this.applyConversationCompile(parsed)
       } catch {
         // 对话编译是增量：失败不影响回合，也不编造候选。
       } finally {
@@ -1172,6 +1225,11 @@ export class Engine {
    * 不代写简报、不写对话——Mind 下次开工先承认断点，再用这些素材重建。
    */
   async foldDay(day) {
+    if (this._queueDepth > 0) return this.foldDayNow(day)
+    return this.enqueue(() => this.foldDayNow(day))
+  }
+
+  async foldDayNow(day) {
     const assistants = this.state.observations.filter((entry) => entry.kind === 'assistant' && entry.day === day)
     const progress = assistants
       .slice(-3)
@@ -1200,7 +1258,7 @@ export class Engine {
       drafts,
       next: null,
     }
-    await this.enqueue(() => appendRecord(this.store, 'briefings', record))
+    await appendRecord(this.store, 'briefings', record)
     return record
   }
 
@@ -1607,7 +1665,7 @@ export class Engine {
         dormant: loops.filter((loop) => loop.status === 'dormant').length,
         folded: loops.filter((loop) => loop.status === 'folded').length,
         closed: loops.filter((loop) => loop.status === 'closed').length,
-        cap: ACTIVE_LOOP_CAP,
+        cap: this.loopCap(),
         aging: { dormantAfterDays: DORMANT_AFTER_DAYS, foldedAfterDays: FOLDED_AFTER_DAYS },
       },
       facts: {
@@ -1711,6 +1769,7 @@ export class Engine {
     }
 
     const openBranchCount = this.listBranches().length
+    const activeFactList = this.listFacts()
     const factStats = this.factStats()
     if (factStats.active >= 8) {
       const kb = (factStats.bytes / 1024).toFixed(1)
@@ -1720,7 +1779,7 @@ export class Engine {
         lines.push(`- 疑似重复：${pairs}（是同一件事的话，失效掉一条）`)
       }
     }
-    if (loops.length === 0 && view.previews.length === 0 && openBranchCount === 0 && lines.length === 0) return ''
+    if (loops.length === 0 && view.previews.length === 0 && openBranchCount === 0 && activeFactList.length === 0 && lines.length === 0) return ''
     lines.push('## 后台（Ink）')
     if (view.previews.length > 0) {
       lines.push(`收件箱待读 ${view.previews.length + view.hiddenCount} 条：`)
@@ -1735,10 +1794,11 @@ export class Engine {
       if (rhythm !== null) lines.push(`节奏：${rhythm}`)
     }
     if (loops.length > 0) {
-      lines.push(`悬着的事：活跃 ${loops.length} / 休眠 ${dormant}（上限 ${ACTIVE_LOOP_CAP}）`)
+      lines.push(`悬着的事：活跃 ${loops.length} / 休眠 ${dormant}（上限 ${this.loopCap()}）`)
       for (const loop of loops.slice(0, 5)) {
         const condition = loop.closureCondition === null ? '' : `｜闭合条件：${loop.closureCondition}`
-        lines.push(`- [${loop.id}] ${loop.text}${condition}`)
+        const hint = loop.suggestedClose === true ? '（Ink 提示：看似已解）' : ''
+        lines.push(`- [${loop.id}] ${loop.text}${condition}${hint}`)
       }
       if (loops.length > 5) lines.push(`- …还有 ${loops.length - 5} 条活跃开环`)
     }
@@ -1755,6 +1815,9 @@ export class Engine {
     if (branchLines.length > 0) {
       lines.push('鱼骨分支：')
       for (const line of branchLines) lines.push(`- ${line}`)
+    }
+    if (activeFactList.length > 0 && activeFactList.length < 8) {
+      lines.push(`已定结论：${activeFactList.slice(0, 4).map((fact) => `[${fact.id}] ${fact.claim}`).join('；')}`)
     }
     return lines.slice(0, MAX_L3_LINES).join('\n')
   }
