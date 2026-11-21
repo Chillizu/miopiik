@@ -21,6 +21,7 @@ import { gcDetails, putDetail, readDetail, searchIndex, extractEntities } from '
 import { describeBranches, makeBranch, renderBranchSlice } from './branches.js'
 import { appendRecord, appendSharedFact, applyRecord, readSharedFactsSince } from './store.js'
 import { buildCandidateNote, compileConversation } from './converse.js'
+import { auditPage as pageAuditRows, collectAuditRows } from './audit.js'
 
 /** 工具返回值必须是无损 JSON：去掉 undefined 之类的不可序列化字段。 */
 export function lossless(value) {
@@ -802,6 +803,8 @@ export class Engine {
         tailCount: (this.state.inkTail ?? []).length,
       },
       candidates,
+      // 所见视图的 L3 数据面：与注入 Mind 的 miopiik:l3 同一次装配、同一段原文。
+      l3: this.assembleL3(),
       view: { widgets: this.listWidgets().slice(-3) },
       epoch: this.state.epoch,
       day: dayOf(this.now()),
@@ -881,6 +884,7 @@ export class Engine {
               // 执行层（Operator）的状态：画方形节点、按状态染色
               state: job.state,
               label: job.label ?? job.id,
+              stopReason: job.stopReason ?? null,
             })
           }
           const mergeNote = branch.mergedInto === null ? null : noteById.get(branch.mergedInto)
@@ -902,11 +906,26 @@ export class Engine {
               id: job.id,
               label: job.label,
               state: job.state,
+              stopReason: job.stopReason ?? null,
               startedAt: job.startedAt ?? null,
               endedAt: job.endedAt ?? null,
             })),
           }
         })
+        // 线间关系：两条分支依赖同一张事实卡 = 鱼骨的肋骨之间有真实的交接。
+        // 按分支 context.facts 交集计算，只有结构事实，不做语义推断。
+        const links = []
+        for (let i = 0; i < branches.length; i += 1) {
+          for (let j = i + 1; j < branches.length; j += 1) {
+            const left = branches[i].context?.facts ?? []
+            const right = new Set(branches[j].context?.facts ?? [])
+            for (const factId of left) {
+              if (right.has(factId)) {
+                links.push({ kind: 'shared-fact', factId, between: [branches[i].id, branches[j].id] })
+              }
+            }
+          }
+        }
         events.sort((a, b) => a.at - b.at)
         // 左侧脊：真实对话轮次（用户/助手都算），给时间轴一个可读的锚。
         const turnMap = new Map()
@@ -927,14 +946,18 @@ export class Engine {
             existing.fromUser = true
           }
         }
-        const turns = [...turnMap.values()]
-          .sort((a, b) => a.turn - b.turn)
+        const turnList = [...turnMap.values()].sort((a, b) => a.turn - b.turn)
+        const turns = turnList
           .slice(-16)
           .map(({ turn, at, label }) => ({ turn, at, label }))
         return {
           turns,
+          // 主干轮次的总数与截断标记：客户端只拿最近 16 轮，但要能知道「还有多少没显示」。
+          turnsTotal: turnList.length,
+          turnsTruncated: turnList.length > 16,
           events,
           branches: nodes,
+          links,
           counts: {
             activeLoops: this.listLoops().filter((loop) => loop.status === 'active').length,
             facts: this.listFacts().length,
@@ -1010,6 +1033,15 @@ export class Engine {
           })),
       },
     }
+  }
+
+  /**
+   * 全量流水取数通道（client 经 /miopiik audit 命令翻页；SPEC §2.2 账本即数据）。
+   * 与 snapshot.audit 的尾部采样不同：这里读磁盘上的原始 JSONL，从最新可以无缺口翻到最早。
+   */
+  auditPage(input = {}) {
+    const rows = collectAuditRows(this.stateDir, this.shared?.path ?? null)
+    return pageAuditRows(rows, input)
   }
 
   // ── 草稿区（SPEC §2.5 / §4.1） ──────────────────────────────────────
@@ -1677,8 +1709,11 @@ export class Engine {
     }
   }
 
-  /** L3：Mind 每轮看见的后台摘要。空着就返回空串（不制造噪音）。 */
-  l3Text() {
+  /**
+   * L3：Mind 每轮看见的后台摘要。text（原文）与 sections（分节现值）出自同一次装配，
+   * 快照的 l3 块与 prompt.js 注入的 miopiik:l3 因此永远同文（防漂移靠结构，不靠约定）。
+   */
+  assembleL3() {
     const loops = activeLoops(this.listLoops())
     const dormant = this.listLoops().filter((loop) => loop.status === 'dormant').length
     const view = this.inboxView({ all: false })
@@ -1779,46 +1814,80 @@ export class Engine {
         lines.push(`- 疑似重复：${pairs}（是同一件事的话，失效掉一条）`)
       }
     }
-    if (loops.length === 0 && view.previews.length === 0 && openBranchCount === 0 && activeFactList.length === 0 && lines.length === 0) return ''
-    lines.push('## 后台（Ink）')
-    if (view.previews.length > 0) {
-      lines.push(`收件箱待读 ${view.previews.length + view.hiddenCount} 条：`)
-      for (const entry of view.previews) {
-        const loop = entry.item.loopId === null ? '' : `（${entry.item.loopId}）`
-        const question = entry.item.question === null ? '' : ` → ${entry.item.question}`
-        lines.push(`- [${['T0', 'T1', 'T2', 'T3'][entry.tier]}] ${entry.item.claim}${loop}${question}`)
+    const idle =
+      loops.length === 0 && view.previews.length === 0 && openBranchCount === 0 && activeFactList.length === 0 && lines.length === 0
+    if (!idle) {
+      lines.push('## 后台（Ink）')
+      if (view.previews.length > 0) {
+        lines.push(`收件箱待读 ${view.previews.length + view.hiddenCount} 条：`)
+        for (const entry of view.previews) {
+          const loop = entry.item.loopId === null ? '' : `（${entry.item.loopId}）`
+          const question = entry.item.question === null ? '' : ` → ${entry.item.question}`
+          lines.push(`- [${['T0', 'T1', 'T2', 'T3'][entry.tier]}] ${entry.item.claim}${loop}${question}`)
+        }
+        if (view.hiddenCount > 0) lines.push(`- …还有 ${view.hiddenCount} 条未显示`)
+        // 有东西可展示时才给节奏：Ink 不规定时机，只让 Mind 看得见（SPEC §4.5）。
+        const rhythm = this.conversationRhythm()
+        if (rhythm !== null) lines.push(`节奏：${rhythm}`)
       }
-      if (view.hiddenCount > 0) lines.push(`- …还有 ${view.hiddenCount} 条未显示`)
-      // 有东西可展示时才给节奏：Ink 不规定时机，只让 Mind 看得见（SPEC §4.5）。
-      const rhythm = this.conversationRhythm()
-      if (rhythm !== null) lines.push(`节奏：${rhythm}`)
-    }
-    if (loops.length > 0) {
-      lines.push(`悬着的事：活跃 ${loops.length} / 休眠 ${dormant}（上限 ${this.loopCap()}）`)
-      for (const loop of loops.slice(0, 5)) {
-        const condition = loop.closureCondition === null ? '' : `｜闭合条件：${loop.closureCondition}`
-        const hint = loop.suggestedClose === true ? '（Ink 提示：看似已解）' : ''
-        lines.push(`- [${loop.id}] ${loop.text}${condition}${hint}`)
+      if (loops.length > 0) {
+        lines.push(`悬着的事：活跃 ${loops.length} / 休眠 ${dormant}（上限 ${this.loopCap()}）`)
+        for (const loop of loops.slice(0, 5)) {
+          const condition = loop.closureCondition === null ? '' : `｜闭合条件：${loop.closureCondition}`
+          const hint = loop.suggestedClose === true ? '（Ink 提示：看似已解）' : ''
+          lines.push(`- [${loop.id}] ${loop.text}${condition}${hint}`)
+        }
+        if (loops.length > 5) lines.push(`- …还有 ${loops.length - 5} 条活跃开环`)
       }
-      if (loops.length > 5) lines.push(`- …还有 ${loops.length - 5} 条活跃开环`)
-    }
-    const workload = this.lastWorkload
-    if (workload !== null && workload.toolCount >= 6 && !workload.coveredByBranch) {
-      lines.push(
-        `上一轮做了 ${workload.toolCount} 次工具调用，没有分支承载它——如果这已经是一条要推进的线，开一条分支；如果只是查一下，忽略这行。`,
+      const workload = this.lastWorkload
+      if (workload !== null && workload.toolCount >= 6 && !workload.coveredByBranch) {
+        lines.push(
+          `上一轮做了 ${workload.toolCount} 次工具调用，没有分支承载它——如果这已经是一条要推进的线，开一条分支；如果只是查一下，忽略这行。`,
+        )
+      }
+      const branchLines = describeBranches(
+        [...this.state.branches.values()],
+        [...this.state.jobs.values()],
       )
+      if (branchLines.length > 0) {
+        lines.push('鱼骨分支：')
+        for (const line of branchLines) lines.push(`- ${line}`)
+      }
+      if (activeFactList.length > 0 && activeFactList.length < 8) {
+        lines.push(`已定结论：${activeFactList.slice(0, 4).map((fact) => `[${fact.id}] ${fact.claim}`).join('；')}`)
+      }
     }
-    const branchLines = describeBranches(
-      [...this.state.branches.values()],
-      [...this.state.jobs.values()],
-    )
-    if (branchLines.length > 0) {
-      lines.push('鱼骨分支：')
-      for (const line of branchLines) lines.push(`- ${line}`)
+    // 原文与分节同源：sections 直接取自装配过程用过的那些现值，不再二次计算。
+    return {
+      text: idle ? '' : lines.slice(0, MAX_L3_LINES).join('\n'),
+      generatedAt: this.now(),
+      sections: {
+        facts: activeFactList.map((fact) => ({
+          id: fact.id,
+          claim: fact.claim,
+          conf: fact.conf,
+          source: fact.source,
+          scope: fact.scope ?? 'session',
+        })),
+        loops: loops.map((loop) => ({
+          id: loop.id,
+          text: loop.text,
+          type: loop.type,
+          closureCondition: loop.closureCondition,
+          suggestedClose: loop.suggestedClose === true,
+        })),
+        inbox: view.previews.map((entry) => ({
+          id: entry.item.id,
+          tier: ['T0', 'T1', 'T2', 'T3'][entry.tier],
+          claim: entry.item.claim,
+          question: entry.item.question,
+        })),
+      },
     }
-    if (activeFactList.length > 0 && activeFactList.length < 8) {
-      lines.push(`已定结论：${activeFactList.slice(0, 4).map((fact) => `[${fact.id}] ${fact.claim}`).join('；')}`)
-    }
-    return lines.slice(0, MAX_L3_LINES).join('\n')
+  }
+
+  /** L3 原文（prompt.js 注入 miopiik:l3 用的就是它）：空着就是空串，不制造噪音。 */
+  l3Text() {
+    return this.assembleL3().text
   }
 }
