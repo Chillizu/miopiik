@@ -192,6 +192,42 @@ window.__ModuleLoader__.load({
       return row.id === id || (Array.isArray(row.refs) && row.refs.includes(id))
     }
 
+    // ── 行面 actor 小签（§13.10）：不用点开行详情就能认出是哪层的手笔 ──────
+    // 三色走 C.* 主题变量：mind=品牌蓝（与脊同源）、ink=中性灰（回合边界的静默结算）、
+    // operator=琥珀（与任务方点的运行色同源）；其余署名（如 user 干预）用正文色。
+    function actorColorOf(actor) {
+      if (actor === 'mind') return C.brand
+      if (actor === 'ink') return C.muted
+      if (actor === 'operator') return C.warn
+      return C.text
+    }
+
+    /** 小签本体：文本走 i18n 键（actor.mind/ink/operator），悬停说明走各自 hint 键。 */
+    function ActorChip({ actor }) {
+      if (typeof actor !== 'string' || actor === '') return null
+      const color = actorColorOf(actor)
+      const label = ['mind', 'ink', 'operator', 'user'].includes(actor) ? t(`actor.${actor}`) : actor
+      const hint = ['mind', 'ink', 'operator'].includes(actor) ? t(`actor.${actor}Hint`) : undefined
+      return h(
+        'span',
+        {
+          'data-miopiik-actor': actor,
+          title: hint,
+          style: {
+            flex: 'none',
+            fontSize: 10,
+            lineHeight: '14px',
+            padding: '0 5px',
+            border: `0.5px solid ${color}`,
+            borderRadius: 7,
+            color,
+            whiteSpace: 'nowrap',
+          },
+        },
+        label,
+      )
+    }
+
     // 与 DSH 自带的「对话 / 轨迹」标签同一套度量：13px、字重 500、激活用品牌色、下划线指示。
     function TabButton({ id, label, active }) {
       return h(
@@ -244,11 +280,13 @@ window.__ModuleLoader__.load({
     /**
      * 鱼骨（泳道化）：左脊是主干对话轮次（主色只给脊），右面按分支一条泳道；
      * fork 行从脊接出、merge/abandon 行接回脊，job 方点落在自己泳道上。
+     * 脊与分支泳道之间单开一条 Mind 泳道：菱形节点 = Mind 署名动作（graph.mindEvents，
+     * host 从账本实据推导，SPEC §13.10），悬停给 label+refs+时间，点击去流水溯源。
      * 跨泳道细线 = 两条分支共享同一张事实卡：悬停看事实号，点击去流水溯源。
-     * 形状语言不变：圆 = Ink/Mind 侧事件，方 = Operator 任务，颜色 = 状态。
+     * 形状语言：圆 = Ink 侧事件，方 = Operator 任务，菱形 = Mind 动作，颜色 = 状态。
      */
     function FishboneView(props) {
-      const { sessionId, useProjection, onOpenStream, onOpenFact, onOpenJob, focusBranch } = props ?? {}
+      const { sessionId, useProjection, onOpenStream, onOpenFact, onOpenJob, onTraceMind, focusBranch } = props ?? {}
       const snapshot = typeof useProjection === 'function' ? useProjection('miopiikBackstage') : undefined
       const graph = snapshot?.graph
       const [hover, setHover] = React.useState(null)
@@ -258,12 +296,13 @@ window.__ModuleLoader__.load({
       }, [focusBranch])
       const branches = graph?.branches ?? []
       const events = graph?.events ?? []
+      const mindEvents = graph?.mindEvents ?? []
 
       if (graph === undefined || branches.length === 0) {
         return h('div', { style: { padding: 32, color: C.muted, fontSize: 13 } }, t('graph.empty'))
       }
 
-      // 泳道布局：左脊（对话轮次）+ 每分支一条泳道，时间一律向下。
+      // 泳道布局：左脊（对话轮次）+ Mind 泳道 + 每分支一条泳道，时间一律向下。
       const turns = graph?.turns ?? []
       const windowLabel =
         graph.turnsTruncated === true
@@ -282,20 +321,25 @@ window.__ModuleLoader__.load({
             ? t('graph.abandoned')
             : t('graph.open')
 
-      const padTop = 58
+      // 头部两行（轮次标记 + 图例第一行，再往下图例第二行「菱形=Mind 动作」），
+      // 首行事件从 padTop 起，任何图例字形不压事件节点的点击与悬停。
+      const padTop = 74
       const rowGap = 30
       const leftX = 96
       const laneW = 140
       const laneBase = leftX + 150
+      // Mind 泳道在脊右侧、分支泳道左侧：脊（leftX）与泳道区（laneBase）的正中。
+      const mindLaneX = leftX + (laneBase - leftX) / 2
       const W = Math.max(560, laneBase + branches.length * laneW + 16)
 
       const timeline = [
         ...turns.map((turn) => ({ kind: 'turn', at: turn.at ?? 0, turn })),
         ...events.map((event) => ({ kind: 'event', at: event.at ?? 0, event })),
+        ...mindEvents.map((event, index) => ({ kind: 'mind', at: event.at ?? 0, event, index })),
       ].sort((a, b) => a.at - b.at)
       const rowOf = new Map()
       timeline.forEach((item, index) => {
-        rowOf.set(item.kind === 'turn' ? `turn:${item.turn.turn}` : `event:${item.event.id}`, index)
+        rowOf.set(item.kind === 'turn' ? `turn:${item.turn.turn}` : item.kind === 'mind' ? `mind:${item.index}` : `event:${item.event.id}`, index)
       })
       const yOf = (index) => padTop + index * rowGap
       const H = Math.max(padTop + timeline.length * rowGap + 30, 200)
@@ -355,6 +399,25 @@ window.__ModuleLoader__.load({
         // 文案宽度按「一个全角字符 ≈ fontSize」估：中文不挤、英文键名也放得下。
         legendX += 4 + Math.max(6, String(item.label).length) * 9 + 18
       }
+      // 图例第二行（第一行已贴满头部宽）：「菱形=Mind 动作」，与第一行同款式；
+      // padTop 已为两行图例让位，任何事件节点（首个 y=padTop）不与图例重叠。
+      const legend2Y = 50
+      const legend2Items = [{ key: 'legend-mind', glyph: 'diamond', label: t('graph.legendMind') }]
+      let legend2X = 8
+      for (const item of legend2Items) {
+        marks.push(
+          h('path', {
+            key: `${item.key}-g`,
+            d: `M ${legend2X + 5},${legend2Y - 5} L ${legend2X + 10},${legend2Y} L ${legend2X + 5},${legend2Y + 5} L ${legend2X},${legend2Y} Z`,
+            fill: C.base,
+            stroke: C.brand,
+            strokeWidth: 1.8,
+          }),
+        )
+        legend2X += 14
+        marks.push(h('text', { key: `${item.key}-t`, x: legend2X + 4, y: legend2Y + 4, fontSize: 10, fill: C.muted }, item.label))
+        legend2X += 4 + Math.max(6, String(item.label).length) * 9 + 18
+      }
       // 空态：两线之间没有任何往来（links 为空、也没有汇回/放弃事件）时，
       // 泳道区给一行淡字，有内容就不显示——如实说空，不硬凑。
       if (links.length === 0 && !events.some((event) => event.kind === 'merge' || event.kind === 'abandon')) {
@@ -390,6 +453,11 @@ window.__ModuleLoader__.load({
           strokeLinejoin: 'round',
         }),
       )
+
+      // Mind 泳道：脊与分支泳道之间的常驻窄道（虚线基线 + 标题），菱形节点按时间落点。
+      // 基线用细虚线只是「这里有条道」，不暗示跨度；节点才是动作本身。
+      marks.push(h('line', { key: 'mindlane', x1: mindLaneX, y1: padTop - 8, x2: mindLaneX, y2: H - 22, stroke: C.border, strokeWidth: 1, strokeDasharray: '2 4', opacity: 0.5 }))
+      marks.push(h('text', { key: 'lbl-mind', x: mindLaneX, y: 18, fontSize: 10, textAnchor: 'middle', fill: C.muted }, t('graph.mindLane')))
 
       // 每分支一条泳道：标题、基线、fork 接出（实线）与 merge/abandon 接回（虚线）。
       for (const [index, branch] of branches.entries()) {
@@ -442,7 +510,7 @@ window.__ModuleLoader__.load({
         )
       }
 
-      // 时间轴行：左脊放轮次圆点，事件落在自己泳道。
+      // 时间轴行：左脊放轮次圆点，事件落在自己泳道，Mind 手笔落在 Mind 泳道。
       for (const [index, item] of timeline.entries()) {
         const y = yOf(index)
         if (item.kind === 'turn') {
@@ -450,6 +518,26 @@ window.__ModuleLoader__.load({
           marks.push(h('text', { key: `tt-${item.turn.turn}`, x: leftX - 12, y: y + 4, fontSize: 10, fill: C.brand, textAnchor: 'end', fontWeight: 500 }, `第${item.turn.turn}轮`))
           const readable = (item.turn.label ?? '').startsWith('Ciallo') ? '' : (item.turn.label ?? '').slice(0, 14)
           if (readable !== '') marks.push(h('text', { key: `tl-${item.turn.turn}`, x: leftX + 12, y: y + 4, fontSize: 10, fill: C.muted }, readable))
+          continue
+        }
+        if (item.kind === 'mind') {
+          // 菱形 = Mind 动作（与圆/方都不同形），主色描边；悬停给 label+refs+时间，点击去流水溯源。
+          const event = item.event
+          marks.push(
+            h('path', {
+              key: `m-${item.index}`,
+              d: `M ${mindLaneX},${y - 7} L ${mindLaneX + 7},${y} L ${mindLaneX},${y + 7} L ${mindLaneX - 7},${y} Z`,
+              fill: C.base,
+              stroke: C.brand,
+              strokeWidth: 1.8,
+              'data-miopiik-mind-node': `${event.kind}:${event.id}`,
+              style: { cursor: 'pointer' },
+              onMouseEnter: () =>
+                setHover({ kind: 'mind', id: event.id, kindName: event.kind, label: event.label ?? null, refs: Array.isArray(event.refs) ? event.refs : [], at: event.at ?? null, x: mindLaneX, y }),
+              onMouseLeave: () => setHover(null),
+              onClick: () => (typeof onTraceMind === 'function' ? onTraceMind(event) : undefined),
+            }),
+          )
           continue
         }
         const event = item.event
@@ -503,11 +591,24 @@ window.__ModuleLoader__.load({
       }
 
       const chosen = selected === null ? null : branches.find((branch) => branch.id === selected) ?? null
-      // 悬停气泡：链接给事实号；job 给状态与 stopReason；分支给摘要与进度。
+      // 悬停气泡：链接给事实号；job 给状态与 stopReason；分支给摘要与进度；
+      // Mind 菱形给 label + refs + 时间（§13.10：署名行不用点开就能认出是哪一步）。
       const bubble = (() => {
         if (hover === null) return null
         if (hover.kind === 'link') {
           return { x: Math.max(hover.x - 60, 8), y: Math.max(hover.y - 40, 26), title: `${t('graph.sharedFact')} ${hover.factId}`, lines: [t('graph.sharedFactHint')] }
+        }
+        if (hover.kind === 'mind') {
+          return {
+            x: Math.min(Math.max(hover.x - 90, 8), W - 250),
+            y: Math.max(hover.y - 40, 26),
+            title: hover.label === null || hover.label === '' ? `${hover.id} · ${hover.kindName}` : hover.label,
+            lines: [
+              (hover.refs ?? []).length > 0 ? `refs: ${hover.refs.join(' ')}` : null,
+              hover.at === null || hover.at === undefined ? null : new Date(hover.at).toLocaleString(),
+              t('graph.mindHint'),
+            ].filter(Boolean),
+          }
         }
         const branch = branches.find((entry) => entry.id === hover.branchId)
         if (branch === undefined) return null
@@ -824,6 +925,10 @@ window.__ModuleLoader__.load({
         setStreamFilter(open === true ? { id, open: true } : { id })
         setTab('stream')
       }
+      // Mind 泳道菱形的溯源：走同一条 traceId 通道，按账本对象 id 过滤流水。
+      const traceMind = (event) => {
+        if (typeof event?.id === 'string' && event.id !== '') traceId(event.id)
+      }
       const openGraph = (branchId) => {
         setFocusBranch(branchId)
         setTab('graph')
@@ -846,6 +951,12 @@ window.__ModuleLoader__.load({
             minHeight: 0,
             background: C.base,
             color: C.text,
+            // 缩宽态遮挡修复（§13.10）：DSH 会话壳在视图区上盖一条隐形 col-resize 宽柄
+            // （.wSkVaW_widthHandle，position:absolute、z-index:0，贴头部区纵贯整列），
+            // aside 展开整图缩宽后，顶部事件节点正好落进这条带上，点击/悬停全被它吃掉。
+            // 本视图自提一层（position+zIndex）越过它：壳元素一个不改，指针命中归视图内容。
+            position: 'relative',
+            zIndex: 1,
           },
         },
         h(
@@ -915,7 +1026,7 @@ window.__ModuleLoader__.load({
               ? h(
                   'div',
                   { style: { display: 'flex', minHeight: 0, height: '100%' } },
-                  h('div', { style: { flex: '1 1 auto', minWidth: 0, minHeight: 0 } }, h(FishboneView, { ...props, onOpenStream: openStream, onOpenFact: (factId) => traceId(factId), onOpenJob: (jobId) => traceId(jobId), focusBranch })),
+                  h('div', { style: { flex: '1 1 auto', minWidth: 0, minHeight: 0 } }, h(FishboneView, { ...props, onOpenStream: openStream, onOpenFact: (factId) => traceId(factId), onOpenJob: (jobId) => traceId(jobId), onTraceMind: traceMind, focusBranch })),
                   h(
                     'div',
                     {
@@ -931,7 +1042,7 @@ window.__ModuleLoader__.load({
                     h(ListPane, { snapshot, sessionId }),
                   ),
                 )
-              : h(FishboneView, { ...props, onOpenStream: openStream, onOpenFact: (factId) => traceId(factId), onOpenJob: (jobId) => traceId(jobId), focusBranch })
+              : h(FishboneView, { ...props, onOpenStream: openStream, onOpenFact: (factId) => traceId(factId), onOpenJob: (jobId) => traceId(jobId), onTraceMind: traceMind, focusBranch })
             : tab === 'list'
               ? h(ListPane, { snapshot, sessionId })
               : tab === 'context'
@@ -1058,10 +1169,15 @@ window.__ModuleLoader__.load({
       const candidates = snapshot?.candidates ?? []
       const [l3Open, setL3Open] = React.useState(true)
       const [assemblyOpen, setAssemblyOpen] = React.useState(false)
+      // 「Mind 最近动作」：默认收起，交互与「Ink 装配明细」同款（§13.10）。
+      const [mindOpen, setMindOpen] = React.useState(false)
       if (l3 === undefined || l3 === null) return h('div', { style: styles.empty }, t('ctx.offline'))
       const facts = l3.sections?.facts ?? []
       const loops = l3.sections?.loops ?? []
       const inbox = l3.sections?.inbox ?? []
+      // 最近 8 条 mind 署名行（新者在前）；数据面是 graph.mindEvents 的截窗尾，
+      // 推导在 host（SPEC §13.10），这里只做展示，不重复判定。
+      const mindRows = (snapshot?.graph?.mindEvents ?? []).slice(-8).reverse()
       const idButton = (id, open = false) =>
         h(
           'button',
@@ -1191,6 +1307,52 @@ window.__ModuleLoader__.load({
                   idButton(item.id, true),
                 ),
               ),
+            )
+          : null,
+        mindRows.length > 0
+          ? h(
+              Section,
+              { title: t('ctx.mind') },
+              h(
+                'div',
+                { style: { display: 'flex', alignItems: 'center', gap: 10 } },
+                h(
+                  'button',
+                  { type: 'button', onClick: () => setMindOpen(!mindOpen), style: { ...styles.action, flex: 'none' } },
+                  mindOpen ? t('ctx.mindCollapse') : t('ctx.mindExpand'),
+                ),
+                h('span', { style: styles.meta }, t('ctx.mindHint')),
+              ),
+              mindOpen
+                ? h(
+                    'div',
+                    { style: { display: 'flex', flexDirection: 'column', gap: 6 } },
+                    ...mindRows.map((row) =>
+                      h(
+                        'div',
+                        {
+                          key: `${row.kind}:${row.id}:${row.at}`,
+                          'data-miopiik-mind-row': `${row.kind}:${row.id}`,
+                          style: {
+                            display: 'flex',
+                            gap: 10,
+                            alignItems: 'baseline',
+                            padding: '7px 10px',
+                            background: C.layer1,
+                            border: `1px solid ${C.border}`,
+                            borderRadius: 6,
+                            fontSize: 12,
+                          },
+                        },
+                        h('span', { style: { flex: 'none', fontSize: 10, color: C.brand, minWidth: 88 } }, row.kind),
+                        h('span', { style: { flex: '1 1 auto', minWidth: 0, wordBreak: 'break-word' } }, row.label),
+                        row.at ? h('span', { style: { flex: 'none', fontSize: 10, color: C.muted } }, new Date(row.at).toLocaleString()) : null,
+                        // 只有账本对象 id（B-/L-/J-/I-/F-/P-/A-n）才给溯源按钮；简报行无对象可点，不硬造。
+                        /^[A-Z]-\d+$/u.test(String(row.id ?? '')) ? idButton(row.id) : null,
+                      ),
+                    ),
+                  )
+                : null,
             )
           : null,
         inkContext === undefined || inkContext === null
@@ -1555,6 +1717,8 @@ window.__ModuleLoader__.load({
                   ),
                   h('span', { style: { flex: '1 1 auto', minWidth: 0, fontSize: 12, color: C.text } }, row.claim),
                   row.branch ? h('span', { style: { flex: 'none', fontSize: 11, color: C.muted } }, row.branch) : null,
+                  // 行面小签放在行尾：行内前三格（时间/kind/结论）次序不动，既有消费不破。
+                  h(ActorChip, { actor: row.actor }),
                 ),
               ),
         ),
@@ -2160,6 +2324,10 @@ window.__ModuleLoader__.load({
       'ctx.assemblyExpand': '展开明细',
       'ctx.assemblyCollapse': '收起明细',
       'ctx.assemblyHint': '装配 L3 的原始材料（head/tail/候选），默认折叠。',
+      'ctx.mind': 'Mind 最近动作',
+      'ctx.mindExpand': '展开明细',
+      'ctx.mindCollapse': '收起明细',
+      'ctx.mindHint': '最近 8 条 Mind 署名行（账本推导）；默认折叠。',
       'ctx.head': '折叠头部',
       'ctx.tail': '尾部',
       'ctx.candidates': '对话编译候选',
@@ -2196,6 +2364,9 @@ window.__ModuleLoader__.load({
       'graph.legendSharedFact': '横虚线+小方块=共享事实',
       'graph.legendJob': '方=Operator 任务',
       'graph.legendEvent': '圆=Ink 事件',
+      'graph.legendMind': '菱形=Mind 动作',
+      'graph.mindLane': 'Mind 手笔',
+      'graph.mindHint': 'Mind 在主对话里的手笔；点击去流水溯源。',
       'graph.noLinks': '两线之间暂无往来',
       'stream.empty': '后台还没有做过任何决定。',
       'stream.all': '全部',
@@ -2221,6 +2392,14 @@ window.__ModuleLoader__.load({
       'stream.detailAcceptance': '验收',
       'stream.detailBoundary': '边界',
       'stream.detailBudget': '预算',
+
+      'actor.mind': 'Mind',
+      'actor.ink': 'Ink',
+      'actor.operator': 'Operator',
+      'actor.user': 'user',
+      'actor.mindHint': 'Mind 的手笔（主对话里的决定）',
+      'actor.inkHint': 'Ink 的自动结算（回合边界静默落账）',
+      'actor.operatorHint': 'Operator 的执行落账',
 
       'stream.offline': '该会话的后台尚未连接。',
       'count.loops': '未结事项',
@@ -2280,6 +2459,10 @@ window.__ModuleLoader__.load({
       'ctx.assemblyExpand': 'Expand',
       'ctx.assemblyCollapse': 'Collapse',
       'ctx.assemblyHint': 'Raw materials of the L3 assembly (head/tail/candidates); collapsed by default.',
+      'ctx.mind': "Mind's recent actions",
+      'ctx.mindExpand': 'Expand',
+      'ctx.mindCollapse': 'Collapse',
+      'ctx.mindHint': 'The last 8 Mind-signed rows (derived from the ledger); collapsed by default.',
       'ctx.head': 'Folded head',
       'ctx.tail': 'Tail',
       'ctx.candidates': 'Conversation candidates',
@@ -2334,6 +2517,9 @@ window.__ModuleLoader__.load({
       'graph.legendSharedFact': 'dashed line + square = shared fact',
       'graph.legendJob': 'square = Operator job',
       'graph.legendEvent': 'circle = Ink event',
+      'graph.legendMind': 'diamond = Mind action',
+      'graph.mindLane': 'Mind',
+      'graph.mindHint': "Mind's own action in this conversation; click to trace it in the stream.",
       'graph.noLinks': 'No exchanges between lanes yet.',
       'stream.empty': 'The backstage has not made any decision yet.',
       'stream.all': 'All',
@@ -2359,6 +2545,14 @@ window.__ModuleLoader__.load({
       'stream.detailAcceptance': 'Acceptance',
       'stream.detailBoundary': 'Boundary',
       'stream.detailBudget': 'Budget',
+
+      'actor.mind': 'Mind',
+      'actor.ink': 'Ink',
+      'actor.operator': 'Operator',
+      'actor.user': 'user',
+      'actor.mindHint': "Mind's hand (a decision made in the conversation)",
+      'actor.inkHint': "Ink's automatic bookkeeping (settled silently at turn boundaries)",
+      'actor.operatorHint': "Operator's execution record",
 
       'stream.offline': 'The backstage for this session is not connected yet.',
       'count.loops': 'Open',

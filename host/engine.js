@@ -21,7 +21,7 @@ import { gcDetails, putDetail, readDetail, searchIndex, extractEntities } from '
 import { describeBranches, makeBranch, renderBranchSlice } from './branches.js'
 import { appendRecord, appendSharedFact, applyRecord, readSharedFactsSince } from './store.js'
 import { buildCandidateNote, compileConversation } from './converse.js'
-import { auditPage as pageAuditRows, collectAuditRows } from './audit.js'
+import { auditPage as pageAuditRows, collectAuditRows, collectMindRows } from './audit.js'
 
 /** 工具返回值必须是无损 JSON：去掉 undefined 之类的不可序列化字段。 */
 export function lossless(value) {
@@ -987,6 +987,9 @@ export class Engine {
           }
         }
         events.sort((a, b) => a.at - b.at)
+        // Mind 事件流（SPEC §13.10）：从账本实据推导 Mind 手笔（与 audit 同源账本、
+        // 同「只认可判定字段」纪律），升序、截窗最近 40 条；客户端只做布局与署名呈现。
+        const mindEvents = collectMindRows(this.stateDir, this.shared?.path ?? null)
         // 左侧脊：真实对话轮次（用户/助手都算），给时间轴一个可读的锚。
         const turnMap = new Map()
         for (const entry of this.state.observations) {
@@ -1018,6 +1021,9 @@ export class Engine {
           events,
           branches: nodes,
           links,
+          // Mind 署名动作行（{ id, at, kind, label, refs }，最近 40 条）：鱼骨 Mind 泳道与
+          // 「Mind 最近动作」折叠段共用这一份推导，口径见 SPEC §13.10。
+          mindEvents,
           counts: {
             activeLoops: this.listLoops().filter((loop) => loop.status === 'active').length,
             facts: this.listFacts().length,

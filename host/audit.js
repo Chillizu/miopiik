@@ -6,6 +6,7 @@
  * 按 (at, seq) 新者在前排序，供 auditPage 按天/游标翻页。
  *
  * 纯函数模块：不碰 Engine 状态、不写文件；Engine 只是提供目录与分页入参。
+ * collectMindRows（SPEC §13.10）同读这些账本，筛 Mind 署名的动作行给鱼骨 Mind 泳道。
  */
 
 import { readFileSync, statSync } from 'node:fs'
@@ -347,6 +348,187 @@ export function collectAuditRows(dir, sharedPath = null) {
   }
   rows.sort((a, b) => b.at - a.at || b.seq - a.seq)
   return rows
+}
+
+// ── Mind 事件流（SPEC §13.10）：与流水同一本账本、同一套「只认可判定字段」纪律 ──
+
+/**
+ * mind 事件流的参与日志：流水十本里去掉 notes 与 observations（全数 Ink 署名），
+ * 其余八本 + 工作区共享事实账本按 §13.10 的口径筛 Mind 手笔。
+ */
+const MIND_LOGS = Object.freeze(['branches', 'loops', 'inbox', 'jobs', 'facts', 'drafts', 'briefings', 'folds'])
+
+/** mind 事件流单载荷截窗：与 snapshot.audit.notes 同量级，防载荷爆炸。 */
+export const MIND_EVENTS_MAX = 40
+
+/** 行形状 { id, at, kind, label, refs }：id 是账本对象 id（点击走流水溯源的既有通道）。
+ *  label 只从记录里真正可判定的字段拼出来；拼不出（如缺对象 id）就退回 kind 原文，不凭空造。
+ */
+function mindRow(at, kind, id, label, refs) {
+  if (!Number.isFinite(at)) return null
+  const row = { id: String(id ?? ''), at, kind, label: String(label ?? ''), refs: Array.isArray(refs) ? refs.map(String) : [] }
+  if (row.label === '') row.label = kind
+  return row
+}
+
+/** 派发记账开环的判定形状：operator.js 派发时写的 pending-dispatch + J-* 指针（Operator 署名，不进 mind 流）。 */
+const DISPATCH_LOOP_POINTER = /^J-\d+$/u
+
+/**
+ * 单条记录 → mind 行；判不出是 Mind 手笔就返回 null（宁可漏进流水，不凭空署名）。
+ * 口径（SPEC §13.10，与 audit.js 同源账本、同判定纪律）：
+ *  - 只经 Mind 窄工具面可产生的 op 全收（ink_branch/ink_dispatch/ink_loops/ink_inbox/ink_facts/ink_draft/ink_brief）；
+ *  - 需要记录里真有判定字段的 op 只认字段：loop.close/drop 只认 by==='mind'，
+ *    fact.add 只认 source==='user'（ink_report 写 operator、编译回灌写 ink，都不冒领），
+ *    draft.add 只认 source!=='operator'、draft.settle 只认 status!=='expired'（过期是 Ink 的老化），
+ *    fold.apply/reject 只认 by==='mind'；
+ *  - loop.add 是 Mind 登记开环的手笔，但派发记账（pending-dispatch + J-* 指针）可判定为 Operator，剔除。
+ */
+function mapMindRecord(log, record) {
+  if (record === null || typeof record !== 'object') return null
+  switch (log) {
+    case 'branches': {
+      if (record.op === 'create') {
+        const branch = record.branch ?? {}
+        if (typeof branch.id !== 'string' || branch.id === '') return null
+        return mindRow(Number.isFinite(branch.createdAt) ? branch.createdAt : record.at, 'branch.fork', branch.id, `开线 ${branch.id}`, [branch.id])
+      }
+      const id = typeof record.branchId === 'string' && record.branchId !== '' ? record.branchId : null
+      if (id === null) return null
+      if (record.op === 'summary') return mindRow(record.at, 'branch.summary', id, `补摘要 ${id}`, [id])
+      if (record.op === 'context') return mindRow(record.at, 'branch.context', id, `补上下文 ${id}`, [id])
+      if (record.op === 'merge') {
+        return mindRow(record.at, 'branch.merge', id, `并回 ${id}`, [id, record.mergedInto].filter(Boolean))
+      }
+      if (record.op === 'abandon') return mindRow(record.at, 'branch.abandon', id, `放弃 ${id}`, [id])
+      return null // attach-job 是 Ink 的机械挂接，不署 Mind。
+    }
+    case 'loops': {
+      if (record.op === 'create') {
+        const loop = record.loop ?? {}
+        if (typeof loop.id !== 'string' || loop.id === '') return null
+        if (loop.type === 'pending-dispatch' && DISPATCH_LOOP_POINTER.test(String(loop.pointer ?? ''))) return null
+        const at = Number.isFinite(loop.createdAt) ? loop.createdAt : record.at
+        return mindRow(at, 'loop.add', loop.id, `开环 ${loop.id}`, [loop.id])
+      }
+      if (record.op !== 'close' && record.op !== 'drop') return null
+      if (record.by !== 'mind') return null // by==='ink'（草稿收尾）与 by==='user'（界面干预）都不冒领。
+      const id = typeof record.loopId === 'string' && record.loopId !== '' ? record.loopId : null
+      if (id === null) return mindRow(record.at, `loop.${record.op}`, '', '', [])
+      return mindRow(record.at, `loop.${record.op}`, id, record.op === 'close' ? `闭合 ${id}` : `丢弃 ${id}`, [id])
+    }
+    case 'inbox': {
+      const ops = { read: '读收件箱', star: '标星', unstar: '取消星标', defer: '缓读' }
+      if (ops[record.op] === undefined) return null // deliver/supersede 是 Ink 的投递与顶替。
+      const id = typeof record.itemId === 'string' && record.itemId !== '' ? record.itemId : null
+      if (id === null) return mindRow(record.at, `inbox.${record.op}`, '', '', [])
+      return mindRow(record.at, `inbox.${record.op}`, id, `${ops[record.op]} ${id}`, [id])
+    }
+    case 'jobs': {
+      if (record.op !== 'create') return null // update 是执行层的状态落账。
+      const job = record.job ?? {}
+      if (typeof job.id !== 'string' || job.id === '') return null
+      const at = Number.isFinite(job.createdAt) ? job.createdAt : record.at
+      return mindRow(at, 'job.dispatch', job.id, `派发 ${job.id}`, [job.id, job.loopId].filter(Boolean))
+    }
+    case 'facts': {
+      if (record.op === 'add') {
+        const fact = record.fact ?? {}
+        if (fact.source !== 'user') return null // ink_report 写 operator、编译回灌写 ink：字段判不出是 Mind 手笔就不收。
+        if (typeof fact.id !== 'string' || fact.id === '') return null
+        const at = Number.isFinite(fact.createdAt) ? fact.createdAt : record.at
+        return mindRow(at, 'fact.add', fact.id, `立事实 ${fact.id}`, [fact.id])
+      }
+      if (record.op === 'revise') {
+        const id = typeof record.factId === 'string' && record.factId !== '' ? record.factId : null
+        if (id === null) return mindRow(record.at, 'fact.revise', '', '', [])
+        return mindRow(record.at, 'fact.revise', id, `修订 ${id}`, [id])
+      }
+      return null // invalidate 是用户干预或 Ink 的失效动作。
+    }
+    case 'drafts': {
+      if (record.op === 'create') {
+        const draft = record.draft ?? {}
+        if ((draft.source ?? 'mind') === 'operator') return null // Operator 草稿态结果的落账。
+        if (typeof draft.id !== 'string' || draft.id === '') return null
+        const at = Number.isFinite(draft.createdAt) ? draft.createdAt : record.at
+        return mindRow(at, 'draft.add', draft.id, `落草稿 ${draft.id}`, [draft.id])
+      }
+      if (record.op === 'update') {
+        const patch = record.patch ?? {}
+        if (typeof patch.status !== 'string' || patch.status === 'expired') return null // 过期是 Ink 的七天老化。
+        const id = typeof record.draftId === 'string' && record.draftId !== '' ? record.draftId : null
+        if (id === null) return mindRow(record.at, 'draft.settle', '', '', [])
+        return mindRow(record.at, 'draft.settle', id, `了草稿 ${id}（${patch.status}）`, [id])
+      }
+      return null
+    }
+    case 'briefings': {
+      const at = Number.isFinite(record.at) ? record.at : null
+      if (record.kind === undefined || record.kind === null) {
+        if (at === null) return null
+        return mindRow(
+          at,
+          'briefing',
+          Number.isFinite(record.day) ? `briefing-${record.day}-${at}` : `briefing-${at}`,
+          Number.isFinite(record.day) ? `写交接简报（第 ${record.day} 天）` : 'briefing',
+          [],
+        )
+      }
+      if (record.kind === 'overnight') {
+        if (at === null) return null
+        return mindRow(at, 'briefing.overnight', `briefing-${at}`, '补隔夜更新', [])
+      }
+      return null // auto-materials / closing-signal / hard-break 是 Ink 整理的盘外素材。
+    }
+    case 'folds': {
+      if (record.op !== 'apply' && record.op !== 'reject') return null // propose/apply-late 是 Ink 的。
+      if (record.by !== 'mind') return null
+      const id = typeof record.foldId === 'string' && record.foldId !== '' ? record.foldId : null
+      if (id === null) return mindRow(record.at, `fold.${record.op}`, '', '', [])
+      return mindRow(record.at, `fold.${record.op}`, id, record.op === 'apply' ? `落折叠 ${id}` : `驳回折叠 ${id}`, [id])
+    }
+    default:
+      return null
+  }
+}
+
+/**
+ * 收集一个会话的 Mind 事件流（含工作区共享事实账本里可判定的 Mind 行）。
+ * 与 collectAuditRows 同一读法：每次现读磁盘 JSONL，坏行跳过，不做缓存；
+ * 升序排（旧→新），只留最近 MIND_EVENTS_MAX 条防载荷爆炸。
+ */
+export function collectMindRows(dir, sharedPath = null) {
+  const rows = []
+  let seq = 0
+  for (const log of MIND_LOGS) {
+    let path
+    try {
+      path = join(dir, `${log}.jsonl`)
+      statSync(path)
+    } catch {
+      continue
+    }
+    for (const record of readLog(path)) {
+      const row = mapMindRecord(log, record)
+      if (row !== null) rows.push({ ...row, seq: (seq += 1) })
+    }
+  }
+  if (typeof sharedPath === 'string' && sharedPath !== '') {
+    let records = []
+    try {
+      statSync(sharedPath)
+      records = readLog(sharedPath)
+    } catch {
+      records = []
+    }
+    for (const record of records) {
+      const row = mapMindRecord('facts', record)
+      if (row !== null) rows.push({ ...row, seq: (seq += 1) })
+    }
+  }
+  rows.sort((a, b) => a.at - b.at || a.seq - b.seq)
+  return rows.slice(-MIND_EVENTS_MAX).map(({ seq, ...row }) => row)
 }
 
 /** day 模式下找「下一个有数据的日子」：小于给定 day 的最大 day（过 kind/branch 滤网）。 */

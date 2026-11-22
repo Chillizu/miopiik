@@ -786,6 +786,229 @@ test('三视图新增文案键在 zh/en 两本字典里都齐（双语不漏）'
   assert.ok(source.includes("'data-miopiik-shared-fact'"))
 })
 
+// ── Mind 署名三处落地（§13.10）：鱼骨 Mind 泳道 / 流水行面小签 / 所见折叠段 ──
+
+test('鱼骨：Mind 泳道——脊右分支左、菱形节点、悬停 label+refs+时间、点击跳流水溯源', async () => {
+  const ctx = await fixture()
+  try {
+    await seedLedger(ctx)
+    const snapshot = ctx.engine.backstageSnapshot()
+    assert.ok(snapshot.graph.mindEvents.length >= 6, '夹具要有 mind 署名行')
+    const remote = makeRemote(ctx.engine)
+    const load = loadViews({ snapshot, remote })
+    const nodes = load.walk()
+    // 泳道标题在场（i18n 键），基线是虚线细道。
+    assert.match(textOf(nodes), /graph\.mindLane/u)
+    const lane = byKey(nodes, 'mindlane')
+    assert.ok(lane !== undefined, 'Mind 泳道基线在场')
+    assert.equal(lane.props.strokeDasharray, '2 4')
+    // 菱形节点：与圆/方都不同形（path 四顶点）、主色描边，落在脊右分支左。
+    const dispatch = byAttr(nodes, 'data-miopiik-mind-node', 'job.dispatch:J-1')
+    assert.ok(dispatch !== undefined, '派发 J-1 的菱形应在 Mind 泳道')
+    assert.match(String(dispatch.props.d), /^M \d+(?:\.\d+)?,-?\d+(?:\.\d+)? L .* Z$/u, '菱形是四顶点闭合 path')
+    const cx = Number(/^M (\d+(?:\.\d+)?),/.exec(String(dispatch.props.d))[1])
+    const fork1 = byKey(nodes, 'e-fork:B-1')
+    assert.ok(96 < cx && cx < 246, 'Mind 泳道在脊（x=96）右侧、分支泳道基线（x=246）左侧')
+    assert.ok(cx < fork1.props.cx, 'Mind 泳道在分支泳道左侧')
+    assert.equal((String(dispatch.props.d).match(/ L /gu) || []).length, 3, '菱形四段闭合')
+    assert.ok(String(dispatch.props.stroke).includes('--dsw-static-deepseek-500'), '主色描边')
+    assert.equal(dispatch.props.style.cursor, 'pointer')
+    // 并回 / 闭合 / 开线都在：契约样例的手笔按时间落点。
+    for (const key of ['branch.merge:B-1', 'loop.add:L-1', 'branch.fork:B-1', 'branch.abandon:B-2']) {
+      assert.ok(nodes.some((node) => node.props?.['data-miopiik-mind-node'] === key), `${key} 应有菱形节点`)
+    }
+    // 悬停：气泡给 label + refs + 时间 + 说明。
+    dispatch.props.onMouseEnter()
+    const hovered = load.walk()
+    const bubble = hovered.find((node) => node.props?.style?.boxShadow === '0 6px 20px rgba(0,0,0,0.12)')
+    assert.ok(bubble !== undefined, '悬停出气泡')
+    const bubbleText = bubble.children.map((child) => String(child.children?.[0] ?? '')).join(' ')
+    assert.match(bubbleText, /派发 J-1/u)
+    assert.match(bubbleText, /refs: J-1 L-1/u)
+    assert.match(bubbleText, /graph\.mindHint/u)
+    assert.ok(!Number.isNaN(new Date(String(bubble.children[2]?.children?.[0] ?? '')).getTime()), '气泡带时间')
+    hovered.find((node) => node.props?.['data-miopiik-mind-node'] === 'job.dispatch:J-1').props.onMouseLeave()
+    // 点击：跳流水溯源（走既有 traceId 通道，服务端无过滤、本地按 J-1 匹配）。
+    dispatch.props.onClick()
+    const traced = await settleTrace(load)
+    const rows = displayedRows(traced)
+    assert.ok(rows.some((row) => row.kind === 'job.dispatch'), '溯源到派发行')
+    assert.ok(rows.some((row) => row.kind === 'job.update'), '该对象的执行层落账也在')
+    assert.match(textOf(traced), /J-1 ×/u, '溯源过滤片在场')
+  } finally {
+    await ctx.cleanup()
+  }
+})
+
+test('鱼骨：图例补一行「菱形=Mind 动作」，两行图例都不压事件节点', async () => {
+  const ctx = await fixture()
+  try {
+    await seedLedger(ctx)
+    const snapshot = ctx.engine.backstageSnapshot()
+    const load = loadViews({ snapshot })
+    const nodes = load.walk()
+    // 图例第二行：菱形图形 + 文案键。
+    assert.ok(byKey(nodes, 'legend-mind-g') !== undefined, '图例第二行有菱形图形')
+    const legendText = byKey(nodes, 'legend-mind-t')
+    assert.ok(legendText !== undefined)
+    assert.match(String(legendText.children[0]), /graph\.legendMind/u)
+    // 第二行在第一行正下方，仍在头部区。
+    assert.equal(legendText.props.y, 54)
+    assert.ok(byKey(nodes, 'legend-fork-t').props.y < legendText.props.y)
+    // 首行事件节点从 padTop 起，任何指针节点（圆/方/菱形）都不与两行图例重叠。
+    const topEdgeOf = (node) => {
+      if (node.props.cy !== undefined) return Number(node.props.cy) - 8
+      if (node.props.y !== undefined) return Number(node.props.y)
+      const hit = /^M \d+(?:\.\d+)?,(\d+(?:\.\d+)?)/.exec(String(node.props.d ?? ''))
+      return hit === null ? Infinity : Number(hit[1])
+    }
+    const pointerNodes = nodes.filter((node) => node.props?.style?.cursor === 'pointer' && Number.isFinite(topEdgeOf(node)))
+    assert.ok(pointerNodes.length >= 5, '夹具要有指针节点')
+    for (const node of pointerNodes) {
+      assert.ok(topEdgeOf(node) > legendText.props.y, `节点顶边 y=${topEdgeOf(node)} 应在图例第二行之下`)
+    }
+  } finally {
+    await ctx.cleanup()
+  }
+})
+
+test('鱼骨：缩宽态头部不遮挡——视图自提一层越过壳宽柄条带', async () => {
+  const ctx = await fixture()
+  try {
+    await seedLedger(ctx)
+    const snapshot = ctx.engine.backstageSnapshot()
+    const load = loadViews({ snapshot })
+    const nodes = load.walk()
+    // 实测病灶：aside 展开整图缩宽后，顶部事件节点落进 DSH 会话壳的隐形 col-resize
+    // 宽柄（.wSkVaW_widthHandle，position:absolute、z-index:0，纵贯整列），
+    // 点击/悬停全被它吃掉。修法是本视图根自提 position+zIndex 越过它：壳元素一个不改。
+    const root = nodes[0]
+    assert.ok(root !== undefined && root.type === 'div', 'walk 首节点是视图根')
+    assert.equal(root.props.style.position, 'relative', '视图根建层')
+    assert.equal(root.props.style.zIndex, 1, '越过壳宽柄的 z-index:0')
+    // 缩宽契约不回归：aside 展开仍是 viewBox 不变、width:100%、高度随宽高比。
+    byKey(nodes, 'e-fork:B-1').props.onClick()
+    const opened = load.walk()
+    assert.ok(byAttr(opened, 'data-miopiik-branch-detail', 'B-1') !== undefined, '细节面板已展开（缩宽态）')
+    const svg = opened.find((node) => node.type === 'svg')
+    assert.equal(svg.props.width, '100%')
+    assert.equal(svg.props.style.aspectRatio, `${svg.props.viewBox.split(' ')[2]} / ${svg.props.viewBox.split(' ')[3]}`)
+    // 缩宽态下每个指针节点都还在场（几何由画布负责，命中由根层负责）。
+    assert.ok(opened.filter((node) => node.props?.style?.cursor === 'pointer').length >= 5)
+  } finally {
+    await ctx.cleanup()
+  }
+})
+
+test('流水：行面 actor 小签——不用点开行详情即可辨认手笔，三色走主题变量', async () => {
+  const ctx = await fixture()
+  try {
+    await seedLedger(ctx)
+    const snapshot = ctx.engine.backstageSnapshot()
+    const load = loadViews({ snapshot })
+    const nodes = toTab(load, 'tab.stream')
+    const rows = rowNodes(nodes)
+    assert.ok(rows.length >= 7, '尾窗行在场')
+    // 每行行尾都带小签；行内前三格（时间/kind/结论）次序不动。
+    // 小签是函数组件：桩里 walk 会摊平渲染产物，这里按组件本体调用取它产出的 span。
+    const chipOf = (row) => {
+      const last = row.children.at(-1)
+      return typeof last?.type === 'function' ? last.type(last.props) : last
+    }
+    for (const row of rows) {
+      const chip = chipOf(row)
+      assert.ok(chip?.props?.['data-miopiik-actor'] !== undefined, '行面应有 actor 小签')
+      assert.equal(typeof row.children[1]?.children?.[0], 'string', 'kind 格不动')
+      assert.equal(typeof row.children[2]?.children?.[0], 'string', '结论格不动')
+    }
+    const chips = rows.map(chipOf)
+    const actors = chips.map((chip) => chip.props['data-miopiik-actor'])
+    assert.ok(actors.includes('ink') && actors.includes('mind') && actors.includes('operator'), '尾窗三署名都可见')
+    // 三色走 C.* 主题变量：mind=品牌蓝、ink=中性、operator=琥珀。
+    const colorOf = (actor) => chips[actors.indexOf(actor)].props.style.color
+    assert.match(String(colorOf('mind')), /--dsw-static-deepseek-500/u)
+    assert.equal(String(colorOf('ink')), 'var(--dsw-alias-label-secondary)')
+    assert.match(String(colorOf('operator')), /--dsw-alias-state-warn-primary/u)
+    // 小签文本走 i18n 键，悬停说明走 hint 键。
+    assert.match(String(chips[actors.indexOf('mind')].children[0]), /^actor\.mind$/u)
+    assert.match(String(chips[actors.indexOf('mind')].props.title), /^actor\.mindHint$/u)
+    assert.match(String(chips[actors.indexOf('ink')].props.title), /^actor\.inkHint$/u)
+    assert.match(String(chips[actors.indexOf('operator')].props.title), /^actor\.operatorHint$/u)
+    // 行详情里的既有 actor 保留：点开一行 ink 署名的行核对。
+    const inkRow = rows[actors.indexOf('ink')]
+    inkRow.props.onClick()
+    const detail = load.walk()
+    assert.match(textOf(detail), /actor: ink/u)
+  } finally {
+    await ctx.cleanup()
+  }
+})
+
+test('所见：「Mind 最近动作」折叠段默认收起，展开后最近 8 条 kind+label+时间', async () => {
+  const ctx = await fixture()
+  try {
+    await seedLedger(ctx)
+    const snapshot = ctx.engine.backstageSnapshot()
+    const mindEvents = snapshot.graph.mindEvents
+    assert.ok(mindEvents.length >= 8, '夹具要够 8 条 mind 署名行')
+    const load = loadViews({ snapshot })
+    let nodes = toTab(load, 'tab.context')
+    // 折叠段在场、默认收起：标题在，行不在。
+    assert.match(textOf(nodes), /ctx\.mind/u)
+    assert.match(textOf(nodes), /ctx\.mindHint/u)
+    assert.equal(nodes.some((node) => node.props?.['data-miopiik-mind-row'] !== undefined), false, '默认收起不倒明细')
+    assert.doesNotMatch(textOf(nodes), /派发 J-1/u)
+    const expand = buttonByText(nodes, 'ctx.mindExpand')
+    assert.ok(expand !== undefined)
+    expand.props.onClick()
+    nodes = load.walk()
+    // 展开：最近 8 条、新者在前，kind+label 与快照同源。
+    const shown = nodes.filter((node) => node.props?.['data-miopiik-mind-row'] !== undefined)
+    assert.equal(shown.length, Math.min(8, mindEvents.length))
+    const expected = mindEvents.slice(-8).reverse()
+    assert.deepEqual(
+      shown.map((node) => node.props['data-miopiik-mind-row']),
+      expected.map((row) => `${row.kind}:${row.id}`),
+    )
+    assert.match(textOf(nodes), /job\.dispatch/u)
+    assert.match(textOf(nodes), /派发 J-1/u)
+    assert.match(textOf(nodes), /并回 B-1/u)
+    // 每行带时间。
+    for (const node of shown) {
+      const timeText = String(node.children[2]?.children?.[0] ?? '')
+      assert.ok(!Number.isNaN(new Date(timeText).getTime()), '行内时间可读')
+    }
+    // L3 原文块逐字不动。
+    assert.equal(byAttr(nodes, 'data-miopiik-l3-text', '1').children[0], snapshot.l3.text)
+  } finally {
+    await ctx.cleanup()
+  }
+})
+
+test('Mind 署名相关文案键在 zh/en 两本字典里都齐', () => {
+  const source = readFileSync(clientPath, 'utf8')
+  const zhStart = source.indexOf('const zh = {')
+  const enStart = source.indexOf('const en = {')
+  const enEnd = source.indexOf('return {', enStart)
+  assert.ok(zhStart > 0 && enStart > zhStart && enEnd > enStart)
+  const zhBlock = source.slice(zhStart, enStart)
+  const enBlock = source.slice(enStart, enEnd)
+  const keys = [
+    'graph.legendMind', 'graph.mindLane', 'graph.mindHint',
+    'actor.mind', 'actor.ink', 'actor.operator', 'actor.user',
+    'actor.mindHint', 'actor.inkHint', 'actor.operatorHint',
+    'ctx.mind', 'ctx.mindExpand', 'ctx.mindCollapse', 'ctx.mindHint',
+  ]
+  for (const key of keys) {
+    assert.ok(zhBlock.includes(`'${key}':`), `zh 缺 ${key}`)
+    assert.ok(enBlock.includes(`'${key}':`), `en 缺 ${key}`)
+  }
+  // 契约点名的两句必须逐字在（图例一行 / 折叠段标题）。
+  assert.ok(zhBlock.includes("'graph.legendMind': '菱形=Mind 动作'"))
+  assert.ok(zhBlock.includes("'ctx.mind': 'Mind 最近动作'"))
+  assert.ok(enBlock.includes("'graph.legendMind': 'diamond = Mind action'"))
+})
+
 test('游标形状：{before,beforeSeq,day} 续翻与 {day} 跳翻都走命令通道', async () => {
   const ctx = await fixture()
   try {
