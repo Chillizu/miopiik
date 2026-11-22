@@ -282,7 +282,7 @@ window.__ModuleLoader__.load({
             ? t('graph.abandoned')
             : t('graph.open')
 
-      const padTop = 44
+      const padTop = 58
       const rowGap = 30
       const leftX = 96
       const laneW = 140
@@ -316,6 +316,67 @@ window.__ModuleLoader__.load({
       marks.push(h('text', { key: 'turn-window', x: 8, y: 18, fontSize: 11, fill: C.muted }, windowLabel))
       marks.push(h('text', { key: 'lbl-l', x: leftX - 40, y: 18, fontSize: 10, fill: C.muted }, t('graph.spineTurns')))
       marks.push(h('text', { key: 'time', x: leftX + 12, y: 18, fontSize: 10, fill: C.muted }, '时间 ↓'))
+      // 图例一行（最近轮次标记正下方）：形状语言只在这里说一遍，颜色沿用 C.* 主题变量。
+      const legendY = 34
+      const legendItems = [
+        { key: 'legend-fork', glyph: 'arc', dashed: false, label: t('graph.legendFork') },
+        { key: 'legend-merge', glyph: 'arc', dashed: true, label: t('graph.legendMerge') },
+        { key: 'legend-shared', glyph: 'shared', label: t('graph.legendSharedFact') },
+        { key: 'legend-job', glyph: 'square', label: t('graph.legendJob') },
+        { key: 'legend-event', glyph: 'circle', label: t('graph.legendEvent') },
+      ]
+      let legendX = 8
+      for (const item of legendItems) {
+        if (item.glyph === 'arc') {
+          marks.push(
+            h('path', {
+              key: `${item.key}-g`,
+              d: `M ${legendX},${legendY + 4} q 10,-11 20,0`,
+              fill: 'none',
+              stroke: C.link,
+              strokeWidth: 1.4,
+              strokeLinecap: 'round',
+              ...(item.dashed === true ? { strokeDasharray: '4 3' } : {}),
+            }),
+          )
+          legendX += 24
+        } else if (item.glyph === 'shared') {
+          marks.push(h('line', { key: `${item.key}-g1`, x1: legendX, y1: legendY, x2: legendX + 26, y2: legendY, stroke: C.link, strokeWidth: 1, strokeDasharray: '2 3', opacity: 0.9 }))
+          marks.push(h('path', { key: `${item.key}-g2`, d: `M ${legendX + 10},${legendY - 3} L ${legendX + 16},${legendY - 3} L ${legendX + 16},${legendY + 3} L ${legendX + 10},${legendY + 3} Z`, fill: C.link, opacity: 0.9 }))
+          legendX += 30
+        } else if (item.glyph === 'square') {
+          marks.push(h('rect', { key: `${item.key}-g`, x: legendX, y: legendY - 4, width: 8, height: 8, rx: 2, fill: C.base, fillOpacity: 0.35, stroke: C.text, strokeWidth: 2 }))
+          legendX += 13
+        } else {
+          marks.push(h('circle', { key: `${item.key}-g`, cx: legendX + 4.5, cy: legendY, r: 4.5, fill: C.base, stroke: C.text, strokeWidth: 1.8 }))
+          legendX += 11
+        }
+        marks.push(h('text', { key: `${item.key}-t`, x: legendX + 4, y: legendY + 4, fontSize: 10, fill: C.muted }, item.label))
+        // 文案宽度按「一个全角字符 ≈ fontSize」估：中文不挤、英文键名也放得下。
+        legendX += 4 + Math.max(6, String(item.label).length) * 9 + 18
+      }
+      // 空态：两线之间没有任何往来（links 为空、也没有汇回/放弃事件）时，
+      // 泳道区给一行淡字，有内容就不显示——如实说空，不硬凑。
+      if (links.length === 0 && !events.some((event) => event.kind === 'merge' || event.kind === 'abandon')) {
+        const laneEnd = laneBase + branches.length * laneW
+        const lowestForkY = Math.max(...branches.map((branch) => laneTop(branch)))
+        marks.push(
+          h(
+            'text',
+            {
+              key: 'nolinks',
+              'data-miopiik-no-links': '1',
+              x: (laneBase + laneEnd) / 2,
+              y: Math.min(lowestForkY + 20, H - 26),
+              textAnchor: 'middle',
+              fontSize: 11,
+              fill: C.muted,
+              opacity: 0.75,
+            },
+            t('graph.noLinks'),
+          ),
+        )
+      }
       // 左脊：全图唯一用主色的地方。
       marks.push(h('line', { key: 'spine-l', x1: leftX, y1: padTop - 8, x2: leftX, y2: H - 22, stroke: C.brand, strokeWidth: 2.5, strokeLinecap: 'round' }))
       marks.push(
@@ -344,13 +405,13 @@ window.__ModuleLoader__.load({
           ),
         )
         marks.push(h('line', { key: `lanebase-${branch.id}`, x1: x, y1: top, x2: x, y2: bottom, stroke: isHot ? C.text : C.border, strokeWidth: isHot ? 1.5 : 1, opacity: isHot ? 0.9 : 0.7 }))
-        marks.push(h('path', { key: `forkline-${branch.id}`, d: `M ${leftX},${top} C ${leftX + 60},${top} ${x - 50},${top} ${x - 6},${top}`, fill: 'none', stroke: isHot ? C.text : C.link, strokeWidth: isHot ? 1.5 : 1, opacity: isHot ? 0.9 : 0.55 }))
-        marks.push(h('path', { key: `forkarr-${branch.id}`, d: `M ${x - 7},${top - 4} L ${x},${top} L ${x - 7},${top + 4} Z`, fill: isHot ? C.text : C.link, opacity: isHot ? 0.9 : 0.6 }))
+        marks.push(h('path', { key: `forkline-${branch.id}`, d: `M ${leftX},${top} C ${leftX + 60},${top} ${x - 50},${top} ${x - 6},${top}`, fill: 'none', stroke: isHot ? C.text : C.link, strokeWidth: isHot ? 1.5 : 1, opacity: isHot ? 1 : 0.85 }))
+        marks.push(h('path', { key: `forkarr-${branch.id}`, d: `M ${x - 7},${top - 4} L ${x},${top} L ${x - 7},${top + 4} Z`, fill: isHot ? C.text : C.link, opacity: isHot ? 1 : 0.9 }))
         const mergeRow = eventRow(`merge:${branch.id}`)
         if (mergeRow !== undefined) {
           const my = yOf(mergeRow)
-          marks.push(h('path', { key: `backline-${branch.id}`, d: `M ${x - 6},${my} C ${x - 60},${my} ${leftX + 60},${my} ${leftX + 6},${my}`, fill: 'none', stroke: isHot ? C.text : C.link, strokeWidth: isHot ? 1.5 : 1, strokeDasharray: '4 4', opacity: isHot ? 0.9 : 0.5 }))
-          marks.push(h('path', { key: `backarr-${branch.id}`, d: `M ${leftX + 7},${my - 4} L ${leftX},${my} L ${leftX + 7},${my + 4} Z`, fill: isHot ? C.text : C.link, opacity: isHot ? 0.9 : 0.6 }))
+          marks.push(h('path', { key: `backline-${branch.id}`, d: `M ${x - 6},${my} C ${x - 60},${my} ${leftX + 60},${my} ${leftX + 6},${my}`, fill: 'none', stroke: isHot ? C.text : C.link, strokeWidth: isHot ? 1.5 : 1, strokeDasharray: '4 4', opacity: isHot ? 1 : 0.8 }))
+          marks.push(h('path', { key: `backarr-${branch.id}`, d: `M ${leftX + 7},${my - 4} L ${leftX},${my} L ${leftX + 7},${my + 4} Z`, fill: isHot ? C.text : C.link, opacity: isHot ? 1 : 0.9 }))
         }
       }
 
@@ -361,8 +422,8 @@ window.__ModuleLoader__.load({
         const xb = laneX(laneIndex.get(b))
         const y = Math.max(laneTop(branches[laneIndex.get(a)]), laneTop(branches[laneIndex.get(b)])) + 9 + linkIndex * 7
         const mid = (xa + xb) / 2
-        marks.push(h('line', { key: `linkvis-${link.factId}-${linkIndex}`, x1: xa, y1: y, x2: xb, y2: y, stroke: C.link, strokeWidth: 1, strokeDasharray: '2 3', opacity: 0.8 }))
-        marks.push(h('path', { key: `linkmark-${link.factId}-${linkIndex}`, d: `M ${mid - 3},${y - 3} L ${mid + 3},${y - 3} L ${mid + 3},${y + 3} L ${mid - 3},${y + 3} Z`, fill: C.link, opacity: 0.8 }))
+        marks.push(h('line', { key: `linkvis-${link.factId}-${linkIndex}`, x1: xa, y1: y, x2: xb, y2: y, stroke: C.link, strokeWidth: 1, strokeDasharray: '2 3', opacity: 0.9 }))
+        marks.push(h('path', { key: `linkmark-${link.factId}-${linkIndex}`, d: `M ${mid - 3},${y - 3} L ${mid + 3},${y - 3} L ${mid + 3},${y + 3} L ${mid - 3},${y + 3} Z`, fill: C.link, opacity: 0.9 }))
         marks.push(
           h('line', {
             key: `linkhit-${link.factId}-${linkIndex}`,
@@ -495,7 +556,21 @@ window.__ModuleLoader__.load({
             h(
               'div',
               { style: { position: 'relative', width: '100%', maxWidth: W, margin: '0 auto' } },
-              h('svg', { viewBox: `0 0 ${W} ${H}`, width: W, height: H, role: 'img', 'aria-label': t('graph.title'), style: { display: 'block' } }, ...marks),
+              // 选中分支（细节面板展开）时整图缩宽适配可用列宽：viewBox 不变，
+              // width 交给容器（100%），高度按宽高比随动——泳道区不再被面板挤走。
+              chosen !== null
+                ? h(
+                    'svg',
+                    {
+                      viewBox: `0 0 ${W} ${H}`,
+                      width: '100%',
+                      role: 'img',
+                      'aria-label': t('graph.title'),
+                      style: { display: 'block', height: 'auto', aspectRatio: `${W} / ${H}` },
+                    },
+                    ...marks,
+                  )
+                : h('svg', { viewBox: `0 0 ${W} ${H}`, width: W, height: H, role: 'img', 'aria-label': t('graph.title'), style: { display: 'block' } }, ...marks),
               bubble === null
                 ? null
                 : h(
@@ -503,8 +578,10 @@ window.__ModuleLoader__.load({
                     {
                       style: {
                         position: 'absolute',
-                        left: Math.min(bubble.x, W - 240),
-                        top: Math.max(bubble.y, 0),
+                        // 缩宽态（细节面板展开）下画布按百分比铺开，气泡坐标同步用百分比，
+                        // 才能钉在缩放后的同一个画布位置上。
+                        left: chosen !== null ? `${((Math.min(bubble.x, W - 240) / W) * 100).toFixed(3)}%` : Math.min(bubble.x, W - 240),
+                        top: chosen !== null ? `${((Math.max(bubble.y, 0) / H) * 100).toFixed(3)}%` : Math.max(bubble.y, 0),
                         width: 232,
                         padding: '8px 10px',
                         border: `0.5px solid ${C.border}`,
@@ -2114,6 +2191,12 @@ window.__ModuleLoader__.load({
       'graph.stopReason': '停止原因',
       'graph.contract': '契约目标',
       'graph.closure': '闭合条件',
+      'graph.legendFork': '实线弧=接出',
+      'graph.legendMerge': '虚线弧=接回',
+      'graph.legendSharedFact': '横虚线+小方块=共享事实',
+      'graph.legendJob': '方=Operator 任务',
+      'graph.legendEvent': '圆=Ink 事件',
+      'graph.noLinks': '两线之间暂无往来',
       'stream.empty': '后台还没有做过任何决定。',
       'stream.all': '全部',
       'stream.search': '搜结论或分支',
@@ -2246,6 +2329,12 @@ window.__ModuleLoader__.load({
       'graph.stopReason': 'Stop reason',
       'graph.contract': 'Contract goal',
       'graph.closure': 'Closure condition',
+      'graph.legendFork': 'solid arc = fork out',
+      'graph.legendMerge': 'dashed arc = merge back',
+      'graph.legendSharedFact': 'dashed line + square = shared fact',
+      'graph.legendJob': 'square = Operator job',
+      'graph.legendEvent': 'circle = Ink event',
+      'graph.noLinks': 'No exchanges between lanes yet.',
       'stream.empty': 'The backstage has not made any decision yet.',
       'stream.all': 'All',
       'stream.search': 'Search claim or branch',

@@ -146,7 +146,9 @@ export function createOperator({ ctx, engines, config, warn, services = {} }) {
     }
   }
 
-  const start = async ({ agent, engine, input, branchId = null }) => {
+  // facts：派发合约依赖的事实卡 id（ink_dispatch.facts，已由调用方校验存在）。
+  // 只随 job 记录落账（job.facts，鱼骨线间往来层的推导源 b）；不传就不写这个字段。
+  const start = async ({ agent, engine, input, branchId = null, facts = null }) => {
     const draft = input?.draft === true
     const check = draft ? validateDraft(input) : validateContract(input)
     if (!check.ok) {
@@ -184,6 +186,8 @@ export function createOperator({ ctx, engines, config, warn, services = {} }) {
       model: agentOptions ? `${agentOptions.provider}/${agentOptions.model}` : null,
       loopId: loop.id,
       branchId,
+      // 依赖事实随任务落账：不传 facts 时记录形状与现状逐字节一致。
+      ...(Array.isArray(facts) ? { facts: facts.map(String) } : {}),
       childId: null,
       state: 'running',
       startedAt: Date.now(),

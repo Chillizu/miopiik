@@ -255,7 +255,9 @@ test('鱼骨主视图：注册在会话视图、按事件画、带悬停与详�
   ]) {
     assert.ok(clientSource.includes(needle), `client.js 缺少：${needle}`)
   }
-  assert.ok(!clientSource.includes('graph.legend'), '解释性图例不该存在')
+  // 2026-11-22 契约裁决：鱼骨头部要一行紧凑形状图例（graph.legendFork/…/graph.noLinks，SVG 内图形+短语）。
+  // 这条守卫只继续拦旧形态——graph.legend 单键长文段落（「读法同 git graph：…」那种解释性大段文字）。
+  assert.ok(!clientSource.includes("'graph.legend':"), '旧的长文图例（graph.legend 单键段落）不该回来')
   assert.ok(!clientSource.includes('conversation.session.header.utilities'), '入口已合并，不该再占顶栏')
 })
 

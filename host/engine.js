@@ -941,12 +941,44 @@ export class Engine {
           }
         })
         // 线间关系：两条分支依赖同一张事实卡 = 鱼骨的肋骨之间有真实的交接。
-        // 按分支 context.facts 交集计算，只有结构事实，不做语义推断。
+        // 每条分支先算自己的依赖集合，再取两两交集；只有结构 id 匹配，不做语义推断。
+        // 依赖集合是三源并集（SPEC §13.9）：
+        //   a. branch.context.facts —— 开分支 / 补上下文时的手动声明（仍然有效）；
+        //   b. 该分支名下 job 记录的 facts 字段 —— ink_dispatch 派发时随合约声明；
+        //   c. 挂在该分支（note.branch）的笔记 refs 里引用的事实卡 id。
+        const FACT_ID_RE = /^F-\d+$/u
+        const noteFactsByBranch = new Map()
+        for (const note of this.state.notes) {
+          if (typeof note.branch !== 'string' || note.branch === '') continue
+          for (const ref of Array.isArray(note.refs) ? note.refs : []) {
+            const id = String(ref)
+            // 只认 F-* 形状且账本里真实存在的事实卡：悬空指针不算依赖。
+            if (!FACT_ID_RE.test(id) || !this.state.facts.has(id)) continue
+            let set = noteFactsByBranch.get(note.branch)
+            if (set === undefined) {
+              set = new Set()
+              noteFactsByBranch.set(note.branch, set)
+            }
+            set.add(id)
+          }
+        }
+        const depsByBranch = new Map()
+        for (const branch of branches) {
+          const deps = new Set(branch.context?.facts ?? [])
+          for (const jobId of branch.jobs) {
+            const job = this.state.jobs.get(jobId)
+            if (job === undefined || !Array.isArray(job.facts)) continue
+            for (const factId of job.facts) deps.add(String(factId))
+          }
+          const fromNotes = noteFactsByBranch.get(branch.id)
+          if (fromNotes !== undefined) for (const factId of fromNotes) deps.add(factId)
+          depsByBranch.set(branch.id, deps)
+        }
         const links = []
         for (let i = 0; i < branches.length; i += 1) {
           for (let j = i + 1; j < branches.length; j += 1) {
-            const left = branches[i].context?.facts ?? []
-            const right = new Set(branches[j].context?.facts ?? [])
+            const left = depsByBranch.get(branches[i].id)
+            const right = depsByBranch.get(branches[j].id)
             for (const factId of left) {
               if (right.has(factId)) {
                 links.push({ kind: 'shared-fact', factId, between: [branches[i].id, branches[j].id] })

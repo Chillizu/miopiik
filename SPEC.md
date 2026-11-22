@@ -555,7 +555,7 @@ L3 之外，Mind 还能从 L3 末尾看到一行鱼骨：「B-1 定位验证：�
 
 ### 13.4 鱼骨 graph.links 与主干截断标记
 
-- 快照 `graph` 载荷新增**线间关系**：两条分支依赖同一张事实卡 = 鱼骨的肋骨之间有真实的交接。按分支 `context.facts` 交集计算——只有结构事实，不做语义推断：`links.push({ kind: 'shared-fact', factId, between: [B-i, B-j] })`。
+- 快照 `graph` 载荷新增**线间关系**：两条分支依赖同一张事实卡 = 鱼骨的肋骨之间有真实的交接。只有结构事实，不做语义推断：`links.push({ kind: 'shared-fact', factId, between: [B-i, B-j] })`。2026-11-22 起推导口径由「只看 `context.facts` 交集」扩为**三源并集**（见 §13.9），行形状不变。
 - 主干左脊只取最近 16 轮，同时给出 `turnsTotal`（全部轮数）与 `turnsTruncated`（是否截断）——客户端能知道「还有多少没显示」。任务节点带 `stopReason`；`counts` 汇总 activeLoops / facts / running / drafts。
 - 佐证：`test/engine.test.js`「graph：links 按分支事实交集计算，任务带 stopReason，主干有总数与截断标记」「graph：主干超过 16 轮时 turnsTotal/turnsTruncated 说真话」。
 
@@ -603,3 +603,20 @@ Mind 的章程合并为九条（`CHARTER`，`host/prompt.js:11-20`；`systemProm
 | 最早愿景仍未落地 | 分支递归（分支下再开子分支）、Mind 的上下文长度自觉（ALIGNMENT-AUDIT §16.5 #1/#3，不是偏离，是没做）；跨分支可见性的 host 数据层（`graph.links`）已由 §13.4 落地，客户端呈现与验收状态按该文档约定「待验收后另记」 |
 
 补记时实测（2026-11-21）：全量 `node --test` 180 项全绿，含当晚收口的低置信闸门新测试（engine 4 项 + converse 2 项）。
+
+### 13.9 线间往来层三件修法（2026-11-22）
+
+> 鱼骨「线间往来层」的三项结构性修法：往来连线改账本实据推导、头部补图例与空态、SVG 随分支细节面板缩宽。边界：`links` 行形状不变（`{ kind: 'shared-fact', factId, between: [a, b] }`），前端消费端不改即可继续渲染；`ink_commit` 提交门、`/miopiik audit` 通道、`assembleL3` 契约、三 pane 其余功能全部未动。
+
+- **links 三源推导口径**（`host/engine.js` graph 装配处）：每条分支先算自己的依赖集合，再取两两交集成 `shared-fact` link；只做结构 id 匹配，禁止任何文本语义推断。依赖集合是三源并集：
+  - a. `branch.context.facts` —— 开分支 / `ink_branch context` 的手动声明（仍然有效）；
+  - b. 该分支名下 job 记录的 `facts` 字段（`job.facts`，`ink_dispatch` 派发时随合约声明，随 `jobs.jsonl` 落账、跨回放存活）；
+  - c. 挂在该分支（`note.branch`）的笔记 `refs` 里出现且账本里真实存在的 `F-*` id（悬空指针不算依赖）。
+- **`ink_dispatch.facts` 语义**（`host/tools.js` + `host/operator.js`）：可选参数 `facts: string[]`（合约依赖的事实卡 id）。未知 id 直接报错——与 `updateBranchContext` 同口径（`引用了不存在的事实卡：…`），且校验先于开分支等一切落账动作，不留半开分支或脏 job；合法则随 job 记录写入 jobs 账本（`job.facts`）。它只进账本不进 Operator 提示词——Operator 要知道结论内容时，要么看分支切片（`branch.context.facts` 的渲染），要么 `ink_ask`；Mind 想让 Operator 看见某事实，写进契约正文即可。**不传时行为与现状逐字节一致**：job 记录不出现 `facts` 键（JSONL 只增字段，不改旧字段语义）。
+- **图例与空态语义**（`client.js` 鱼骨 pane）：
+  - 图例一行放在最近轮次标记（`graph.recentTurns/allTurns`）正下方的头部区：实线弧=接出、虚线弧=接回、横虚线+小方块=共享事实、方=Operator 任务、圆=Ink 事件；图形与文字全部沿用 `C.*` 主题变量，文案键 `graph.legendFork/legendMerge/legendSharedFact/legendJob/legendEvent`（中英双语）。2026-11-04 撤掉的旧图例是 `graph.legend` 单键长文段落，这次按契约裁决回归的是**一行紧凑形状图例**，`test/settings.test.js` 的守卫相应改拦旧形态（`'graph.legend':` 单键段落）。
+  - 空态：`links` 为空**且**无任何 merge/abandon 事件时，泳道区显示一行淡字「两线之间暂无往来」（`graph.noLinks`，中英双语，`data-miopiik-no-links`）；有任何往来或归档内容就不显示——如实说空，不硬凑。
+- **SVG 缩宽方案**：选中分支（aside 细节面板展开，占 340px 列宽）时，鱼骨 SVG 整体缩宽适配可用列宽——`viewBox` 不变，`width: '100%'`、高度走 `height:'auto' + aspectRatio: "W / H"` 随比例缩放，泳道区不再被面板覆盖；缩宽态悬停气泡坐标同步换算成百分比钉在画布上。未选中时保持现状定宽像素（`width: W, height: H`），收起即复原。
+- 佐证：`test/engine.test.js`——「鱼骨 links 三源并集：context.facts、job.facts、分支笔记 refs 同权，交集才成线」「鱼骨 links：两分支无任何共同事实时为空数组，悬空 F-\* 引用不算依赖」；`test/dispatch-facts.test.js` 3 项（合法落账跨回放存活 / 未知 id 报错不落脏记录 / 不传时记录形状与现状逐字节一致）；`test/miopiik-views-ui.test.js`——「鱼骨：头部图例一行在场……」「鱼骨：无往来且无汇回/放弃时泳道区一行淡字……」「鱼骨：选中分支（细节面板展开）时整图缩宽适配列宽，viewBox 不变，收起复原」「鱼骨新增文案键在 zh/en 两本字典里都齐」。
+
+补记时实测（2026-11-22）：全量 `node --test` 205 项全绿（2026-11-21 基线 196 + 本批 9：engine 2、dispatch 3、views 4；含一处既有守卫按契约裁决改拦旧图例形态）。

@@ -605,6 +605,140 @@ test('鱼骨：详情侧栏补 job 的 stopReason 与契约目标，J-n 可跳�
 
 // ── 互通与既有面零破坏 ───────────────────────────────────────────────
 
+test('鱼骨：头部图例一行在场——接出/接回/共享事实/方/圆，贴着最近轮次标记', async () => {
+  const ctx = await fixture()
+  try {
+    await seedLedger(ctx)
+    const snapshot = ctx.engine.backstageSnapshot()
+    const load = loadViews({ snapshot })
+    const nodes = load.walk()
+    for (const key of ['legend-fork', 'legend-merge', 'legend-shared', 'legend-job', 'legend-event']) {
+      assert.ok(byKey(nodes, `${key}-t`) !== undefined, `图例应有 ${key} 的文字`)
+      assert.ok(byKey(nodes, `${key}-g`) !== undefined || byKey(nodes, `${key}-g1`) !== undefined, `图例应有 ${key} 的图形`)
+    }
+    // 文案走 i18n key（桩里 t(key)=key），五个键都得在字典里（见下方双语测试）。
+    for (const key of ['graph.legendFork', 'graph.legendMerge', 'graph.legendSharedFact', 'graph.legendJob', 'graph.legendEvent']) {
+      assert.match(textOf(nodes), new RegExp(key.replaceAll('.', '\\.'), 'u'), `图例文案 ${key} 应渲染`)
+    }
+    // 位置：图例在最近轮次标记正下方，仍在头部区（第一行 y=18，内容区从 padTop 起）。
+    const win = byKey(nodes, 'turn-window')
+    const legendText = byKey(nodes, 'legend-fork-t')
+    assert.ok(win.props.y < legendText.props.y && legendText.props.y <= 40, '图例一行贴着最近轮次标记')
+  } finally {
+    await ctx.cleanup()
+  }
+})
+
+test('鱼骨：无往来且无汇回/放弃时泳道区一行淡字；有往来或有归档就不显示', async () => {
+  // 夹具一：两条安静的线（无共享事实、无 merge/abandon）→ 空态在场。
+  const ctx1 = await fixture()
+  try {
+    await ctx1.engine.observe({ type: 'user/message', data: { source: { kind: 'user' }, content: [{ type: 'text', text: '两条安静的线' }] } })
+    const b1 = await ctx1.engine.openBranch({ label: '甲线', summary: '各走各的' })
+    ctx1.advance(7000)
+    await ctx1.engine.openBranch({ label: '乙线', summary: '各走各的' })
+    await ctx1.engine.queue
+    let snapshot = ctx1.engine.backstageSnapshot()
+    assert.deepEqual(snapshot.graph.links, [])
+    let nodes = loadViews({ snapshot }).walk()
+    const empty = byAttr(nodes, 'data-miopiik-no-links', '1')
+    assert.ok(empty !== undefined, '空态淡字应在场')
+    assert.match(String(empty.children[0]), /graph\.noLinks/u)
+    // 淡字落在泳道区（脊右侧的泳道带内），且比正文淡。
+    assert.ok(empty.props.x > 96, '空态在泳道区，不在左脊')
+    assert.equal(empty.props.opacity < 1, true)
+    // 汇回一条（仍无共享事实）→ 空态消失：泳道区有真内容可看。
+    await ctx1.engine.mergeBranch(b1.id, { claim: '甲线有结论了' })
+    await ctx1.engine.queue
+    snapshot = ctx1.engine.backstageSnapshot()
+    nodes = loadViews({ snapshot }).walk()
+    assert.equal(byAttr(nodes, 'data-miopiik-no-links', '1'), undefined, '有汇回事件就不显示空态')
+  } finally {
+    await ctx1.cleanup()
+  }
+  // 夹具二：有共享事实往来 → 从头就不显示空态。
+  const ctx2 = await fixture()
+  try {
+    await ctx2.engine.addFact({ claim: '共享的事实', provenance: ['test'], conf: 'mid' })
+    ctx2.advance(7000)
+    await ctx2.engine.openBranch({ label: '甲线', summary: '共享 F-1', facts: ['F-1'] })
+    ctx2.advance(7000)
+    await ctx2.engine.openBranch({ label: '乙线', summary: '共享 F-1', facts: ['F-1'] })
+    await ctx2.engine.queue
+    const snapshot = ctx2.engine.backstageSnapshot()
+    assert.equal(snapshot.graph.links.length, 1)
+    const nodes = loadViews({ snapshot }).walk()
+    assert.equal(byAttr(nodes, 'data-miopiik-no-links', '1'), undefined, '有往来就不显示空态')
+  } finally {
+    await ctx2.cleanup()
+  }
+})
+
+test('鱼骨：选中分支（细节面板展开）时整图缩宽适配列宽，viewBox 不变，收起复原', async () => {
+  const ctx = await fixture()
+  try {
+    await seedLedger(ctx)
+    const snapshot = ctx.engine.backstageSnapshot()
+    const load = loadViews({ snapshot })
+    const svgOf = (nodes) => nodes.find((node) => node.type === 'svg')
+    let nodes = load.walk()
+    const closed = svgOf(nodes)
+    const W = closed.props.width
+    const H = closed.props.height
+    assert.equal(typeof W, 'number', '未选中时 svg 是定宽像素值（现状）')
+    assert.equal(closed.props.viewBox, `0 0 ${W} ${H}`)
+    // 展开细节面板：svg 缩宽（width:100%、高度按宽高比随动），viewBox 原样。
+    byKey(nodes, 'e-fork:B-1').props.onClick()
+    nodes = load.walk()
+    assert.ok(byAttr(nodes, 'data-miopiik-branch-detail', 'B-1') !== undefined, '细节面板已展开')
+    const open = svgOf(nodes)
+    assert.equal(open.props.viewBox, `0 0 ${W} ${H}`, 'viewBox 不变')
+    assert.equal(open.props.width, '100%', '宽度交给容器自适应')
+    assert.equal(open.props.height, undefined, '高度不再写死')
+    assert.equal(open.props.style.height, 'auto')
+    assert.equal(open.props.style.aspectRatio, `${W} / ${H}`, '高度按宽高比随动')
+    // 缩宽态的悬停气泡用百分比坐标钉在画布上。
+    byAttr(nodes, 'data-miopiik-shared-fact', 'F-1').props.onMouseEnter()
+    nodes = load.walk()
+    const bubble = nodes.find((node) => node.props?.style?.boxShadow === '0 6px 20px rgba(0,0,0,0.12)')
+    assert.ok(bubble !== undefined)
+    assert.match(String(bubble.props.style.left), /%$/u, '缩宽态气泡 left 是百分比')
+    assert.match(String(bubble.props.style.top), /%$/u, '缩宽态气泡 top 是百分比')
+    // 收起面板：回到定宽像素（现状行为），气泡坐标回到像素。
+    byKey(nodes, 'e-fork:B-1').props.onClick()
+    nodes = load.walk()
+    const reopened = svgOf(nodes)
+    assert.equal(reopened.props.width, W)
+    assert.equal(reopened.props.height, H)
+    assert.equal(typeof reopened.props.style.aspectRatio, 'undefined')
+    const bubble2 = nodes.find((node) => node.props?.style?.boxShadow === '0 6px 20px rgba(0,0,0,0.12)')
+    assert.equal(typeof bubble2.props.style.left, 'number', '复原态气泡 left 是像素')
+  } finally {
+    await ctx.cleanup()
+  }
+})
+
+test('鱼骨新增文案键在 zh/en 两本字典里都齐（图例 + 空态）', () => {
+  const source = readFileSync(clientPath, 'utf8')
+  const zhStart = source.indexOf('const zh = {')
+  const enStart = source.indexOf('const en = {')
+  const enEnd = source.indexOf('return {', enStart)
+  assert.ok(zhStart > 0 && enStart > zhStart && enEnd > enStart)
+  const zhBlock = source.slice(zhStart, enStart)
+  const enBlock = source.slice(enStart, enEnd)
+  const keys = [
+    'graph.legendFork', 'graph.legendMerge', 'graph.legendSharedFact', 'graph.legendJob', 'graph.legendEvent',
+    'graph.noLinks',
+  ]
+  for (const key of keys) {
+    assert.ok(zhBlock.includes(`'${key}':`), `zh 缺 ${key}`)
+    assert.ok(enBlock.includes(`'${key}':`), `en 缺 ${key}`)
+  }
+  // 中文文案就是契约点名的两句。
+  assert.ok(zhBlock.includes("'graph.noLinks': '两线之间暂无往来'"))
+  assert.ok(zhBlock.includes("'graph.legendSharedFact': '横虚线+小方块=共享事实'"))
+})
+
 test('清单 tab 照旧消费投影键，干预按钮仍走命令通道', async () => {
   const ctx = await fixture()
   try {

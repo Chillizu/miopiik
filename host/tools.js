@@ -252,6 +252,12 @@ export function registerTools(ctx, engines, operator, services = {}) {
             type: 'string',
             description: 'Optional LLM provider id when model is not in provider/model form.',
           },
+          facts: {
+            type: 'array',
+            items: { type: 'string' },
+            description:
+              'Fact ids (F-…) this contract leans on. They are recorded with the job and read back as inter-branch dependencies on the fishbone; unknown ids are refused. Same rule as ink_branch context facts.',
+          },
         },
         required: ['goal'],
         additionalProperties: false,
@@ -259,13 +265,18 @@ export function registerTools(ctx, engines, operator, services = {}) {
       async execute(args, exec) {
         if (operator === undefined) throw new Error('MiOpIIk: 没有可用的 Operator 派发器')
         const engine = engineFor(exec)
+        // 未知事实卡先于一切落账动作报错（与 updateBranchContext 同口径）。
+        if (args.facts !== undefined) {
+          const unknown = args.facts.filter((factId) => !engine.state.facts.has(factId))
+          if (unknown.length > 0) throw new Error(`引用了不存在的事实卡：${unknown.join('、')}`)
+        }
         let branch = null
         const label = typeof args.branch === 'string' ? args.branch.trim() : ''
         if (label !== '') {
           const existing = engine.listBranches().find((entry) => entry.label === label)
           branch = existing ?? (await engine.openBranch({ label, summary: args.goal }))
         }
-        const started = await operator.start({ agent: exec.agent, engine, input: args, branchId: branch?.id ?? null })
+        const started = await operator.start({ agent: exec.agent, engine, input: args, branchId: branch?.id ?? null, facts: args.facts })
         return { ...started, branch: branch?.id ?? null }
       },
     }),

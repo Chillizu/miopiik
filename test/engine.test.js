@@ -648,6 +648,72 @@ test('鱼骨图数据：只有分叉/汇回/任务产生事件，节点带可展
   }
 })
 
+test('鱼骨 links 三源并集：context.facts、job.facts、分支笔记 refs 同权，交集才成线', async () => {
+  const ctx = await fixture()
+  try {
+    // 账上铺 F-1..F-9（照验收样例用 F-9）。
+    for (let index = 1; index <= 9; index += 1) {
+      await ctx.engine.addFact({ claim: `事实 ${index}`, provenance: ['test'], conf: 'mid' })
+      ctx.advance(1000)
+    }
+    // B-1 / B-2 靠笔记 refs 声明与回声明各认领 F-5；B-3 只靠 job.facts；B-4 只靠 context.facts。
+    await ctx.engine.openBranch({ label: '甲线', summary: '无关' })
+    ctx.advance(1000)
+    await ctx.engine.openBranch({ label: '乙线', summary: '无关' })
+    ctx.advance(1000)
+    const b3 = await ctx.engine.openBranch({ label: '丙线', summary: '靠 job 声明依赖' })
+    ctx.advance(1000)
+    const b4 = await ctx.engine.openBranch({ label: '丁线', summary: '靠 context 声明依赖', facts: ['F-9'] })
+    ctx.advance(1000)
+    await ctx.engine.addJob({ id: 'J-1', label: '带依赖的任务', branchId: b3.id, state: 'done', facts: ['F-9'] })
+    ctx.advance(1000)
+    await ctx.engine.deliverNote({
+      kind: 'answer',
+      claim: '甲线的结论靠 F-5',
+      why: 'test',
+      refs: ['F-5'],
+      branch: 'B-1',
+    })
+    ctx.advance(1000)
+    await ctx.engine.updateBranchContext('B-2', { facts: ['F-5'] })
+    await ctx.engine.queue
+
+    const links = ctx.engine.backstageSnapshot().graph.links
+    assert.deepEqual(links, [
+      { kind: 'shared-fact', factId: 'F-5', between: ['B-1', 'B-2'] },
+      { kind: 'shared-fact', factId: 'F-9', between: ['B-3', 'B-4'] },
+    ])
+    // job.facts 随任务记录跨回放存活（append-only JSONL 只增字段）。
+    const reopened = await openStore(ctx.dir, 'session-1')
+    assert.deepEqual(reopened.state.jobs.get('J-1').facts, ['F-9'])
+  } finally {
+    await ctx.cleanup()
+  }
+})
+
+test('鱼骨 links：两分支无任何共同事实时为空数组，悬空 F-* 引用不算依赖', async () => {
+  const ctx = await fixture()
+  try {
+    await ctx.engine.openBranch({ label: '甲线', summary: '各走各的' })
+    ctx.advance(1000)
+    await ctx.engine.openBranch({ label: '乙线', summary: '各走各的', facts: [] })
+    ctx.advance(1000)
+    // 挂在甲线的笔记引用了不存在的事实卡：悬空指针不产生依赖，也不报错（校验在投递层）。
+    await ctx.engine.deliverNote({
+      kind: 'answer',
+      claim: '甲线的结论',
+      why: 'test',
+      refs: ['F-404'],
+      branch: 'B-1',
+    })
+    await ctx.engine.queue
+    const graph = ctx.engine.backstageSnapshot().graph
+    assert.deepEqual(graph.links, [])
+  } finally {
+    await ctx.cleanup()
+  }
+})
+
 test('对话编译静默落账：applyConversationCompile 直接写事实与开环、标记疑似已解、记 absorb 笔记且不占收件箱', async () => {
   const ctx = await fixture()
   try {
