@@ -214,7 +214,14 @@ function loadViews({ snapshot, remote } = {}) {
     remote,
     slots: {
       inject(name, callback) {
-        if (name === 'conversation.view' || name === 'plugins.bundle.config') callback()
+        if (
+          name === 'conversation.view' ||
+          name === 'plugins.bundle.config' ||
+          name === 'tool.call.toolview' ||
+          name === 'conversation.chat.commandview'
+        ) {
+          callback()
+        }
       },
       register(meta, renderFn) {
         slots.push({ meta, render: renderFn })
@@ -227,6 +234,32 @@ function loadViews({ snapshot, remote } = {}) {
     stub.render(slotByName(slots, 'conversation.view').render({ sessionId: 'session-1', useProjection: () => snapshot }))
   return { plugin, slots, stub, walk, source }
 }
+
+// ── 对话手笔（§13.11）：工具行与命令行 ────────────────────────────────
+
+const slotByKey = (slots, name, key) => slots.find((slot) => slot.meta.name === name && slot.meta.key === key)
+const renderSlot = (load, name, key, props) => {
+  const entry = slotByKey(load.slots, name, key)
+  assert.ok(entry !== undefined, `missing slot ${name}:${key}`)
+  return load.stub.render(entry.render(props))
+}
+const textBlock = (value) => [{ type: 'text', text: JSON.stringify(value) }]
+const disclosure = (expanded) => () => ({ expanded, toggle() {}, setExpanded() {} })
+/** 一条工具调用的三个阶段形状（与 Chat 的 ToolCallOwnerProps 同：props.phase + block）。 */
+const toolProps = ({ toolName, phase = 'result', args = {}, value = undefined, isError = false, errorText = '', expanded = false }) => ({
+  toolName,
+  phase,
+  block: {
+    kind: phase === 'result' ? 'tool-result' : 'tool-call',
+    name: toolName,
+    args,
+    content: phase === 'result' ? (isError ? [{ type: 'text', text: errorText }] : textBlock(value)) : [],
+    isError,
+  },
+  useDisclosure: disclosure(expanded),
+  openFile() {},
+})
+const commandProps = ({ args = null, outcome }) => ({ node: { name: 'miopiik', args, outcome } })
 
 // ── 节点查找小工具 ────────────────────────────────────────────────────
 
@@ -281,7 +314,11 @@ test('所见：L3 原文与注入 Mind 的同文，等宽原样渲染', async ()
     await seedLedger(ctx)
     const snapshot = ctx.engine.backstageSnapshot()
     const load = loadViews({ snapshot })
-    const nodes = toTab(load, 'tab.context')
+    let nodes = toTab(load, 'tab.context')
+    // L3 原文默认收起（所见页先给结论与悬案，原文点开才逐字展开）。
+    assert.equal(byAttr(nodes, 'data-miopiik-l3-text', '1'), undefined, '默认收起')
+    buttonByText(nodes, 'ctx.l3Expand').props.onClick()
+    nodes = load.walk()
     const block = byAttr(nodes, 'data-miopiik-l3-text', '1')
     assert.ok(block !== undefined, '应有 data-miopiik-l3-text 等宽块')
     assert.equal(block.children[0], snapshot.l3.text, '原文必须逐字渲染，不截断不改写')
@@ -344,7 +381,9 @@ test('所见：空 L3 显示空态，不造内容', async () => {
     const snapshot = ctx.engine.backstageSnapshot()
     assert.equal(snapshot.l3.text, '')
     const load = loadViews({ snapshot })
-    const nodes = toTab(load, 'tab.context')
+    let nodes = toTab(load, 'tab.context')
+    buttonByText(nodes, 'ctx.l3Expand').props.onClick()
+    nodes = load.walk()
     assert.match(textOf(nodes), /ctx\.empty/u)
     assert.equal(byAttr(nodes, 'data-miopiik-l3-text', '1'), undefined)
   } finally {
@@ -605,25 +644,26 @@ test('鱼骨：详情侧栏补 job 的 stopReason 与契约目标，J-n 可跳�
 
 // ── 互通与既有面零破坏 ───────────────────────────────────────────────
 
-test('鱼骨：头部图例一行在场——接出/接回/共享事实/方/圆，贴着最近轮次标记', async () => {
+test('鱼骨：图例在画布外的一行工具条——接出/接回/共享事实/方/圆，附轮次窗口', async () => {
   const ctx = await fixture()
   try {
     await seedLedger(ctx)
     const snapshot = ctx.engine.backstageSnapshot()
     const load = loadViews({ snapshot })
     const nodes = load.walk()
-    for (const key of ['legend-fork', 'legend-merge', 'legend-shared', 'legend-job', 'legend-event']) {
-      assert.ok(byKey(nodes, `${key}-t`) !== undefined, `图例应有 ${key} 的文字`)
-      assert.ok(byKey(nodes, `${key}-g`) !== undefined || byKey(nodes, `${key}-g1`) !== undefined, `图例应有 ${key} 的图形`)
+    // 图例是 HTML 工具条（不在 SVG viewBox 里）：窄列自动换行，不被画布宽度切边。
+    assert.ok(byAttr(nodes, 'data-miopiik-legend', 'graph') !== undefined, '应有图例工具条')
+    for (const key of ['fork', 'merge', 'shared', 'job', 'event', 'mind']) {
+      assert.ok(byAttr(nodes, 'data-miopiik-legend-item', key) !== undefined, `图例应有 ${key} 项`)
     }
-    // 文案走 i18n key（桩里 t(key)=key），五个键都得在字典里（见下方双语测试）。
+    assert.equal(byAttr(nodes, 'data-miopiik-legend-item', 'fork').type, 'span', '图例项是 HTML 元素')
+    // 轮次窗口也在工具条里（原来画在 SVG 头部第一行）。
+    assert.ok(nodes.some((node) => node.props?.['data-miopiik-window'] !== undefined), '轮次窗口在场')
+    // 文案走 i18n key（桩里 t(key)=key），图形保持内联 SVG。
     for (const key of ['graph.legendFork', 'graph.legendMerge', 'graph.legendSharedFact', 'graph.legendJob', 'graph.legendEvent']) {
       assert.match(textOf(nodes), new RegExp(key.replaceAll('.', '\\.'), 'u'), `图例文案 ${key} 应渲染`)
     }
-    // 位置：图例在最近轮次标记正下方，仍在头部区（第一行 y=18，内容区从 padTop 起）。
-    const win = byKey(nodes, 'turn-window')
-    const legendText = byKey(nodes, 'legend-fork-t')
-    assert.ok(win.props.y < legendText.props.y && legendText.props.y <= 40, '图例一行贴着最近轮次标记')
+    assert.ok(!nodes.some((node) => typeof node.props?.key === 'string' && node.props.key.startsWith('legend-')), '旧的内联 SVG 图例字形已撤')
   } finally {
     await ctx.cleanup()
   }
@@ -680,7 +720,7 @@ test('鱼骨：选中分支（细节面板展开）时整图缩宽适配列宽�
     await seedLedger(ctx)
     const snapshot = ctx.engine.backstageSnapshot()
     const load = loadViews({ snapshot })
-    const svgOf = (nodes) => nodes.find((node) => node.type === 'svg')
+    const svgOf = (nodes) => nodes.find((node) => node.props?.['data-miopiik-graph'] === '1')
     let nodes = load.walk()
     const closed = svgOf(nodes)
     const W = closed.props.width
@@ -840,33 +880,32 @@ test('鱼骨：Mind 泳道——脊右分支左、菱形节点、悬停 label+re
   }
 })
 
-test('鱼骨：图例补一行「菱形=Mind 动作」，两行图例都不压事件节点', async () => {
+test('鱼骨：图例含「菱形=Mind 动作」，且图例在画布外不压任何事件节点', async () => {
   const ctx = await fixture()
   try {
     await seedLedger(ctx)
     const snapshot = ctx.engine.backstageSnapshot()
     const load = loadViews({ snapshot })
     const nodes = load.walk()
-    // 图例第二行：菱形图形 + 文案键。
-    assert.ok(byKey(nodes, 'legend-mind-g') !== undefined, '图例第二行有菱形图形')
-    const legendText = byKey(nodes, 'legend-mind-t')
-    assert.ok(legendText !== undefined)
-    assert.match(String(legendText.children[0]), /graph\.legendMind/u)
-    // 第二行在第一行正下方，仍在头部区。
-    assert.equal(legendText.props.y, 54)
-    assert.ok(byKey(nodes, 'legend-fork-t').props.y < legendText.props.y)
-    // 首行事件节点从 padTop 起，任何指针节点（圆/方/菱形）都不与两行图例重叠。
+    // 菱形项在工具条里，文案是 §13.10 的「菱形=Mind 动作」。
+    assert.ok(byAttr(nodes, 'data-miopiik-legend-item', 'mind') !== undefined, '图例要有 Mind 菱形项')
+    assert.match(textOf(nodes), /graph\.legendMind/u)
+    // 图例不再占用 viewBox：画布首行从头部标题（y=18）之下起，指针节点都落在 padTop 之后。
     const topEdgeOf = (node) => {
       if (node.props.cy !== undefined) return Number(node.props.cy) - 8
       if (node.props.y !== undefined) return Number(node.props.y)
       const hit = /^M \d+(?:\.\d+)?,(\d+(?:\.\d+)?)/.exec(String(node.props.d ?? ''))
       return hit === null ? Infinity : Number(hit[1])
     }
+    const rect = (node) => Number(node.props.y ?? 0)
     const pointerNodes = nodes.filter((node) => node.props?.style?.cursor === 'pointer' && Number.isFinite(topEdgeOf(node)))
     assert.ok(pointerNodes.length >= 5, '夹具要有指针节点')
     for (const node of pointerNodes) {
-      assert.ok(topEdgeOf(node) > legendText.props.y, `节点顶边 y=${topEdgeOf(node)} 应在图例第二行之下`)
+      const top = node.type === 'rect' ? rect(node) : topEdgeOf(node)
+      assert.ok(top > 24, `节点顶边 y=${top} 应在画布头部标题之下`)
     }
+    // 画布本身带 data 标记，缩宽/正常两态都能按它取到图表 SVG。
+    assert.ok(nodes.some((node) => node.props?.['data-miopiik-graph'] === '1'), '图表 SVG 有标记')
   } finally {
     await ctx.cleanup()
   }
@@ -890,7 +929,7 @@ test('鱼骨：缩宽态头部不遮挡——视图自提一层越过壳宽柄�
     byKey(nodes, 'e-fork:B-1').props.onClick()
     const opened = load.walk()
     assert.ok(byAttr(opened, 'data-miopiik-branch-detail', 'B-1') !== undefined, '细节面板已展开（缩宽态）')
-    const svg = opened.find((node) => node.type === 'svg')
+    const svg = opened.find((node) => node.props?.['data-miopiik-graph'] === '1')
     assert.equal(svg.props.width, '100%')
     assert.equal(svg.props.style.aspectRatio, `${svg.props.viewBox.split(' ')[2]} / ${svg.props.viewBox.split(' ')[3]}`)
     // 缩宽态下每个指针节点都还在场（几何由画布负责，命中由根层负责）。
@@ -978,7 +1017,9 @@ test('所见：「Mind 最近动作」折叠段默认收起，展开后最近 8 
       const timeText = String(node.children[2]?.children?.[0] ?? '')
       assert.ok(!Number.isNaN(new Date(timeText).getTime()), '行内时间可读')
     }
-    // L3 原文块逐字不动。
+    // L3 原文块逐字不动（默认收起，点开才渲染）。
+    buttonByText(nodes, 'ctx.l3Expand').props.onClick()
+    nodes = load.walk()
     assert.equal(byAttr(nodes, 'data-miopiik-l3-text', '1').children[0], snapshot.l3.text)
   } finally {
     await ctx.cleanup()
@@ -1036,5 +1077,195 @@ test('游标形状：{before,beforeSeq,day} 续翻与 {day} 跳翻都走命令�
     assert.ok(dayPage.nextCursor === null || dayPage.nextCursor.day !== undefined, '按天的 nextCursor 只带 day')
   } finally {
     await ctx.cleanup()
+  }
+})
+
+// ── 对话手笔（§13.11）：14 个 ink_* 工具行 + miopiik 命令行 ─────────────
+
+test('对话手笔：14 个 ink_* 工具行与 miopiik 命令行都接管了对应席位', async () => {
+  const ctx = await fixture()
+  try {
+    const load = loadViews({ snapshot: ctx.engine.backstageSnapshot() })
+    const names = [
+      'ink_status', 'ink_loops', 'ink_facts', 'ink_inbox', 'ink_dispatch', 'ink_commit', 'ink_brief',
+      'ink_epoch', 'ink_draft', 'ink_ask', 'ink_report', 'ink_branch', 'ink_fold', 'ink_recall',
+    ]
+    for (const name of names) {
+      assert.ok(slotByKey(load.slots, 'tool.call.toolview', name) !== undefined, `缺工具行席位：${name}`)
+    }
+    assert.ok(slotByKey(load.slots, 'conversation.chat.commandview', 'miopiik') !== undefined, '缺 miopiik 命令行席位')
+    // 只接管自己的：别人的工具名不该被抢。
+    assert.equal(slotByKey(load.slots, 'tool.call.toolview', 'bash'), undefined)
+  } finally {
+    await ctx.cleanup()
+  }
+})
+
+test('工具行：折叠态是人话（名词 · 动词 对象），不再是参数 JSON', async () => {
+  const ctx = await fixture()
+  try {
+    const load = loadViews({ snapshot: ctx.engine.backstageSnapshot() })
+    const nodes = renderSlot(load, 'tool.call.toolview', 'ink_loops', toolProps({
+      toolName: 'ink_loops',
+      args: { action: 'close', id: 'L-33' },
+      value: { loop: { id: 'L-33', text: '三视图收口', status: 'closed' } },
+    }))
+    const row = byAttr(nodes, 'data-miopiik-tool-row', 'ink_loops')
+    assert.ok(row !== undefined, '应有工具行')
+    assert.equal(row.props['data-state'], 'ok')
+    const text = textOf(nodes)
+    assert.match(text, /ink\.noun\.loops/u, '名词走 i18n')
+    assert.match(text, /ink\.act\.close/u, '动词走 i18n')
+    assert.match(text, /L-33/u, '对象在场')
+    assert.ok(!text.includes('{"action"'), '不再露参数 JSON')
+    // 折叠态不倒正文。
+    assert.equal(byAttr(nodes, 'data-miopiik-tool-body', 'ink_loops'), undefined)
+  } finally {
+    await ctx.cleanup()
+  }
+})
+
+test('工具行：展开是结构化正文——契约字段逐行、结果摊开，不回灌 JSON', async () => {
+  const ctx = await fixture()
+  try {
+    const load = loadViews({ snapshot: ctx.engine.backstageSnapshot() })
+    const nodes = renderSlot(load, 'tool.call.toolview', 'ink_dispatch', toolProps({
+      toolName: 'ink_dispatch',
+      args: { goal: '把三视图改漂亮', budget: '一次派发', boundary: '不动 host 契约' },
+      value: { jobId: 'J-12', provider: 'opencode-go/glm-5.3' },
+      expanded: true,
+    }))
+    const body = byAttr(nodes, 'data-miopiik-tool-body', 'ink_dispatch')
+    assert.ok(body !== undefined, '展开后有正文')
+    const text = textOf(nodes)
+    assert.match(text, /ink\.field\.goal/u)
+    assert.match(text, /把三视图改漂亮/u)
+    assert.match(text, /ink\.field\.budget/u)
+    assert.match(text, /J-12/u)
+    assert.ok(!text.includes('{"goal"'), '正文不是 JSON 原文')
+    assert.ok(!text.includes('{"jobId"'), '结果也不回灌 JSON')
+  } finally {
+    await ctx.cleanup()
+  }
+})
+
+test('工具行：ink_status 展开是一屏账（指标行），不摊 session 号这类内部字段', async () => {
+  const ctx = await fixture()
+  try {
+    const load = loadViews({ snapshot: ctx.engine.backstageSnapshot() })
+    const nodes = renderSlot(load, 'tool.call.toolview', 'ink_status', toolProps({
+      toolName: 'ink_status',
+      value: {
+        session: 'session-内部编号',
+        turn: 26,
+        epoch: 1,
+        day: 20779,
+        observations: 715,
+        loops: { active: 1, dormant: 0, folded: 0, closed: 32, cap: 12 },
+        facts: { active: 44, stale: 8 },
+        inbox: { pending: 0 },
+        notes: 37,
+      },
+      expanded: true,
+    }))
+    const text = textOf(nodes)
+    assert.match(text, /ink\.status\.active/u)
+    assert.match(text, /ink\.status\.stale/u)
+    assert.match(text, /T26 \u00b7 D20779 \u00b7 E1/u)
+    assert.ok(!text.includes('session-内部编号'), '内部 session 号不上屏')
+  } finally {
+    await ctx.cleanup()
+  }
+})
+
+test('工具行：进行中与失败态各说各话——不把错误塞进正文冒充结果', async () => {
+  const ctx = await fixture()
+  try {
+    const load = loadViews({ snapshot: ctx.engine.backstageSnapshot() })
+    const running = renderSlot(load, 'tool.call.toolview', 'ink_recall', toolProps({
+      toolName: 'ink_recall',
+      phase: 'preparing',
+      args: { query: '图例' },
+      expanded: false,
+    }))
+    assert.equal(byAttr(running, 'data-miopiik-tool-row', 'ink_recall').props['data-state'], 'running')
+    assert.match(textOf(running), /ink\.row\.preparing/u)
+
+    const failed = renderSlot(load, 'tool.call.toolview', 'ink_commit', toolProps({
+      toolName: 'ink_commit',
+      args: { title: '交卷' },
+      isError: true,
+      errorText: '无人值守不 commit：本轮没有用户输入。',
+    }))
+    const row = byAttr(failed, 'data-miopiik-tool-row', 'ink_commit')
+    assert.equal(row.props['data-state'], 'error')
+    assert.match(textOf(failed), /ink\.row\.failed/u)
+    assert.match(textOf(failed), /无人值守不 commit/u)
+  } finally {
+    await ctx.cleanup()
+  }
+})
+
+test('命令行：审计翻页只报「翻了多少」，整页 JSON 不进对话', async () => {
+  const ctx = await fixture()
+  try {
+    const load = loadViews({ snapshot: ctx.engine.backstageSnapshot() })
+    const page = { rows: [{ id: 'A-1' }, { id: 'A-2' }, { id: 'A-3' }], nextCursor: { before: 1, beforeSeq: 2 } }
+    const nodes = renderSlot(load, 'conversation.chat.commandview', 'miopiik', commandProps({
+      args: null,
+      outcome: { kind: 'success', text: JSON.stringify(page) },
+    }))
+    assert.ok(byAttr(nodes, 'data-miopiik-cmd-row', 'audit') !== undefined, '命令行认成审计翻页')
+    const text = textOf(nodes)
+    assert.match(text, /ink\.cmd\.audit/u)
+    assert.match(text, /3 ink\.cmd\.rows/u)
+    assert.ok(!text.includes('{"rows"'), '整页 JSON 不再灌进对话')
+    assert.ok(!text.includes('nextCursor'), '游标也不上屏')
+  } finally {
+    await ctx.cleanup()
+  }
+})
+
+test('命令行：干预动作照抄那句人话，出错才红着说', async () => {
+  const ctx = await fixture()
+  try {
+    const load = loadViews({ snapshot: ctx.engine.backstageSnapshot() })
+    const ok = renderSlot(load, 'conversation.chat.commandview', 'miopiik', commandProps({
+      args: null,
+      outcome: { kind: 'success', text: '已划掉 L-33' },
+    }))
+    assert.match(textOf(ok), /已划掉 L-33/u)
+    const bad = renderSlot(load, 'conversation.chat.commandview', 'miopiik', commandProps({
+      args: null,
+      outcome: { kind: 'error', text: '没有这条开环: L-99' },
+    }))
+    assert.match(textOf(bad), /没有这条开环/u)
+    const dot = bad.find((node) => node.props?.style?.background !== undefined && node.props.style.borderRadius === 3)
+    assert.match(String(dot.props.style.background), /--dsw-alias-state-error-primary/u, '失败点走错误色')
+  } finally {
+    await ctx.cleanup()
+  }
+})
+
+test('对话手笔文案键在 zh/en 两本字典里都齐', () => {
+  const source = readFileSync(clientPath, 'utf8')
+  const zhStart = source.indexOf('const zh = {')
+  const enStart = source.indexOf('const en = {')
+  const enEnd = source.indexOf('return {', enStart)
+  const zhBlock = source.slice(zhStart, enStart)
+  const enBlock = source.slice(enStart, enEnd)
+  const keys = [
+    'ink.noun.status', 'ink.noun.loops', 'ink.noun.facts', 'ink.noun.inbox', 'ink.noun.dispatch',
+    'ink.noun.commit', 'ink.noun.brief', 'ink.noun.epoch', 'ink.noun.draft', 'ink.noun.ask',
+    'ink.noun.report', 'ink.noun.branch', 'ink.noun.fold', 'ink.noun.recall',
+    'ink.row.failed', 'ink.row.preparing', 'ink.row.running', 'ink.row.count', 'ink.row.approved', 'ink.row.rejected',
+    'ink.cmd.audit', 'ink.cmd.rows', 'ink.cmd.loopClose', 'ink.cmd.loopDrop', 'ink.cmd.factInvalidate',
+    'ink.field.goal', 'ink.field.claim', 'ink.field.archive', 'ink.field.read',
+    'ink.status.active', 'ink.status.closed', 'ink.status.position',
+    'stream.kind.absorb', 'stream.kind.preview', 'stream.kind.fact.add',
+  ]
+  for (const key of keys) {
+    assert.ok(zhBlock.includes(`'${key}':`), `zh 缺 ${key}`)
+    assert.ok(enBlock.includes(`'${key}':`), `en 缺 ${key}`)
   }
 })

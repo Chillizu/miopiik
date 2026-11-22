@@ -228,6 +228,630 @@ window.__ModuleLoader__.load({
       )
     }
 
+    // ── 对话里的 MiOpIIk 手笔（SPEC §13.11）────────────────────────────────
+    // DSH 的通用工具行会把参数原样露出来（`ink_loops · {"action":"close","id":"L-33"}`），
+    // 命令行更糟：`/miopiik audit` 的返回是整页 JSON，会整段灌进对话。
+    // 这两个席位（tool.call.toolview / conversation.chat.commandview）都是我们自己的手笔，
+    // 只有我们知道那些字段是什么意思，所以由我们接管：折叠态给人话（名词 · 动词 对象），
+    // 展开态给结构化正文。只做展示层：不改 host 契约、不动工具返回给模型的文本、不发明数据。
+
+    const INK_TOOL_NAMES = [
+      'ink_status',
+      'ink_loops',
+      'ink_facts',
+      'ink_inbox',
+      'ink_dispatch',
+      'ink_commit',
+      'ink_brief',
+      'ink_epoch',
+      'ink_draft',
+      'ink_ask',
+      'ink_report',
+      'ink_branch',
+      'ink_fold',
+      'ink_recall',
+    ]
+
+    /** 参数读取器：流式 PartialArguments 与普通对象（测试/回放）用同一套接口。 */
+    function inkArgsReader(args) {
+      const source = args ?? null
+      if (source !== null && typeof source.text === 'function' && typeof source.value === 'function') {
+        return { text: (key) => source.text(key), value: (key) => source.value(key) }
+      }
+      const object = source !== null && typeof source === 'object' ? source : {}
+      return {
+        text: (key) => (typeof object[key] === 'string' ? object[key] : undefined),
+        value: (key) => object[key],
+      }
+    }
+
+    /** 结果节点 → 已解析的值：工具输出是 render() 出来的 pretty JSON 文本块。 */
+    function inkResultValue(block) {
+      const content = Array.isArray(block?.content) ? block.content : []
+      const textBlock = content.find((entry) => entry !== null && typeof entry === 'object' && entry.type === 'text')
+      if (textBlock === undefined) return null
+      const text = String(textBlock.text ?? '')
+      if (text === '') return null
+      try {
+        return JSON.parse(text)
+      } catch {
+        return text
+      }
+    }
+
+    function inkClip(value, max) {
+      const text = String(value ?? '')
+        .replace(/\s+/gu, ' ')
+        .trim()
+      return text.length > max ? `${text.slice(0, max)}…` : text
+    }
+
+    // 工具名 → 名词（同一套 i18n 键：zh/en 各一份）。
+    const INK_NOUNS = {
+      ink_status: 'ink.noun.status',
+      ink_loops: 'ink.noun.loops',
+      ink_facts: 'ink.noun.facts',
+      ink_inbox: 'ink.noun.inbox',
+      ink_dispatch: 'ink.noun.dispatch',
+      ink_commit: 'ink.noun.commit',
+      ink_brief: 'ink.noun.brief',
+      ink_epoch: 'ink.noun.epoch',
+      ink_draft: 'ink.noun.draft',
+      ink_ask: 'ink.noun.ask',
+      ink_report: 'ink.noun.report',
+      ink_branch: 'ink.noun.branch',
+      ink_fold: 'ink.noun.fold',
+      ink_recall: 'ink.noun.recall',
+    }
+
+    const INK_ACTIONS = {
+      list: 'ink.act.list',
+      get: 'ink.act.get',
+      add: 'ink.act.add',
+      touch: 'ink.act.touch',
+      close: 'ink.act.close',
+      drop: 'ink.act.drop',
+      open: 'ink.act.open',
+      read: 'ink.act.read',
+      star: 'ink.act.star',
+      unstar: 'ink.act.unstar',
+      defer: 'ink.act.defer',
+      revise: 'ink.act.revise',
+      invalidate: 'ink.act.invalidate',
+      merge: 'ink.act.merge',
+      abandon: 'ink.act.abandon',
+      summary: 'ink.act.summary',
+      context: 'ink.act.context',
+      propose: 'ink.act.propose',
+      review: 'ink.act.review',
+      approve: 'ink.act.approve',
+      reject: 'ink.act.reject',
+      materials: 'ink.act.materials',
+      save: 'ink.act.save',
+      latest: 'ink.act.latest',
+      advance: 'ink.act.advance',
+    }
+
+    function inkActionWord(action) {
+      const value = typeof action === 'string' ? action : ''
+      const key = INK_ACTIONS[value]
+      return key === undefined ? value : t(key)
+    }
+
+    /** 折叠行的人话：名词 + 一句细节，全部从参数读——流式阶段照样成立。 */
+    function inkToolLabel(toolName, read) {
+      const pick = (key) => {
+        const text = read.text(key)
+        return typeof text === 'string' && text !== '' ? text : undefined
+      }
+      const nounKey = INK_NOUNS[toolName]
+      const noun = nounKey === undefined ? toolName : t(nounKey)
+      const action = pick('action')
+      const id = pick('id')
+      const verb = inkActionWord(action)
+      const isList = action === undefined || action === 'list'
+      let detail = ''
+      switch (toolName) {
+        case 'ink_status':
+          break
+        case 'ink_loops':
+          if (action === 'add') detail = `${verb} ${inkClip(pick('text'), 18)}`
+          else if (isList) detail = t('ink.act.list')
+          else detail = `${verb} ${id ?? ''}`.trim()
+          break
+        case 'ink_facts':
+          if (action === 'add') detail = `${verb} ${inkClip(pick('claim'), 18)}`
+          else if (isList) detail = t('ink.act.list')
+          else detail = `${verb} ${id ?? ''}`.trim()
+          break
+        case 'ink_inbox':
+          detail = isList ? t('ink.act.list') : `${verb} ${id ?? ''}`.trim()
+          break
+        case 'ink_dispatch':
+          detail = inkClip(pick('goal'), 26)
+          break
+        case 'ink_commit':
+          detail = inkClip(pick('title'), 20)
+          break
+        case 'ink_brief':
+          detail = isList ? t('ink.act.materials') : verb
+          break
+        case 'ink_epoch':
+          detail = inkClip(pick('note'), 22)
+          break
+        case 'ink_draft':
+          if (action === 'add') detail = `${verb} ${inkClip(pick('title'), 18)}`
+          else if (action === 'drop') detail = `${verb} ${id ?? ''}`.trim()
+          else detail = t('ink.act.list')
+          break
+        case 'ink_ask':
+          detail = inkClip(pick('question'), 24)
+          break
+        case 'ink_report':
+          detail = inkClip(pick('claim'), 24)
+          break
+        case 'ink_branch': {
+          const label = pick('label')
+          if (action === 'open') detail = `${verb} ${inkClip(label, 16)}`
+          else if (isList) detail = t('ink.act.list')
+          else if (action === 'merge') detail = `${verb} ${id ?? ''} ${inkClip(pick('claim'), 14)}`.trim()
+          else detail = `${verb} ${id ?? ''}`.trim()
+          break
+        }
+        case 'ink_fold':
+          detail = isList ? t('ink.act.list') : `${verb} ${id ?? ''}`.trim()
+          break
+        case 'ink_recall': {
+          const parts = []
+          for (const key of ['query', 'entity', 'loop', 'branch']) {
+            const value = pick(key)
+            if (value !== undefined) parts.push(key === 'query' ? `“${inkClip(value, 16)}”` : value)
+          }
+          const readBack = pick('read')
+          if (readBack !== undefined) parts.push(`#${inkClip(readBack, 8)}`)
+          detail = parts.join(' · ')
+          break
+        }
+        default:
+          break
+      }
+      return { noun, detail }
+    }
+
+    /** 状态词本地化：账本里存的是英文状态，对话里说人话。 */
+    function inkStatusWord(status) {
+      if (status === 'merged') return t('graph.merged')
+      if (status === 'abandoned') return t('graph.abandoned')
+      if (status === 'open') return t('graph.open')
+      return typeof status === 'string' ? status : ''
+    }
+
+    /** 结果落地后再补一句只有结果才知道的话（状态、判定、条数）；失败与进行中优先。 */
+    function inkToolOutcome(toolName, value, block, phase, read) {
+      if (block?.isError === true) return t('ink.row.failed')
+      if (phase === 'preparing') return t('ink.row.preparing')
+      if (phase === 'start') return t('ink.row.running')
+      if (value === null || typeof value !== 'object' || Array.isArray(value)) return ''
+      const verb = inkActionWord(read?.text?.('action'))
+      const countOf = (list) => (Array.isArray(list) ? `${list.length} ${t('ink.row.count')}` : '')
+      if (toolName === 'ink_status') {
+        const loops = value.loops ?? {}
+        const facts = value.facts ?? {}
+        const inbox = value.inbox ?? {}
+        return `${t('ink.noun.loops')} ${loops.active ?? 0} · ${t('ink.noun.facts')} ${facts.active ?? 0} · ${t('ink.noun.inbox')} ${inbox.pending ?? 0}`
+      }
+      if (toolName === 'ink_loops') {
+        if (Array.isArray(value.loops)) return countOf(value.loops)
+        if (typeof value.loop?.id === 'string') return `${verb} ${value.loop.id}`.trim()
+      }
+      if (toolName === 'ink_facts') {
+        if (Array.isArray(value.facts)) return countOf(value.facts)
+        if (typeof value.fact?.id === 'string') return `${verb} ${value.fact.id}`.trim()
+      }
+      if (toolName === 'ink_inbox') {
+        if (Array.isArray(value.previews)) return countOf(value.previews)
+        if (Array.isArray(value.items)) return `${value.zone ? t(`ink.zone.${value.zone}`) : ''} ${countOf(value.items)}`.trim()
+        const itemId = typeof value.id === 'string' ? value.id : value.item?.id
+        if (typeof itemId === 'string') return `${verb} ${itemId}`.trim()
+      }
+      if (toolName === 'ink_dispatch' && typeof value.jobId === 'string') return `${t('ink.row.dispatched')} ${value.jobId}`
+      if (toolName === 'ink_commit') return value.approved === true ? t('ink.row.approved') : t('ink.row.rejected')
+      if (toolName === 'ink_branch') {
+        if (Array.isArray(value.branches)) return countOf(value.branches)
+        if (typeof value.branch?.id === 'string') return `${verb} ${value.branch.id} · ${inkStatusWord(value.branch.status)}`.trim()
+      }
+      if (toolName === 'ink_fold') {
+        if (Array.isArray(value.proposals)) return countOf(value.proposals)
+        const fold = value.proposal ?? null
+        if (typeof fold?.id === 'string') return `${verb} ${fold.id} · ${inkStatusWord(fold.status)}`.trim()
+        if (typeof value.settled === 'string') return `${verb} · ${inkStatusWord(value.settled)}`.trim()
+      }
+      if (toolName === 'ink_draft') {
+        if (Array.isArray(value.drafts)) return countOf(value.drafts)
+        if (typeof value.draft?.id === 'string') return `${verb} ${value.draft.id}`.trim()
+      }
+      if (toolName === 'ink_recall') {
+        if (typeof value.count === 'number') return `${value.count} ${t('ink.row.count')}`
+        if (typeof value.hash === 'string') return `#${value.hash.slice(0, 8)}`
+      }
+      if (toolName === 'ink_brief') {
+        if (Array.isArray(value.activeLoops)) return `${value.activeLoops.length} ${t('ink.row.count')}`
+        const at = value.briefing?.at
+        if (typeof at === 'number') return new Date(at).toLocaleDateString('zh-CN')
+      }
+      if (toolName === 'ink_epoch' && typeof value.epoch === 'number') return `E${value.epoch}`
+      if ((toolName === 'ink_report' || toolName === 'ink_ask') && typeof value.fact?.id === 'string') return value.fact.id
+      return ''
+    }
+
+    // 展开正文里优先摊开的参数字段（契约、判定、问题这类「意思在参数里」的工具）。
+    const INK_ARG_FIELDS = {
+      ink_dispatch: ['goal', 'deliverables', 'acceptance', 'acceptanceSample', 'boundary', 'budget'],
+      ink_commit: ['title', 'summary', 'draftId'],
+      ink_ask: ['question'],
+      ink_report: ['claim', 'evidence', 'conf'],
+      ink_epoch: ['note'],
+      ink_loops: ['text', 'type', 'pointer', 'closureCondition'],
+      ink_facts: ['claim', 'provenance', 'conf', 'source', 'validUntil'],
+      ink_branch: ['label', 'summary', 'premise', 'quotes', 'claim', 'detail'],
+      ink_fold: ['archive'],
+      ink_draft: ['title', 'summary', 'artifact'],
+      ink_brief: ['progress', 'loops', 'running', 'drafts', 'next'],
+      ink_recall: ['query', 'entity', 'loop', 'branch', 'sinceDay', 'read'],
+    }
+
+    const INK_FIELD_LABELS = {
+      goal: 'ink.field.goal',
+      deliverables: 'ink.field.deliverables',
+      acceptance: 'ink.field.acceptance',
+      acceptanceSample: 'ink.field.acceptanceSample',
+      boundary: 'ink.field.boundary',
+      budget: 'ink.field.budget',
+      claim: 'ink.field.claim',
+      evidence: 'ink.field.evidence',
+      conf: 'ink.field.conf',
+      title: 'ink.field.title',
+      summary: 'ink.field.summary',
+      draftId: 'ink.field.draftId',
+      question: 'ink.field.question',
+      note: 'ink.field.note',
+      text: 'ink.field.text',
+      type: 'ink.field.type',
+      pointer: 'ink.field.pointer',
+      closureCondition: 'ink.field.closureCondition',
+      provenance: 'ink.field.provenance',
+      source: 'ink.field.source',
+      validUntil: 'ink.field.validUntil',
+      label: 'ink.field.label',
+      premise: 'ink.field.premise',
+      quotes: 'ink.field.quotes',
+      detail: 'ink.field.detail',
+      archive: 'ink.field.archive',
+      artifact: 'ink.field.artifact',
+      progress: 'ink.field.progress',
+      running: 'ink.field.running',
+      drafts: 'ink.field.drafts',
+      next: 'ink.field.next',
+      query: 'ink.field.query',
+      entity: 'ink.field.entity',
+      sinceDay: 'ink.field.sinceDay',
+      read: 'ink.field.read',
+    }
+
+    /** 字段名 → 人话；不认识的字段名原样给（英文键至少还能对上账本）。 */
+    function inkFieldLabel(key) {
+      const keyName = INK_FIELD_LABELS[key]
+      return keyName === undefined ? key : t(keyName)
+    }
+
+    const INK_ITEM_TEXT = ['claim', 'text', 'label', 'goal', 'question', 'title', 'preview', 'summary', 'name', 'message', 'reason', 'note', 'detail']
+    const INK_ITEM_CHIPS = ['status', 'state', 'kind', 'conf', 'source', 'tier']
+    const INK_SKIP_FIELDS = new Set([...INK_ITEM_TEXT, ...INK_ITEM_CHIPS, 'id', 'scope', 'at', 'stale', 'branchId', 'branch', 'loopId'])
+
+    function inkChip(label, color) {
+      return h(
+        'span',
+        {
+          key: `chip-${label}`,
+          style: {
+            flex: 'none',
+            fontSize: 10,
+            lineHeight: '14px',
+            padding: '0 5px',
+            border: `0.5px solid ${color}`,
+            borderRadius: 7,
+            color,
+            whiteSpace: 'nowrap',
+          },
+        },
+        label,
+      )
+    }
+
+    function inkFieldRow(key, value) {
+      const text = Array.isArray(value) ? value.join('、') : typeof value === 'object' ? JSON.stringify(value) : String(value)
+      return h(
+        'div',
+        {
+          key: `field-${key}`,
+          style: { display: 'flex', gap: 8, alignItems: 'baseline', minWidth: 0 },
+        },
+        h('span', { style: { flex: '0 0 auto', minWidth: 52, maxWidth: 96, fontSize: 11, lineHeight: '17px', color: C.muted } }, inkFieldLabel(key)),
+        h('span', { style: { flex: '1 1 auto', minWidth: 0, fontSize: 12, lineHeight: '17px', color: C.text, wordBreak: 'break-word' } }, text),
+      )
+    }
+
+    /** 数组条目一行：id + 主句 + 徽章 + 次要字符串（缩进第二行）。 */
+    function inkItemRow(item, index) {
+      if (item === null || item === undefined) return null
+      if (typeof item !== 'object') {
+        return h('div', { key: `item-${index}`, style: { fontSize: 12, lineHeight: '17px', color: C.text } }, String(item))
+      }
+      const id = typeof item.id === 'string' ? item.id : null
+      const primary = (() => {
+        for (const key of INK_ITEM_TEXT) {
+          const value = item[key]
+          if (typeof value === 'string' && value.trim() !== '') return value
+        }
+        return null
+      })()
+      const chips = []
+      for (const key of INK_ITEM_CHIPS) {
+        if (typeof item[key] === 'string' && item[key] !== '') chips.push(inkChip(item[key], actorColorOf(item[key]) === C.text ? C.muted : actorColorOf(item[key])))
+      }
+      if (item.stale === true) chips.push(inkChip(t('ink.row.stale'), C.muted))
+      if (typeof item.at === 'number' && item.at > 0) {
+        chips.push(inkChip(new Date(item.at).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' }), C.muted))
+      }
+      const rest = Object.entries(item).filter(
+        ([key, value]) => typeof value === 'string' && !INK_SKIP_FIELDS.has(key) && value.trim() !== '',
+      )
+      return h(
+        'div',
+        { key: `item-${index}`, style: { display: 'flex', flexDirection: 'column', gap: 1, padding: '3px 0', borderTop: index === 0 ? 'none' : `0.5px solid ${C.border}` } },
+        h(
+          'div',
+          { style: { display: 'flex', gap: 6, alignItems: 'baseline', flexWrap: 'wrap' } },
+          id === null ? null : inkChip(id, C.brand),
+          primary === null ? null : h('span', { style: { flex: '1 1 160px', minWidth: 0, fontSize: 12, lineHeight: '17px', color: C.text } }, primary),
+          ...chips,
+        ),
+        rest.length === 0
+          ? null
+          : h(
+              'div',
+              { style: { fontSize: 11, lineHeight: '16px', color: C.muted, paddingLeft: id === null ? 0 : 2 } },
+              rest.map(([key, value]) => `${inkFieldLabel(key)} ${inkClip(value, 120)}`).join(' · '),
+            ),
+      )
+    }
+
+    /** 结构化正文：契约参数在前，结果在后；不给整段 JSON 回来。 */
+    function inkBodyNodes(toolName, read, value) {
+      const nodes = []
+      // 后台总览是「一眼看完」的账，不摊原始字段（session 号这类不是给人看的）。
+      if (toolName === 'ink_status' && value !== null && typeof value === 'object') {
+        const loops = value.loops ?? {}
+        const facts = value.facts ?? {}
+        const inbox = value.inbox ?? {}
+        const metric = (key, label, text) =>
+          h(
+            'div',
+            { key: `metric-${key}`, style: { display: 'flex', gap: 10, alignItems: 'baseline', fontSize: 12, lineHeight: '18px' } },
+            h('span', { style: { flex: '0 0 62px', color: C.muted } }, label),
+            h('span', { style: { flex: '1 1 auto', color: C.text, fontVariantNumeric: 'tabular-nums' } }, text),
+          )
+        return [
+          metric(
+            'loops',
+            t('ink.noun.loops'),
+            `${t('ink.status.active')} ${loops.active ?? 0} · ${t('ink.status.dormant')} ${loops.dormant ?? 0} · ${t('ink.status.closed')} ${loops.closed ?? 0}（${t('ink.status.cap')} ${loops.cap ?? 0}）`,
+          ),
+          metric('facts', t('ink.noun.facts'), `${facts.active ?? 0} · ${t('ink.status.stale')} ${facts.stale ?? 0}`),
+          metric('inbox', t('ink.noun.inbox'), `${t('ink.status.pending')} ${inbox.pending ?? 0}`),
+          metric('notes', t('ink.status.notes'), `${value.notes ?? 0} · ${t('ink.status.observations')} ${value.observations ?? 0}`),
+          metric('pos', t('ink.status.position'), `T${value.turn ?? 0} · D${value.day ?? 0} · E${value.epoch ?? 0}`),
+        ]
+      }
+      for (const key of INK_ARG_FIELDS[toolName] ?? []) {
+        const text = read.text(key)
+        const raw = text !== undefined ? text : read.value(key)
+        if (raw === undefined || raw === null || raw === '') continue
+        nodes.push(inkFieldRow(key, raw))
+      }
+      if (value !== null && typeof value === 'object') {
+        // 结果常是 {loop:{…}} / {fact:{…}} 这种单键包装：拆掉包装再摊，别让包装名占一行。
+        const WRAPPED = ['loop', 'fact', 'branch', 'proposal', 'draft', 'briefing', 'job', 'item']
+        const unwrapped =
+          !Array.isArray(value) &&
+          Object.keys(value).length === 1 &&
+          WRAPPED.includes(Object.keys(value)[0]) &&
+          value[Object.keys(value)[0]] !== null &&
+          typeof value[Object.keys(value)[0]] === 'object'
+            ? value[Object.keys(value)[0]]
+            : value
+        const entries = Array.isArray(unwrapped) ? [['', unwrapped]] : Object.entries(unwrapped)
+        for (const [key, entry] of entries) {
+          if (entry === undefined || entry === null || entry === '') continue
+          if (Array.isArray(entry)) {
+            if (entry.length === 0) continue
+            nodes.push(
+              h(
+                'div',
+                { key: `list-${key}`, style: { display: 'flex', flexDirection: 'column' } },
+                key === '' ? null : h('div', { style: { fontSize: 11, lineHeight: '16px', color: C.muted, paddingTop: 2 } }, inkFieldLabel(key)),
+                ...entry.map((item, index) => inkItemRow(item, index)),
+              ),
+            )
+          } else if (typeof entry === 'object') {
+            const inner = Object.entries(entry).filter(([, item]) => item !== null && typeof item !== 'object')
+            if (inner.length === 0) continue
+            nodes.push(
+              h(
+                'div',
+                { key: `obj-${key}`, style: { display: 'flex', flexDirection: 'column', gap: 2, borderTop: `0.5px solid ${C.border}`, paddingTop: 4, marginTop: 2 } },
+                h('div', { style: { fontSize: 11, lineHeight: '16px', color: C.muted } }, inkFieldLabel(key)),
+                ...inner.map(([innerKey, item]) => inkFieldRow(innerKey, item)),
+              ),
+            )
+          } else if (key !== '') {
+            nodes.push(inkFieldRow(key, entry))
+          } else {
+            nodes.push(inkFieldRow('text', entry))
+          }
+        }
+      } else if (typeof value === 'string' && value !== '') {
+        nodes.push(inkFieldRow('text', value))
+      }
+      return nodes
+    }
+
+    /** 工具行：折叠态一句人话，展开态结构化正文；配合过程组折叠，不抢对话的版面。 */
+    function InkToolRow(props) {
+      const toolName = typeof props?.toolName === 'string' ? props.toolName : ''
+      const block = props?.block ?? {}
+      const useDisclosure = props?.useDisclosure
+      const disclosure = typeof useDisclosure === 'function' ? useDisclosure() : { expanded: false, toggle() {} }
+      const phase = typeof props?.phase === 'string' ? props.phase : 'result'
+      const read = inkArgsReader(block.args)
+      const value = phase === 'result' ? inkResultValue(block) : null
+      const label = inkToolLabel(toolName, read)
+      const outcome = inkToolOutcome(toolName, value, block, phase, read)
+      const detail = outcome === '' ? label.detail : outcome
+      const failed = block.isError === true
+      const running = phase === 'preparing' || phase === 'start'
+      const errorText = (() => {
+        if (!failed) return ''
+        const content = Array.isArray(block.content) ? block.content : []
+        const first = content.find((entry) => entry !== null && typeof entry === 'object' && entry.type === 'text')
+        return inkClip(first?.text ?? t('ink.row.failed'), 160)
+      })()
+      const body = disclosure.expanded ? inkBodyNodes(toolName, read, failed ? null : value) : []
+      return h(
+        'div',
+        {
+          'data-miopiik-tool-row': toolName,
+          'data-tool': toolName,
+          'data-state': failed ? 'error' : running ? 'running' : 'ok',
+          style: { display: 'flex', flexDirection: 'column', minWidth: 0, padding: '1px 0' },
+        },
+        h(
+          'button',
+          {
+            type: 'button',
+            onClick: disclosure.toggle,
+            'aria-expanded': disclosure.expanded ? 'true' : 'false',
+            style: {
+              display: 'flex',
+              alignItems: 'baseline',
+              gap: 6,
+              width: '100%',
+              minWidth: 0,
+              padding: '2px 0',
+              border: 0,
+              background: 'transparent',
+              color: C.text,
+              cursor: 'pointer',
+              textAlign: 'left',
+              font: 'inherit',
+            },
+          },
+          h(
+            'svg',
+            { width: 13, height: 13, viewBox: '0 0 13 13', 'aria-hidden': true, style: { flex: 'none', alignSelf: 'center', opacity: running ? 0.5 : 0.9 } },
+            h('path', { d: 'M6.5 1.2 L11.8 6.5 L6.5 11.8 L1.2 6.5 Z', fill: 'none', stroke: failed ? C.error : C.brand, strokeWidth: 1.3 }),
+          ),
+          h('span', { style: { flex: 'none', fontSize: 12, lineHeight: '18px', color: failed ? C.error : C.text } }, label.noun),
+          detail === '' ? null : h('span', { style: { flex: 'none', fontSize: 12, lineHeight: '18px', color: C.muted } }, '·'),
+          detail === '' ? null : h('span', { style: { minWidth: 0, fontSize: 12, lineHeight: '18px', color: failed ? C.error : C.muted, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' } }, detail),
+        ),
+        failed && !disclosure.expanded ? h('div', { style: { fontSize: 11, lineHeight: '16px', color: C.error, paddingLeft: 19 } }, errorText) : null,
+        body.length === 0
+          ? null
+          : h(
+              'div',
+              {
+                'data-miopiik-tool-body': toolName,
+                style: {
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: 3,
+                  margin: '2px 0 6px 19px',
+                  padding: '7px 10px',
+                  borderLeft: `2px solid ${failed ? C.error : C.brand}`,
+                  background: C.layer1,
+                  borderRadius: '0 6px 6px 0',
+                },
+              },
+              ...body,
+            ),
+      )
+    }
+
+    /** 命令行：`/miopiik audit …` 每次翻页都会留一行。结果 JSON 不进对话，只报做了什么。 */
+    function MiCommandRow(props) {
+      const node = props?.node ?? {}
+      const raw = typeof node.args === 'string' ? node.args.trim() : ''
+      const tokens = raw === '' ? [] : raw.split(/\s+/u)
+      const domain = tokens[0] ?? ''
+      const verb = tokens[1] ?? ''
+      const id = tokens[2] ?? ''
+      const outcome = node.outcome ?? null
+      const failed = outcome !== null && outcome.kind === 'error'
+      const pending = outcome === null
+      const resultText = typeof outcome?.text === 'string' ? outcome.text : ''
+      // audit 的返回是整页 JSON：翻页的意义只有「翻了多少」，行数据在视图里，不灌进对话。
+      const page = (() => {
+        if (resultText === '') return null
+        if (!resultText.startsWith('{')) return null
+        try {
+          const parsed = JSON.parse(resultText)
+          return parsed !== null && typeof parsed === 'object' && Array.isArray(parsed.rows) ? parsed : null
+        } catch {
+          return null
+        }
+      })()
+      let label = ''
+      let detail = ''
+      if (page !== null) {
+        label = t('ink.cmd.audit')
+        detail = `${page.rows.length} ${t('ink.cmd.rows')}`
+      } else if (domain === 'loop') {
+        label = verb === 'drop' ? t('ink.cmd.loopDrop') : t('ink.cmd.loopClose')
+        detail = id
+      } else if (domain === 'fact') {
+        label = t('ink.cmd.factInvalidate')
+        detail = id
+      } else if (resultText !== '' && resultText.startsWith('{') !== true) {
+        // 干预命令的返回本来就是一句人话（「已划掉 L-33」），照抄即可。
+        label = inkClip(resultText, 40)
+      } else {
+        label = 'miopiik'
+        detail = inkClip(raw, 40)
+      }
+      return h(
+        'div',
+        {
+          'data-miopiik-cmd-row': page !== null ? 'audit' : domain === '' ? 'miopiik' : domain,
+          style: { display: 'flex', alignItems: 'baseline', gap: 6, minWidth: 0, padding: '2px 0', color: C.muted },
+        },
+        h('span', {
+          'aria-hidden': true,
+          style: {
+            flex: 'none',
+            alignSelf: 'center',
+            width: 5,
+            height: 5,
+            borderRadius: 3,
+            background: failed ? C.error : pending ? C.muted : C.brand,
+            opacity: 0.75,
+          },
+        }),
+        h('span', { style: { flex: 'none', fontSize: 11.5, lineHeight: '17px', color: failed ? C.error : C.text } }, label),
+        detail === '' ? null : h('span', { style: { minWidth: 0, fontSize: 11, lineHeight: '17px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' } }, `· ${detail}`),
+      )
+    }
+
     // 与 DSH 自带的「对话 / 轨迹」标签同一套度量：13px、字重 500、激活用品牌色、下划线指示。
     function TabButton({ id, label, active }) {
       return h(
@@ -297,6 +921,19 @@ window.__ModuleLoader__.load({
       const branches = graph?.branches ?? []
       const events = graph?.events ?? []
       const mindEvents = graph?.mindEvents ?? []
+      // 画布宽度跟着可用列宽走：泳道摊开而不是挤在中间一条窄带里。
+      const [avail, setAvail] = React.useState(0)
+      const canvasRef = React.useRef(null)
+      React.useEffect(() => {
+        const el = canvasRef.current
+        if (el === null || typeof ResizeObserver !== 'function') return undefined
+        const observer = new ResizeObserver((entries) => {
+          const next = entries[0]?.contentRect?.width ?? 0
+          if (next > 0) setAvail(next)
+        })
+        observer.observe(el)
+        return () => observer.disconnect()
+      }, [])
 
       if (graph === undefined || branches.length === 0) {
         return h('div', { style: { padding: 32, color: C.muted, fontSize: 13 } }, t('graph.empty'))
@@ -321,13 +958,17 @@ window.__ModuleLoader__.load({
             ? t('graph.abandoned')
             : t('graph.open')
 
-      // 头部两行（轮次标记 + 图例第一行，再往下图例第二行「菱形=Mind 动作」），
-      // 首行事件从 padTop 起，任何图例字形不压事件节点的点击与悬停。
-      const padTop = 74
-      const rowGap = 30
+      // 画布内只留泳道标题（y=18）；图例与轮次窗口搬到画布外的工具条里。
+      // 首行事件从 padTop 起，任何标题字形不压事件节点的点击与悬停。
+      const padTop = 44
+      const rowGap = 34
       const leftX = 96
-      const laneW = 140
       const laneBase = leftX + 150
+      // 泳道宽随列宽伸缩（150–270）：宽屏把两条道摊开，窄屏保持可读。
+      const laneW =
+        avail > 0 && branches.length > 0
+          ? Math.max(150, Math.min(270, (avail - laneBase - 24) / branches.length))
+          : 150
       // Mind 泳道在脊右侧、分支泳道左侧：脊（leftX）与泳道区（laneBase）的正中。
       const mindLaneX = leftX + (laneBase - leftX) / 2
       const W = Math.max(560, laneBase + branches.length * laneW + 16)
@@ -356,68 +997,9 @@ window.__ModuleLoader__.load({
       )
 
       const marks = []
-      // 头部一行：主干截断标记（如「最近 16/58 轮」）+ 泳道标题。
-      marks.push(h('text', { key: 'turn-window', x: 8, y: 18, fontSize: 11, fill: C.muted }, windowLabel))
-      marks.push(h('text', { key: 'lbl-l', x: leftX - 40, y: 18, fontSize: 10, fill: C.muted }, t('graph.spineTurns')))
-      marks.push(h('text', { key: 'time', x: leftX + 12, y: 18, fontSize: 10, fill: C.muted }, '时间 ↓'))
-      // 图例一行（最近轮次标记正下方）：形状语言只在这里说一遍，颜色沿用 C.* 主题变量。
-      const legendY = 34
-      const legendItems = [
-        { key: 'legend-fork', glyph: 'arc', dashed: false, label: t('graph.legendFork') },
-        { key: 'legend-merge', glyph: 'arc', dashed: true, label: t('graph.legendMerge') },
-        { key: 'legend-shared', glyph: 'shared', label: t('graph.legendSharedFact') },
-        { key: 'legend-job', glyph: 'square', label: t('graph.legendJob') },
-        { key: 'legend-event', glyph: 'circle', label: t('graph.legendEvent') },
-      ]
-      let legendX = 8
-      for (const item of legendItems) {
-        if (item.glyph === 'arc') {
-          marks.push(
-            h('path', {
-              key: `${item.key}-g`,
-              d: `M ${legendX},${legendY + 4} q 10,-11 20,0`,
-              fill: 'none',
-              stroke: C.link,
-              strokeWidth: 1.4,
-              strokeLinecap: 'round',
-              ...(item.dashed === true ? { strokeDasharray: '4 3' } : {}),
-            }),
-          )
-          legendX += 24
-        } else if (item.glyph === 'shared') {
-          marks.push(h('line', { key: `${item.key}-g1`, x1: legendX, y1: legendY, x2: legendX + 26, y2: legendY, stroke: C.link, strokeWidth: 1, strokeDasharray: '2 3', opacity: 0.9 }))
-          marks.push(h('path', { key: `${item.key}-g2`, d: `M ${legendX + 10},${legendY - 3} L ${legendX + 16},${legendY - 3} L ${legendX + 16},${legendY + 3} L ${legendX + 10},${legendY + 3} Z`, fill: C.link, opacity: 0.9 }))
-          legendX += 30
-        } else if (item.glyph === 'square') {
-          marks.push(h('rect', { key: `${item.key}-g`, x: legendX, y: legendY - 4, width: 8, height: 8, rx: 2, fill: C.base, fillOpacity: 0.35, stroke: C.text, strokeWidth: 2 }))
-          legendX += 13
-        } else {
-          marks.push(h('circle', { key: `${item.key}-g`, cx: legendX + 4.5, cy: legendY, r: 4.5, fill: C.base, stroke: C.text, strokeWidth: 1.8 }))
-          legendX += 11
-        }
-        marks.push(h('text', { key: `${item.key}-t`, x: legendX + 4, y: legendY + 4, fontSize: 10, fill: C.muted }, item.label))
-        // 文案宽度按「一个全角字符 ≈ fontSize」估：中文不挤、英文键名也放得下。
-        legendX += 4 + Math.max(6, String(item.label).length) * 9 + 18
-      }
-      // 图例第二行（第一行已贴满头部宽）：「菱形=Mind 动作」，与第一行同款式；
-      // padTop 已为两行图例让位，任何事件节点（首个 y=padTop）不与图例重叠。
-      const legend2Y = 50
-      const legend2Items = [{ key: 'legend-mind', glyph: 'diamond', label: t('graph.legendMind') }]
-      let legend2X = 8
-      for (const item of legend2Items) {
-        marks.push(
-          h('path', {
-            key: `${item.key}-g`,
-            d: `M ${legend2X + 5},${legend2Y - 5} L ${legend2X + 10},${legend2Y} L ${legend2X + 5},${legend2Y + 5} L ${legend2X},${legend2Y} Z`,
-            fill: C.base,
-            stroke: C.brand,
-            strokeWidth: 1.8,
-          }),
-        )
-        legend2X += 14
-        marks.push(h('text', { key: `${item.key}-t`, x: legend2X + 4, y: legend2Y + 4, fontSize: 10, fill: C.muted }, item.label))
-        legend2X += 4 + Math.max(6, String(item.label).length) * 9 + 18
-      }
+      // 画布内头部：脊/时间/Mind 道/泳道标题（轮次窗口与图例在画布外，见 legendBar）。
+      marks.push(h('text', { key: 'lbl-l', x: leftX - 40, y: 18, fontSize: 11, fill: C.muted }, t('graph.spineTurns')))
+      marks.push(h('text', { key: 'time', x: leftX + 12, y: 18, fontSize: 11, fill: C.muted }, '时间 ↓'))
       // 空态：两线之间没有任何往来（links 为空、也没有汇回/放弃事件）时，
       // 泳道区给一行淡字，有内容就不显示——如实说空，不硬凑。
       if (links.length === 0 && !events.some((event) => event.kind === 'merge' || event.kind === 'abandon')) {
@@ -459,16 +1041,29 @@ window.__ModuleLoader__.load({
       marks.push(h('line', { key: 'mindlane', x1: mindLaneX, y1: padTop - 8, x2: mindLaneX, y2: H - 22, stroke: C.border, strokeWidth: 1, strokeDasharray: '2 4', opacity: 0.5 }))
       marks.push(h('text', { key: 'lbl-mind', x: mindLaneX, y: 18, fontSize: 10, textAnchor: 'middle', fill: C.muted }, t('graph.mindLane')))
 
-      // 每分支一条泳道：标题、基线、fork 接出（实线）与 merge/abandon 接回（虚线）。
+      // 每分支一条泳道：底纹、标题、基线、fork 接出（实线）与 merge/abandon 接回（虚线）。
+      // 底纹让空白读成「道」而不是「没画完」；选中态给主色淡染，和其余泳道分开。
       for (const [index, branch] of branches.entries()) {
         const x = laneX(index)
         const top = laneTop(branch)
         const bottom = laneBottom(branch)
         const isHot = selected === branch.id
         marks.push(
+          h('rect', {
+            key: `laneband-${branch.id}`,
+            x: x - laneW / 2 + 10,
+            y: Math.max(top - 34, 4),
+            width: laneW - 20,
+            height: Math.min(H - 8, bottom + 16) - Math.max(top - 34, 4),
+            rx: 10,
+            fill: isHot ? C.brand : C.base,
+            fillOpacity: isHot ? 0.08 : 0.75,
+          }),
+        )
+        marks.push(
           h(
             'text',
-            { key: `lane-${branch.id}`, x, y: 18, fontSize: 10, textAnchor: 'middle', fill: branch.status === 'open' ? C.text : C.muted },
+            { key: `lane-${branch.id}`, x, y: 18, fontSize: 11, textAnchor: 'middle', fill: branch.status === 'open' ? C.text : C.muted },
             `${branch.id} ${String(branch.label).slice(0, 10)}`,
           ),
         )
@@ -514,10 +1109,10 @@ window.__ModuleLoader__.load({
       for (const [index, item] of timeline.entries()) {
         const y = yOf(index)
         if (item.kind === 'turn') {
-          marks.push(h('circle', { key: `t-${item.turn.turn}`, cx: leftX, cy: y, r: 4, fill: C.brand }))
-          marks.push(h('text', { key: `tt-${item.turn.turn}`, x: leftX - 12, y: y + 4, fontSize: 10, fill: C.brand, textAnchor: 'end', fontWeight: 500 }, `第${item.turn.turn}轮`))
-          const readable = (item.turn.label ?? '').startsWith('Ciallo') ? '' : (item.turn.label ?? '').slice(0, 14)
-          if (readable !== '') marks.push(h('text', { key: `tl-${item.turn.turn}`, x: leftX + 12, y: y + 4, fontSize: 10, fill: C.muted }, readable))
+          marks.push(h('circle', { key: `t-${item.turn.turn}`, cx: leftX, cy: y, r: 5, fill: C.brand }))
+          marks.push(h('text', { key: `tt-${item.turn.turn}`, x: leftX - 12, y: y + 4, fontSize: 11, fill: C.brand, textAnchor: 'end', fontWeight: 500 }, `第${item.turn.turn}轮`))
+          const readable = (item.turn.label ?? '').startsWith('Ciallo') ? '' : (item.turn.label ?? '').slice(0, 18)
+          if (readable !== '') marks.push(h('text', { key: `tl-${item.turn.turn}`, x: leftX + 12, y: y + 4, fontSize: 11, fill: C.muted }, readable))
           continue
         }
         if (item.kind === 'mind') {
@@ -526,7 +1121,7 @@ window.__ModuleLoader__.load({
           marks.push(
             h('path', {
               key: `m-${item.index}`,
-              d: `M ${mindLaneX},${y - 7} L ${mindLaneX + 7},${y} L ${mindLaneX},${y + 7} L ${mindLaneX - 7},${y} Z`,
+              d: `M ${mindLaneX},${y - 8} L ${mindLaneX + 8},${y} L ${mindLaneX},${y + 8} L ${mindLaneX - 8},${y} Z`,
               fill: C.base,
               stroke: C.brand,
               strokeWidth: 1.8,
@@ -549,7 +1144,7 @@ window.__ModuleLoader__.load({
         // Ink/Mind 侧事件 = 圆；执行层（Operator）= 方。形状=层，颜色=状态。
         if (event.kind === 'job') {
           const color = stateColor(event.state)
-          const size = isHot ? 13 : 11
+          const size = isHot ? 14 : 12
           marks.push(
             h('rect', {
               key: `e-${event.id}`,
@@ -577,7 +1172,7 @@ window.__ModuleLoader__.load({
               key: `e-${event.id}`,
               cx: x,
               cy: y,
-              r: isHot ? 6 : 5,
+              r: isHot ? 7 : 6,
               fill: C.base,
               stroke: color,
               strokeWidth: 1.8,
@@ -631,17 +1226,70 @@ window.__ModuleLoader__.load({
         }
       })()
 
+      // 图例在画布外：形状语言一行说完，窄列自动换行，不再被 viewBox 宽度切边。
+      const legendItems = [
+        { key: 'fork', kind: 'arc', label: t('graph.legendFork') },
+        { key: 'merge', kind: 'arcDashed', label: t('graph.legendMerge') },
+        { key: 'shared', kind: 'shared', label: t('graph.legendSharedFact') },
+        { key: 'job', kind: 'square', label: t('graph.legendJob') },
+        { key: 'event', kind: 'circle', label: t('graph.legendEvent') },
+        { key: 'mind', kind: 'diamond', label: t('graph.legendMind') },
+      ]
+      const legendGlyph = (kind, key) => {
+        const children = []
+        if (kind === 'arc' || kind === 'arcDashed') {
+          children.push(
+            h('path', {
+              key: 'p',
+              d: 'M 1,9 q 10,-8 20,0',
+              fill: 'none',
+              stroke: C.link,
+              strokeWidth: 1.4,
+              strokeLinecap: 'round',
+              ...(kind === 'arcDashed' ? { strokeDasharray: '4 3' } : {}),
+            }),
+          )
+        } else if (kind === 'shared') {
+          children.push(h('line', { key: 'l', x1: 1, y1: 6, x2: 21, y2: 6, stroke: C.link, strokeWidth: 1, strokeDasharray: '2 3', opacity: 0.9 }))
+          children.push(h('path', { key: 's', d: 'M 8,3 L 14,3 L 14,9 L 8,9 Z', fill: C.link, opacity: 0.9 }))
+        } else if (kind === 'square') {
+          children.push(h('rect', { key: 's', x: 7, y: 2, width: 8, height: 8, rx: 2, fill: C.base, fillOpacity: 0.35, stroke: C.text, strokeWidth: 2 }))
+        } else if (kind === 'diamond') {
+          children.push(h('path', { key: 'd', d: 'M 11,1 L 16,6 L 11,11 L 6,6 Z', fill: C.base, stroke: C.brand, strokeWidth: 1.6 }))
+        } else {
+          children.push(h('circle', { key: 'c', cx: 11, cy: 6, r: 4.5, fill: C.base, stroke: C.text, strokeWidth: 1.8 }))
+        }
+        return h('svg', { key, width: 22, height: 12, viewBox: '0 0 22 12', 'aria-hidden': true, style: { flex: 'none' } }, ...children)
+      }
+      const legendBar = h(
+        'div',
+        {
+          'data-miopiik-legend': 'graph',
+          style: { display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '2px 16px', padding: '0 2px 8px', fontSize: 11.5, lineHeight: '16px', color: C.muted },
+        },
+        h('span', { key: 'window', 'data-miopiik-window': windowLabel, style: { color: C.text, fontWeight: 500, marginRight: 4 } }, windowLabel),
+        ...legendItems.map((item) =>
+          h(
+            'span',
+            { key: item.key, 'data-miopiik-legend-item': item.key, style: { display: 'inline-flex', alignItems: 'center', gap: 5 } },
+            legendGlyph(item.kind, `${item.key}-glyph`),
+            h('span', null, item.label),
+          ),
+        ),
+      )
+
       return h(
         'div',
         { style: { display: 'flex', minHeight: 0, height: '100%' } },
         h(
           'div',
-          { style: { flex: '1 1 auto', minWidth: 0, display: 'flex', flexDirection: 'column', minHeight: 0 } },
+          { ref: canvasRef, style: { flex: '1 1 auto', minWidth: 0, display: 'flex', flexDirection: 'column', minHeight: 0 } },
           h(
             'div',
             { style: { flex: 'none', display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12, padding: '14px 20px 6px' } },
             h(CountsStrip, { graph }),
           ),
+          h('div', { style: { flex: 'none', padding: '0 20px' } }, legendBar),
           h(
             'div',
             {
@@ -651,12 +1299,23 @@ window.__ModuleLoader__.load({
                 // 视图容器的高度取决于外层，给一个视口上限才能真的滚起来
                 maxHeight: 'calc(100vh - 250px)',
                 overflow: 'auto',
-                padding: '0 20px 28px',
+                padding: '0 20px 140px',
               },
             },
             h(
               'div',
-              { style: { position: 'relative', width: '100%', maxWidth: W, margin: '0 auto' } },
+              {
+                style: {
+                  position: 'relative',
+                  width: '100%',
+                  margin: '0 auto',
+                  border: `0.5px solid ${C.border}`,
+                  borderRadius: 10,
+                  background: C.layer1,
+                  overflow: 'hidden',
+                  padding: '6px 0 10px',
+                },
+              },
               // 选中分支（细节面板展开）时整图缩宽适配可用列宽：viewBox 不变，
               // width 交给容器（100%），高度按宽高比随动——泳道区不再被面板挤走。
               chosen !== null
@@ -666,12 +1325,25 @@ window.__ModuleLoader__.load({
                       viewBox: `0 0 ${W} ${H}`,
                       width: '100%',
                       role: 'img',
+                      'data-miopiik-graph': '1',
                       'aria-label': t('graph.title'),
                       style: { display: 'block', height: 'auto', aspectRatio: `${W} / ${H}` },
                     },
                     ...marks,
                   )
-                : h('svg', { viewBox: `0 0 ${W} ${H}`, width: W, height: H, role: 'img', 'aria-label': t('graph.title'), style: { display: 'block' } }, ...marks),
+                : h(
+                    'svg',
+                    {
+                      viewBox: `0 0 ${W} ${H}`,
+                      width: W,
+                      height: H,
+                      role: 'img',
+                      'data-miopiik-graph': '1',
+                      'aria-label': t('graph.title'),
+                      style: { display: 'block', margin: '0 auto' },
+                    },
+                    ...marks,
+                  ),
               bubble === null
                 ? null
                 : h(
@@ -1167,7 +1839,7 @@ window.__ModuleLoader__.load({
       const l3 = snapshot?.l3
       const inkContext = snapshot?.inkContext
       const candidates = snapshot?.candidates ?? []
-      const [l3Open, setL3Open] = React.useState(true)
+      const [l3Open, setL3Open] = React.useState(false)
       const [assemblyOpen, setAssemblyOpen] = React.useState(false)
       // 「Mind 最近动作」：默认收起，交互与「Ink 装配明细」同款（§13.10）。
       const [mindOpen, setMindOpen] = React.useState(false)
@@ -1210,6 +1882,7 @@ window.__ModuleLoader__.load({
               l3Open ? t('ctx.l3Collapse') : t('ctx.l3Expand'),
             ),
             h('span', { style: styles.meta }, l3.generatedAt ? new Date(l3.generatedAt).toLocaleString() : ''),
+            l3Open ? null : h('span', { style: { fontSize: 11.5, color: C.muted } }, t('ctx.l3Hint')),
           ),
           l3Open
             ? l3.text === ''
@@ -1252,8 +1925,11 @@ window.__ModuleLoader__.load({
                     fact.claim,
                     h(
                       'div',
-                      { style: styles.meta },
-                      `${fact.conf} · ${fact.source} · ${fact.scope === 'workspace' ? t('facts.scopeWorkspace') : t('facts.scopeSession')}`,
+                      { style: { display: 'flex', gap: 5, marginTop: 4, flexWrap: 'wrap' } },
+                      inkChip(fact.conf, fact.conf === 'high' ? C.success : fact.conf === 'low' ? C.muted : C.warn),
+                      inkChip(fact.source, actorColorOf(fact.source) === C.text ? C.muted : actorColorOf(fact.source)),
+                      fact.scope === 'workspace' ? inkChip(t('facts.scopeWorkspace'), C.brand) : null,
+                      fact.stale === true ? inkChip(t('facts.pending'), C.muted) : null,
                     ),
                   ),
                   idButton(fact.id),
@@ -1275,14 +1951,12 @@ window.__ModuleLoader__.load({
                     loop.text,
                     h(
                       'div',
-                      { style: styles.meta },
-                      [
-                        loop.type,
-                        loop.closureCondition === null || loop.closureCondition === undefined ? null : `${t('graph.closure')}: ${loop.closureCondition}`,
-                        loop.suggestedClose === true ? t('ctx.suggestedClose') : null,
-                      ]
-                        .filter(Boolean)
-                        .join(' · '),
+                      { style: { display: 'flex', gap: 5, marginTop: 4, flexWrap: 'wrap', alignItems: 'center' } },
+                      inkChip(loop.type, C.muted),
+                      loop.suggestedClose === true ? inkChip(t('ctx.suggestedClose'), C.warn) : null,
+                      loop.closureCondition === null || loop.closureCondition === undefined
+                        ? null
+                        : h('span', { style: { fontSize: 11, color: C.muted } }, `${t('graph.closure')}: ${loop.closureCondition}`),
                     ),
                   ),
                   idButton(loop.id),
@@ -1478,6 +2152,13 @@ window.__ModuleLoader__.load({
      * kind 过滤器按命令返回的行生成（服务端 kind=…）；溯源过滤（F-x/L-n/I-x/J-n）
      * 是本地 id/refs 匹配；命令通道不可用时如实降级：显示到尾窗为止。
      */
+    /** 流水行的 kind 说人话；字典里没有的原样保留（如实露出账本词，不硬编）。 */
+    function streamKindLabel(kind) {
+      const key = `stream.kind.${String(kind ?? '')}`
+      const label = t(key)
+      return label === key ? String(kind ?? '') : label
+    }
+
     function StreamPane({ snapshot, sessionId, filter = null, onClearFilter, onOpenGraph }) {
       const audit = snapshot?.audit
       const [server, setServer] = React.useState(null) // { rows, cursor, params } | null = 尾窗模式
@@ -1630,7 +2311,7 @@ window.__ModuleLoader__.load({
                 },
                 entry === 'all'
                   ? `${t('stream.all')} ${server === null ? baseRows.length : server.rows.length}`
-                  : `${entry} ${server?.rows.filter((row) => row.kind === entry).length ?? 0}`,
+                  : `${streamKindLabel(entry)} ${server?.rows.filter((row) => row.kind === entry).length ?? 0}`,
               ),
             ),
             h('input', {
@@ -1700,20 +2381,25 @@ window.__ModuleLoader__.load({
                   },
                   h(
                     'span',
-                    { style: { flex: 'none', width: 62, fontSize: 11, color: C.muted, fontVariantNumeric: 'tabular-nums' } },
+                    { style: { flex: 'none', width: 56, fontSize: 11, color: C.muted, fontVariantNumeric: 'tabular-nums' } },
                     row.at ? new Date(row.at).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' }) : '',
                   ),
                   h(
                     'span',
                     {
+                      'data-miopiik-kind': row.kind,
+                      title: row.kind,
                       style: {
                         flex: 'none',
-                        width: 96,
+                        width: 84,
                         fontSize: 11,
                         color: row.rowKind === 'job' ? C.warn : row.rowKind === 'fact' ? C.success : row.rowKind === 'branch' ? C.brand : C.muted,
+                        overflow: 'hidden',
+                        textOverflow: 'ellipsis',
+                        whiteSpace: 'nowrap',
                       },
                     },
-                    row.kind,
+                    streamKindLabel(row.kind),
                   ),
                   h('span', { style: { flex: '1 1 auto', minWidth: 0, fontSize: 12, color: C.text } }, row.claim),
                   row.branch ? h('span', { style: { flex: 'none', fontSize: 11, color: C.muted } }, row.branch) : null,
@@ -2315,6 +3001,7 @@ window.__ModuleLoader__.load({
       'ctx.l3': '后台所见（L3 原文）',
       'ctx.l3Expand': '展开原文',
       'ctx.l3Collapse': '收起原文',
+      'ctx.l3Hint': 'Mind 每轮看见的后台摘要；点开逐字读原文。',
       'ctx.facts': '已定结论（现值）',
       'ctx.loops': '悬着的事（活跃）',
       'ctx.inbox': '收件箱待读',
@@ -2393,6 +3080,178 @@ window.__ModuleLoader__.load({
       'stream.detailBoundary': '边界',
       'stream.detailBudget': '预算',
 
+      'stream.kind.absorb': '吸收',
+      'stream.kind.preview': '待读预览',
+      'stream.kind.note': '笔记',
+      'stream.kind.fact.sample': '结论现状',
+      'stream.kind.fact.add': '落结论',
+      'stream.kind.fact.revise': '修订结论',
+      'stream.kind.fact.invalidate': '结论失效',
+      'stream.kind.branch.sample': '鱼骨现状',
+      'stream.kind.branch.open': '开分支',
+      'stream.kind.branch.merge': '并入主干',
+      'stream.kind.branch.abandon': '放弃分支',
+      'stream.kind.job.sample': '任务现状',
+      'stream.kind.job.dispatch': '派发',
+      'stream.kind.job.update': '任务进展',
+      'stream.kind.loop.add': '登记开环',
+      'stream.kind.loop.close': '闭合开环',
+      'stream.kind.loop.drop': '丢弃开环',
+      'stream.kind.loop.touch': '触碰开环',
+      'stream.kind.inbox.deliver': '投递',
+      'stream.kind.inbox.read': '已读',
+      'stream.kind.inbox.open': '打开',
+      'stream.kind.inbox.supersede': '取代',
+      'stream.kind.fold.compaction': '折叠压缩',
+      'stream.kind.epoch': '换纪元',
+      'stream.kind.commit': '提交门',
+      'stream.kind.branch.fork': '开分支',
+      'stream.kind.branch.context': '分支上下文',
+      'stream.kind.branch.summary': '分支摘要',
+      'stream.kind.branch.attach-job': '挂任务',
+      'stream.kind.fold.propose': '折叠提议',
+      'stream.kind.fold.apply': '折叠落地',
+      'stream.kind.fold.reject': '折叠退回',
+      'stream.kind.briefing': '交接',
+      'stream.kind.briefing.overnight': '夜间更新',
+      'stream.kind.draft.add': '立草稿',
+      'stream.kind.draft.settle': '草稿结算',
+      'stream.kind.job.timeout': '任务超时',
+      'stream.kind.fact.revise': '修订结论',
+
+      // §13.11 对话里的手笔：工具行与命令行的人话（名词 · 动词 · 对象）。
+      'ink.noun.status': '后台总览',
+      'ink.noun.loops': '开环',
+      'ink.noun.facts': '事实卡',
+      'ink.noun.inbox': '收件箱',
+      'ink.noun.dispatch': '派发',
+      'ink.noun.commit': '提交门',
+      'ink.noun.brief': '交接',
+      'ink.noun.epoch': '换纪元',
+      'ink.noun.draft': '草稿',
+      'ink.noun.ask': '问 Ink',
+      'ink.noun.report': '交结论',
+      'ink.noun.branch': '鱼骨',
+      'ink.noun.fold': '折叠',
+      'ink.noun.recall': '回溯',
+      'ink.act.list': '清单',
+      'ink.act.get': '查看',
+      'ink.act.add': '新增',
+      'ink.act.touch': '触碰',
+      'ink.act.close': '闭合',
+      'ink.act.drop': '丢弃',
+      'ink.act.open': '打开',
+      'ink.act.read': '读了',
+      'ink.act.star': '加星',
+      'ink.act.unstar': '撤星',
+      'ink.act.defer': '推后',
+      'ink.act.revise': '修订',
+      'ink.act.invalidate': '标废',
+      'ink.act.merge': '并入',
+      'ink.act.abandon': '放弃',
+      'ink.act.summary': '摘要',
+      'ink.act.context': '上下文',
+      'ink.act.propose': '提议',
+      'ink.act.review': '验收',
+      'ink.act.approve': '通过',
+      'ink.act.reject': '否决',
+      'ink.act.materials': '取材料',
+      'ink.act.save': '保存',
+      'ink.act.latest': '最近一份',
+      'ink.act.advance': '推进',
+      'ink.row.failed': '没做成',
+      'ink.row.preparing': '准备中…',
+      'ink.row.running': '进行中…',
+      'ink.row.approved': '行',
+      'ink.row.rejected': '不行',
+      'ink.row.stale': '已失效',
+      'ink.cmd.audit': '账本翻页',
+      'ink.cmd.rows': '行',
+      'ink.cmd.loopClose': '划掉开环',
+      'ink.cmd.loopDrop': '丢弃开环',
+      'ink.cmd.factInvalidate': '标废事实',
+      'ink.row.count': '条',
+      'ink.row.dispatched': '派出',
+      'ink.zone.unread': '待读',
+      'ink.zone.history': '历史',
+      'ink.zone.starred': '加星',
+      'ink.status.active': '活跃',
+      'ink.status.dormant': '休眠',
+      'ink.status.closed': '已闭',
+      'ink.status.stale': '失效',
+      'ink.status.pending': '待读',
+      'ink.status.cap': '上限',
+      'ink.status.notes': '笔记',
+      'ink.status.observations': '观测',
+      'ink.status.position': '位置',
+      'ink.field.goal': '目标',
+      'ink.field.deliverables': '交付',
+      'ink.field.acceptance': '验收',
+      'ink.field.acceptanceSample': '验收样本',
+      'ink.field.boundary': '边界',
+      'ink.field.budget': '预算',
+      'ink.field.claim': '结论',
+      'ink.field.evidence': '证据',
+      'ink.field.conf': '置信',
+      'ink.field.title': '标题',
+      'ink.field.summary': '说明',
+      'ink.field.draftId': '草稿',
+      'ink.field.question': '问题',
+      'ink.field.note': '说明',
+      'ink.field.text': '内容',
+      'ink.field.type': '类型',
+      'ink.field.pointer': '出处',
+      'ink.field.closureCondition': '闭合条件',
+      'ink.field.provenance': '来历',
+      'ink.field.source': '来源',
+      'ink.field.validUntil': '有效期',
+      'ink.field.label': '名字',
+      'ink.field.premise': '前提',
+      'ink.field.quotes': '原话',
+      'ink.field.detail': '依据',
+      'ink.field.archive': '归档',
+      'ink.field.artifact': '落盘位置',
+      'ink.field.progress': '完成',
+      'ink.field.running': '在跑',
+      'ink.field.drafts': '草稿',
+      'ink.field.next': '下一步',
+      'ink.field.query': '关键词',
+      'ink.field.entity': '实体',
+      'ink.field.sinceDay': '起始天',
+      'ink.field.read': '回读',
+      'ink.field.jobId': '任务号',
+      'ink.field.loopId': '开环号',
+      'ink.field.provider': '模型',
+      'ink.field.loop': '开环',
+      'ink.field.fact': '结论',
+      'ink.field.branch': '分支',
+      'ink.field.proposal': '提案',
+      'ink.field.draft': '草稿',
+      'ink.field.briefing': '交接',
+      'ink.field.job': '任务',
+      'ink.field.item': '条目',
+      'ink.field.hits': '命中',
+      'ink.field.previews': '预览',
+      'ink.field.items': '条目',
+      'ink.field.proposals': '提案',
+      'ink.field.drafts': '草稿',
+      'ink.field.count': '条数',
+      'ink.field.settled': '处理',
+      'ink.field.zone': '区',
+      'ink.field.approved': '结果',
+      'ink.field.ok': '完成',
+      'ink.field.branches': '分支',
+      'ink.field.loops': '开环',
+      'ink.field.facts': '结论',
+      'ink.field.problems': '问题',
+      'ink.field.settlements': '结算',
+      'ink.field.detailRef': '详情指针',
+      'ink.field.epoch': '纪元',
+      'ink.field.session': '会话',
+      'ink.field.observations': '观测',
+      'ink.field.day': '天',
+      'ink.field.turn': '轮',
+
       'actor.mind': 'Mind',
       'actor.ink': 'Ink',
       'actor.operator': 'Operator',
@@ -2450,6 +3309,7 @@ window.__ModuleLoader__.load({
       'ctx.l3': 'What Mind sees (L3 verbatim)',
       'ctx.l3Expand': 'Expand text',
       'ctx.l3Collapse': 'Collapse text',
+      'ctx.l3Hint': 'Backstage summary Mind sees each turn; open it for the verbatim text.',
       'ctx.facts': 'Settled conclusions (current)',
       'ctx.loops': 'Open items (active)',
       'ctx.inbox': 'Inbox to read',
@@ -2545,6 +3405,178 @@ window.__ModuleLoader__.load({
       'stream.detailAcceptance': 'Acceptance',
       'stream.detailBoundary': 'Boundary',
       'stream.detailBudget': 'Budget',
+
+      'stream.kind.absorb': 'absorbed',
+      'stream.kind.preview': 'preview',
+      'stream.kind.note': 'note',
+      'stream.kind.fact.sample': 'fact state',
+      'stream.kind.fact.add': 'new fact',
+      'stream.kind.fact.revise': 'fact revised',
+      'stream.kind.fact.invalidate': 'fact stale',
+      'stream.kind.branch.sample': 'branch state',
+      'stream.kind.branch.open': 'branch opened',
+      'stream.kind.branch.merge': 'merged',
+      'stream.kind.branch.abandon': 'abandoned',
+      'stream.kind.job.sample': 'job state',
+      'stream.kind.job.dispatch': 'dispatched',
+      'stream.kind.job.update': 'job update',
+      'stream.kind.loop.add': 'loop added',
+      'stream.kind.loop.close': 'loop closed',
+      'stream.kind.loop.drop': 'loop dropped',
+      'stream.kind.loop.touch': 'loop touched',
+      'stream.kind.inbox.deliver': 'delivered',
+      'stream.kind.inbox.read': 'read',
+      'stream.kind.inbox.open': 'opened',
+      'stream.kind.inbox.supersede': 'superseded',
+      'stream.kind.fold.compaction': 'fold compacted',
+      'stream.kind.epoch': 'new epoch',
+      'stream.kind.commit': 'commit gate',
+      'stream.kind.branch.fork': 'branch opened',
+      'stream.kind.branch.context': 'branch context',
+      'stream.kind.branch.summary': 'branch summary',
+      'stream.kind.branch.attach-job': 'job attached',
+      'stream.kind.fold.propose': 'fold proposed',
+      'stream.kind.fold.apply': 'fold applied',
+      'stream.kind.fold.reject': 'fold rejected',
+      'stream.kind.briefing': 'handoff',
+      'stream.kind.briefing.overnight': 'overnight update',
+      'stream.kind.draft.add': 'draft added',
+      'stream.kind.draft.settle': 'draft settled',
+      'stream.kind.job.timeout': 'job timeout',
+      'stream.kind.fact.revise': 'fact revised',
+
+      // §13.11 conversation-side handwritings: human labels for tool rows and command rows.
+      'ink.noun.status': 'Backstage',
+      'ink.noun.loops': 'Open threads',
+      'ink.noun.facts': 'Facts',
+      'ink.noun.inbox': 'Inbox',
+      'ink.noun.dispatch': 'Dispatch',
+      'ink.noun.commit': 'Commit gate',
+      'ink.noun.brief': 'Handoff',
+      'ink.noun.epoch': 'Epoch',
+      'ink.noun.draft': 'Drafts',
+      'ink.noun.ask': 'Ask Ink',
+      'ink.noun.report': 'Report back',
+      'ink.noun.branch': 'Fishbone',
+      'ink.noun.fold': 'Fold',
+      'ink.noun.recall': 'Recall',
+      'ink.act.list': 'list',
+      'ink.act.get': 'view',
+      'ink.act.add': 'add',
+      'ink.act.touch': 'touch',
+      'ink.act.close': 'close',
+      'ink.act.drop': 'drop',
+      'ink.act.open': 'open',
+      'ink.act.read': 'read',
+      'ink.act.star': 'star',
+      'ink.act.unstar': 'unstar',
+      'ink.act.defer': 'defer',
+      'ink.act.revise': 'revise',
+      'ink.act.invalidate': 'invalidate',
+      'ink.act.merge': 'merge',
+      'ink.act.abandon': 'abandon',
+      'ink.act.summary': 'summary',
+      'ink.act.context': 'context',
+      'ink.act.propose': 'propose',
+      'ink.act.review': 'review',
+      'ink.act.approve': 'approve',
+      'ink.act.reject': 'reject',
+      'ink.act.materials': 'materials',
+      'ink.act.save': 'save',
+      'ink.act.latest': 'latest',
+      'ink.act.advance': 'advance',
+      'ink.row.failed': 'failed',
+      'ink.row.preparing': 'preparing…',
+      'ink.row.running': 'running…',
+      'ink.row.approved': 'approved',
+      'ink.row.rejected': 'rejected',
+      'ink.row.stale': 'stale',
+      'ink.cmd.audit': 'Ledger page',
+      'ink.cmd.rows': 'rows',
+      'ink.cmd.loopClose': 'Close thread',
+      'ink.cmd.loopDrop': 'Drop thread',
+      'ink.cmd.factInvalidate': 'Invalidate fact',
+      'ink.row.count': 'items',
+      'ink.row.dispatched': 'dispatched',
+      'ink.zone.unread': 'unread',
+      'ink.zone.history': 'history',
+      'ink.zone.starred': 'starred',
+      'ink.status.active': 'active',
+      'ink.status.dormant': 'dormant',
+      'ink.status.closed': 'closed',
+      'ink.status.stale': 'stale',
+      'ink.status.pending': 'pending',
+      'ink.status.cap': 'cap',
+      'ink.status.notes': 'notes',
+      'ink.status.observations': 'observations',
+      'ink.status.position': 'Position',
+      'ink.field.goal': 'Goal',
+      'ink.field.deliverables': 'Deliverables',
+      'ink.field.acceptance': 'Acceptance',
+      'ink.field.acceptanceSample': 'Sample',
+      'ink.field.boundary': 'Boundary',
+      'ink.field.budget': 'Budget',
+      'ink.field.claim': 'Claim',
+      'ink.field.evidence': 'Evidence',
+      'ink.field.conf': 'Confidence',
+      'ink.field.title': 'Title',
+      'ink.field.summary': 'Summary',
+      'ink.field.draftId': 'Draft',
+      'ink.field.question': 'Question',
+      'ink.field.note': 'Note',
+      'ink.field.text': 'Text',
+      'ink.field.type': 'Type',
+      'ink.field.pointer': 'Pointer',
+      'ink.field.closureCondition': 'Closure condition',
+      'ink.field.provenance': 'Provenance',
+      'ink.field.source': 'Source',
+      'ink.field.validUntil': 'Valid until',
+      'ink.field.label': 'Label',
+      'ink.field.premise': 'Premise',
+      'ink.field.quotes': 'Quotes',
+      'ink.field.detail': 'Detail',
+      'ink.field.archive': 'Archive',
+      'ink.field.artifact': 'Artifact',
+      'ink.field.progress': 'Progress',
+      'ink.field.running': 'Running',
+      'ink.field.drafts': 'Drafts',
+      'ink.field.next': 'Next',
+      'ink.field.query': 'Query',
+      'ink.field.entity': 'Entity',
+      'ink.field.sinceDay': 'Since day',
+      'ink.field.read': 'Read back',
+      'ink.field.jobId': 'Job',
+      'ink.field.loopId': 'Thread',
+      'ink.field.provider': 'Model',
+      'ink.field.loop': 'Thread',
+      'ink.field.fact': 'Fact',
+      'ink.field.branch': 'Branch',
+      'ink.field.proposal': 'Proposal',
+      'ink.field.draft': 'Draft',
+      'ink.field.briefing': 'Handoff',
+      'ink.field.job': 'Job',
+      'ink.field.item': 'Item',
+      'ink.field.hits': 'Hits',
+      'ink.field.previews': 'Previews',
+      'ink.field.items': 'Items',
+      'ink.field.proposals': 'Proposals',
+      'ink.field.drafts': 'Drafts',
+      'ink.field.count': 'Count',
+      'ink.field.settled': 'Settled',
+      'ink.field.zone': 'Zone',
+      'ink.field.approved': 'Approved',
+      'ink.field.ok': 'OK',
+      'ink.field.branches': 'Branches',
+      'ink.field.loops': 'Threads',
+      'ink.field.facts': 'Facts',
+      'ink.field.problems': 'Problems',
+      'ink.field.settlements': 'Settlements',
+      'ink.field.detailRef': 'Detail ref',
+      'ink.field.epoch': 'Epoch',
+      'ink.field.session': 'Session',
+      'ink.field.observations': 'Observations',
+      'ink.field.day': 'Day',
+      'ink.field.turn': 'Turn',
 
       'actor.mind': 'Mind',
       'actor.ink': 'Ink',
@@ -2659,6 +3691,21 @@ window.__ModuleLoader__.load({
             { name: 'conversation.view', id: 'miopiik', order: 20, locale: NS, label: () => t('view.miopiik') },
             MiOpIIkView,
           ),
+        )
+
+        // 对话里我们自己手笔的包装（§13.11）：14 个 ink_* 工具行 + `miopiik` 命令行。
+        // 两个席位分别由 ui-tool / ui-chat 声明；inject 等到位再注册，缺席时
+        // 其余部分照常装载（退回 DSH 的通用卡，不伪造内容）。
+        ctx.slots.inject('tool.call.toolview', () => {
+          const disposers = INK_TOOL_NAMES.map((key) =>
+            ctx.slots.register({ name: 'tool.call.toolview', key }, InkToolRow),
+          )
+          return () => {
+            for (const dispose of disposers) dispose?.()
+          }
+        })
+        ctx.slots.inject('conversation.chat.commandview', () =>
+          ctx.slots.register({ name: 'conversation.chat.commandview', key: 'miopiik' }, MiCommandRow),
         )
       },
     }

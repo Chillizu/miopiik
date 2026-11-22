@@ -516,7 +516,7 @@ L3 之外，Mind 还能从 L3 末尾看到一行鱼骨：「B-1 定位验证：�
 - **图片**：`media` 支持 `url`（http(s)）与 `path`（绝对路径，走带会话鉴权的 `api/file` 路由），与正文 markdown 里的本地图同一套地址。
 - **开关**：正文内嵌不是配置项，是注册/注销——设置页一开关，关掉时 `dispose` 掉 `assistant-step` 的接管，原生渲染立刻回来。
 - **入口**：`ink_view` 工具（show / list / clear）。**卡片长在对话正文里**：注册一个 `target: 'chat'` 的 Conversation Definition，认 `ink_view` 的 `tool/call` 事件，在 **Turn 层**（`groupTree: 'turn'`）产出一个节点，由 `conversation.chat.node` 槽位渲染——卡片站在调用处，不进可折叠的「过程」组；同时进 MiOpIIk 页的「视图」页签；快照只带最近 3 条。
-- **不做的**：不做自由 HTML；不做第二套设计系统；不做模型生成组件代码；不接管 `tool.call.toolview`（那个席位在过程组里，卡会跟着折叠）。
+- **不做的**：不做自由 HTML；不做第二套设计系统；不做模型生成组件代码；不接管别人的 `tool.call.toolview` / `conversation.chat.commandview`（那两个席位属于 DSH 与其他插件的工具；只有 MiOpIIk 自己的 14 个 `ink_*` 工具行与 `miopiik` 命令行例外，见 §13.11——卡仍然跟着过程组折叠，不抢对话版面）。
 
 ---
 
@@ -638,3 +638,26 @@ Mind 的章程合并为九条（`CHARTER`，`host/prompt.js:11-20`；`systemProm
 - 佐证：`test/mindstream.test.js` 7 项——「真账本夹具下 Mind 手笔全收，行形状 {id, at, kind, label, refs}」（契约样例四种手笔逐个点名）「ink/operator/user 署名的行绝不进（合成夹具反向样例：派发记账开环、job.update、source 缺省/operator 的事实、by=ink/user 的闭合、operator 草稿、过期草稿、盘外素材、折叠提案）」「派发记账开环可判定剔除，Mind 手写 pending-dispatch 不误伤」「截窗生效——只留最近 40 条」「label 判不出就给 kind 原文，不凭空造」「快照 graph.mindEvents 与工作区共享事实口径」「投影键不漂移（graph 既有键全保留）」；`test/miopiik-views-ui.test.js` 新增 5 项——「鱼骨：Mind 泳道——脊右分支左、菱形节点、悬停 label+refs+时间、点击跳流水溯源」「鱼骨：图例补一行……两行图例都不压事件节点」「鱼骨：缩宽态头部不遮挡——视图自提一层越过壳宽柄条带」「流水：行面 actor 小签……三色走主题变量」「所见：Mind 最近动作折叠段默认收起，展开后最近 8 条」+「Mind 署名相关文案键在 zh/en 两本字典里都齐」（zh 逐字含 `菱形=Mind 动作` 与 `Mind 最近动作`）。
 
 补记时实测（2026-11-22）：全量 `node --test` 218 项全绿（§13.9 基线 205 + 本批 13：mindstream 7、views 6；既有 205 项零破坏，含缩宽契约、流水分页、L3 同文与装配明细折叠的既有守卫）。
+
+### 13.11 对话手笔的包装：ink_* 工具行与 miopiik 命令行（2026-11-22）
+
+> 对话里 MiOpIIk 自己的两条痕迹一直是「机器口吻」：`ink_loops` 工具行露参数 JSON（`ink_loops · {"action":"close","id":"L-33"}`），`/miopiik audit` 命令行把整页流水 JSON 灌进对话（`miopiik · {"rows":[…]}`）。这两处都是我们自己的手笔，只有我们知道字段是什么意思，因此由我们接管两个 keyed 席位，把「账本词」翻成「人话 + 结构化正文」。这**修订** §12 那条「不接管 `tool.call.toolview`」的裁决：不接管别人的席位，接管自己的两处；只做展示层——不改 host 契约、不动工具返回给模型的文本、不加 `presentationMeta`、不发明数据。
+
+- **两个席位**（`client.js` apply）：
+  - `tool.call.toolview` × 14：`key` 逐个为 `ink_status / ink_loops / ink_facts / ink_inbox / ink_dispatch / ink_commit / ink_brief / ink_epoch / ink_draft / ink_ask / ink_report / ink_branch / ink_fold / ink_recall`（`INK_TOOL_NAMES`，注册在 `ctx.slots.inject` 里，席位缺席就退回 DSH 通用卡，不伪造内容）。
+  - `conversation.chat.commandview` × 1：`key: 'miopiik'`（与 `host/commands.js` 注册的命令名逐字一致）。
+- **折叠态是人话**（`inkToolLabel`）：名词（`ink.noun.*`）+ 动词（`ink.act.*`）+ 对象 id/主句，例如「开环 · 闭合 L-33」「事实卡 · 新增 用户裁定…」「鱼骨 · 并入 B-2 · 汇回」「提交门 · 行」。取字段一律走 `PartialArguments`（`inkArgsReader` 双面：流式视图与普通对象同一套接口），所以**参数还在流式增长时标题也成立**；结果落地后再补一句只有结果才知道的话（`inkToolOutcome`：状态、判定、条数——`ink_dispatch` 给 `jobId`、`ink_commit` 给行/不行、`ink_inbox` 给条数、`ink_status` 给三项指标）。状态词走本地化（`merged/open/abandoned` → `graph.merged/open/abandoned`），不把英文字段当人话。
+- **展开态是结构化正文**（`inkBodyNodes`），点击走 DSH 的 `useDisclosure`——卡跟着过程组折叠，不另起交互体系：
+  - 契约参数在前（`INK_ARG_FIELDS`：dispatch 的 goal/deliverables/acceptance/acceptanceSample/boundary/budget、commit 的 title/summary/draftId、ask 的 question、report 的 claim/evidence/conf、branch 的 label/summary/premise/quotes/claim/detail、recall 的查询条件……），字段名走 `ink.field.*` 人话。
+  - 结果在后：单键包装（`{loop:{…}}`/`{fact:{…}}`/`{branch:{…}}`）先拆，对象按字段逐行，数组逐条给「id 小签 + 主句 + 状态/置信/来源/时间小签 + 次要字符串缩进一行」；整段 JSON 不再上屏。
+  - `ink_status` 专门给一屏账（活跃/休眠/已闭/上限、事实与失效、待读、笔记与观测、T 轮/D 天/E 纪元）；`session` 号这类内部字段不上屏。
+  - 失败态：标题转红、摘要写「没做成」、错误文本单独一行（不塞进正文冒充结果）；`preparing/start` 阶段摘要写「准备中…/进行中…」，`data-state` 分别为 `running`。
+- **命令行只报做了什么**：`/miopiik audit` 的返回是整页 `{rows, nextCursor}` JSON，命令行只显示「账本翻页 · N 行」（`ink.cmd.audit/rows`），行数据在视图里、游标不上屏；`loop close/drop` 与 `fact invalidate` 的返回本来就是一句人话（`已划掉 L-33`），照抄；错误红点 + 错误文本。注意 `recordInput: false` 使 `node.args` 为空是常态——判定从 `node.outcome.text` 反推（JSON 分页 → 审计翻页，其余 → 人话），不依赖参数。
+- **兜底与边界**：席位未注册/组件未挂上时，DSH 通用卡原样工作（不静默吞行）；只认自己那 15 个 key，别人的工具名不抢（`slotByKey(..., 'bash') === undefined` 有测试钉住）；不改 `output.render`（模型面文本逐字不变），不加 `presentationMeta`，不改 host/audit.js。
+- **三视图同期小修**（同一批观感收口，不动数据契约）：
+  - 鱼骨：图例与轮次窗口搬到画布外的 HTML 工具条（六项一行，窄列自动换行，不再被 viewBox 宽度切边）；泳道宽随可用列宽在 150–270 之间伸缩（`ResizeObserver` 测列宽，测不到时退回 150），宽屏把道摊开；泳道加淡底纹、Mind 道只留虚线基线；节点尺寸与字号上调（回合点 r=5、事件圆 r=6/7、任务方 12/14、菱形 8、行距 34）；画布是带边框圆角的表面（`C.layer1`），滚动区底部留 140px 让最后几行能滚到输入框之上。
+  - 流水：kind 说人话（`stream.kind.*`：吸收/结论现状/鱼骨现状/待读预览/落结论/闭合开环/投递…），认不出的 kind 原样保留；kind 格窄化为 84px 并在 `title` 里留原始 kind；时间列 56px 等宽数字。
+  - 所见：L3 原文默认收起（`展开原文` 旁给一句 `ctx.l3Hint`，点开仍逐字渲染、`data-miopiik-l3-text` 不变）；事实卡与悬案行把 `conf / source / scope / stale`、`type / 疑似已解` 做成小签（颜色走 `C.*`，source 色与 actor 小签同源）。
+- 佐证：`test/miopiik-views-ui.test.js` 新增 8 项——「对话手笔：14 个 ink_* 工具行与 miopiik 命令行都接管了对应席位」「工具行：折叠态是人话……不再是参数 JSON」「工具行：展开是结构化正文——契约字段逐行、结果摊开，不回灌 JSON」「工具行：ink_status 展开是一屏账……不摊 session 号」「工具行：进行中与失败态各说各话……」「命令行：审计翻页只报「翻了多少」……」「命令行：干预动作照抄那句人话，出错才红着说」「对话手笔文案键在 zh/en 两本字典里都齐」；既有鱼骨图例/缩宽两项测试按新结构改写（图例改断言 HTML 工具条 + 图表 SVG 带 `data-miopiik-graph`），所见两项按默认收起补一次展开。
+
+补记时实测（2026-11-22）：全量 `node --test` 226 项全绿（§13.10 基线 218 + 本批 8；含两处既有守卫按新结构改写，其余零破坏）。真浏览器复核（1280/1440 两档、深浅两模式）：「后台总览」工具行展开是五行指标账；`开环 · 闭合 L-31`/`收件箱 · 读了 I-15`/`鱼骨 · 并入 B-2 · 汇回` 等行不再露 JSON；命令行 `账本翻页 · 50 行` 取代整页 JSON；鱼骨图例六项可读、泳道摊开、深浅对比正常。
