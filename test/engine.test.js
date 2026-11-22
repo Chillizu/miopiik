@@ -686,6 +686,144 @@ test('对话编译静默落账：applyConversationCompile 直接写事实与开�
   }
 })
 
+test('低置信闸门：conf=low 的结论不落事实卡，逐条投收件箱、留痕可查，read 可消化', async () => {
+  const ctx = await fixture()
+  try {
+    const note = await ctx.engine.applyConversationCompile({
+      claims: [
+        { claim: '网关大概率下周上线', refs: ['U-2'], conf: 'low', supersedes: '' },
+        { claim: '接口形态还没想清楚', refs: ['U-3'], conf: 'low', supersedes: '' },
+      ],
+      loops: [],
+      closedLoops: [],
+      question: '',
+    })
+
+    assert.equal(ctx.engine.listFacts().length, 0, '低置信结论一张事实卡都不落')
+    assert.equal(note.kind, 'preview', '本批没有可静默结算的内容，返回最后一条低置信预览')
+    assert.equal(note.why, 'compile:low-confidence', 'note 留痕 why 可辨')
+    assert.match(note.claim, /^后台整理出一条没把握的结论：/)
+    assert.equal(note.question, '要不要立为已定结论？')
+    assert.equal(
+      ctx.engine.state.notes.filter((entry) => entry.why === 'compile:conversation').length,
+      0,
+      '没有静默结算就不补空 absorb',
+    )
+
+    const view = ctx.engine.inboxView({ all: true })
+    assert.equal(view.previews.length, 2, '每条低置信结论一条待读预览')
+    assert.ok(view.previews.every((entry) => entry.item.claim.startsWith('后台整理出一条没把握的结论：')))
+    assert.ok(view.previews.every((entry) => entry.item.question === '要不要立为已定结论？'))
+
+    // 流水里低置信投递行留痕可查：kind 与 why 可辨
+    const trace = ctx.engine.state.notes.filter((entry) => entry.why === 'compile:low-confidence')
+    assert.equal(trace.length, 2)
+    assert.ok(trace.every((entry) => entry.kind === 'preview'))
+    assert.ok(trace.some((entry) => entry.refs.includes('U-2')) && trace.some((entry) => entry.refs.includes('U-3')), '预览锚在原话上')
+
+    // 用户 read 消化：条目退出待读，其余仍在
+    const first = view.previews[0].item
+    await ctx.engine.markInbox(first.id, 'read')
+    assert.equal(ctx.engine.state.inbox.get(first.id).status, 'read')
+    assert.equal(ctx.engine.inboxView({ all: true }).previews.length, 1)
+  } finally {
+    await ctx.cleanup()
+  }
+})
+
+test('低置信闸门只作用于 claims：同批 loops 照旧登记、closedLoops 照旧标疑似已解，absorb 留痕有把握的部分', async () => {
+  const ctx = await fixture()
+  try {
+    const existingLoop = await ctx.engine.addLoop({ text: '是否默认继承会话模型', type: 'pending-option' })
+
+    const note = await ctx.engine.applyConversationCompile({
+      claims: [{ claim: '接口形态还没想清楚', refs: ['U-3'], conf: 'low', supersedes: '' }],
+      loops: [{ type: 'promise', text: '补一份跨天恢复测试', pointer: 'U-3', closureCondition: '测试通过' }],
+      closedLoops: [existingLoop.id],
+      question: '',
+    })
+
+    assert.equal(ctx.engine.listFacts().length, 0, '闸门拦下的结论不落事实卡')
+    assert.equal(note.kind, 'absorb', '批里有可静默结算的内容（loops），仍走 compile:conversation 留痕')
+    assert.equal(note.why, 'compile:conversation')
+    assert.doesNotMatch(note.detail, /接口形态还没想清楚/, 'absorb 明细不含被闸门的结论')
+
+    const activeLoops = ctx.engine.listLoops().filter((loop) => loop.status === 'active')
+    assert.equal(activeLoops.length, 2, '新开环照旧登记，旧开环照旧活跃')
+    assert.ok(activeLoops.some((loop) => loop.text === '补一份跨天恢复测试'))
+    assert.equal(ctx.engine.state.loops.get(existingLoop.id).suggestedClose, true, 'closedLoops 只标疑似已解，不越权闭合')
+
+    assert.equal(ctx.engine.inboxView({ all: true }).previews.length, 1, '低置信结论仍是一条待读')
+    assert.equal(ctx.engine.state.notes.filter((entry) => entry.why === 'compile:low-confidence').length, 1)
+  } finally {
+    await ctx.cleanup()
+  }
+})
+
+test('回归钉住：未标注 conf 的对话结论照旧静默落账，低置信闸门不误伤', async () => {
+  const ctx = await fixture()
+  try {
+    // 形状取自 parseConversationOutput 对未标注 claim 的真实产出（conf: null, supersedes: ''）
+    const note = await ctx.engine.applyConversationCompile({
+      claims: [{ claim: '模型默认继承会话，也可单独配置', refs: ['U-2'], conf: null, supersedes: '' }],
+      loops: [],
+      closedLoops: [],
+      question: '',
+    })
+
+    assert.equal(note.kind, 'absorb')
+    assert.equal(note.why, 'compile:conversation')
+    assert.equal(ctx.engine.inboxView({ all: true }).previews.length, 0, '不占收件箱')
+    assert.ok(note.detail.includes('，置信 low）'), 'absorb 明细与改动前逐字节同形')
+
+    const facts = ctx.engine.listFacts()
+    assert.equal(facts.length, 1, '照旧静默落账')
+    assert.equal(facts[0].claim, '模型默认继承会话，也可单独配置')
+    assert.equal(facts[0].conf, 'low', '未标注沿用原缺省 low，与改动前一致')
+    assert.equal(facts[0].source, 'ink')
+
+    // 连 conf 键都不带的裸输入也照旧静默落账（任何调用方都不被闸门误伤）
+    await ctx.engine.applyConversationCompile({
+      claims: [{ claim: '用户拍板走收件箱方案', refs: ['U-1'] }],
+      loops: [],
+      closedLoops: [],
+      question: '',
+    })
+    assert.equal(ctx.engine.listFacts().length, 2)
+    assert.equal(ctx.engine.inboxView({ all: true }).previews.length, 0)
+  } finally {
+    await ctx.cleanup()
+  }
+})
+
+test('混合批次：低置信投收件箱、未标注的照旧落账，absorb 只结算有把握的部分', async () => {
+  const ctx = await fixture()
+  try {
+    const note = await ctx.engine.applyConversationCompile({
+      claims: [
+        { claim: '用户确认走收件箱方案', refs: ['U-1'], conf: null, supersedes: '' },
+        { claim: '网关上线时间还没谱', refs: ['U-3'], conf: 'low', supersedes: '' },
+      ],
+      loops: [],
+      closedLoops: [],
+      question: '',
+    })
+
+    const facts = ctx.engine.listFacts()
+    assert.equal(facts.length, 1, '只有未标注的落了事实卡')
+    assert.equal(facts[0].claim, '用户确认走收件箱方案')
+    assert.doesNotMatch(note.detail, /网关上线时间还没谱/, 'absorb 明细不含被闸门的结论')
+    assert.match(note.detail, /用户确认走收件箱方案/)
+
+    const view = ctx.engine.inboxView({ all: true })
+    assert.equal(view.previews.length, 1)
+    assert.match(view.previews[0].item.claim, /网关上线时间还没谱/)
+    assert.equal(ctx.engine.state.notes.filter((entry) => entry.why === 'compile:low-confidence').length, 1)
+  } finally {
+    await ctx.cleanup()
+  }
+})
+
 test('收工告别最后一轮悖论：道别回合当场生成今日盘外素材，不锁死队列', async () => {
   const ctx = await fixture()
   try {

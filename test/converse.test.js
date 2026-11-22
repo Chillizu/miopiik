@@ -21,6 +21,28 @@ test('对话编译：解析候选并保留可指认的出处', () => {
   assert.equal(parsed.question, '要记吗？')
 })
 
+test('对话编译：conf 只认 low/mid/high，缺省视为未标注（不猜成 low）', () => {
+  const parsed = parseConversationOutput(
+    JSON.stringify({
+      claims: [
+        { claim: '用户拍板走收件箱', refs: ['U-1'], conf: 'low' },
+        { claim: '模型默认继承会话', refs: ['U-2'] },
+        { claim: '单独配置也行', refs: ['U-3'], conf: 'HIGH' },
+      ],
+    }),
+    UTT,
+  )
+  assert.equal(parsed.claims[0].conf, 'low', '明说 low 才算低置信，闸门只对它开')
+  assert.equal(parsed.claims[1].conf, null, '缺省 = 未标注，静默落账行为不变')
+  assert.equal(parsed.claims[2].conf, null, '不认识的值同未标注，不让拼写误差误开闸门')
+})
+
+test('对话编译：未标注置信的结论进候选 note 时仍记 置信 low（与闸门前同形）', () => {
+  const parsed = parseConversationOutput('{"claims":[{"claim":"模型默认继承会话","refs":["U-2"]}]}', UTT)
+  const note = buildCandidateNote(parsed)
+  assert.ok(note.detail.includes('，置信 low）'), 'absorb 明细字节与闸门前一致')
+})
+
 test('对话编译：没有出处的候选一律丢弃', () => {
   const parsed = parseConversationOutput(
     '{"claims":[{"claim":"没有任何根据的结论","refs":["U-99"]}],"loops":[{"type":"promise","text":"没有出处","refs":[]}]}',

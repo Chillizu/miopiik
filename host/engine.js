@@ -430,10 +430,33 @@ export class Engine {
   /**
    * 对话编译产出的结论与开环静默落账，不投收件箱待读预览（避免收件箱堵塞与 Mind 手工记账负担）。
    * 开环闭合权限仍在 Mind：疑似已解的开环只挂 suggestedClose 提示，由 L3 呈现给 Mind 决定。
+   * 低置信闸门：模型自标 conf:"low" 的结论不静默落账，逐条投收件箱给用户过目（note 留痕
+   * why: compile:low-confidence）；未标注与 mid/high 的结论照旧静默落账，行为零变化。
    */
   async applyConversationCompile(parsed) {
     if (parsed === null || typeof parsed !== 'object') return null
+    // 低置信闸门只作用于 claims：拿不准的结论改投收件箱，一条都不静默结算；loops / closedLoops 路径不变。
+    const gated = []
+    const settled = []
     for (const entry of parsed.claims ?? []) {
+      if (entry?.conf === 'low') gated.push(entry)
+      else settled.push(entry)
+    }
+    let lastPreview = null
+    for (const entry of gated) {
+      lastPreview = await this.deliverNote({
+        kind: 'preview',
+        why: 'compile:low-confidence',
+        claim: `后台整理出一条没把握的结论：${entry.claim}`,
+        question: '要不要立为已定结论？',
+        conf: 'low',
+        refs: Array.isArray(entry.refs) && entry.refs.length > 0 ? entry.refs : ['compile:conversation'],
+        loops: [],
+        branch: null,
+        newConclusion: true,
+      })
+    }
+    for (const entry of settled) {
       const sup = typeof entry.supersedes === 'string' ? entry.supersedes.trim() : ''
       if (/^F-\d+$/u.test(sup) && this.state.facts.has(sup) && this.state.facts.get(sup)?.stale !== true) {
         await this.invalidateFact(sup, `被对话新结论取代：${entry.claim}`)
@@ -465,7 +488,11 @@ export class Engine {
         loop.suggestedClose = true
       }
     }
-    const candidate = buildCandidateNote(parsed)
+    // 本批没有可静默结算的内容时不再补一条空 absorb：低置信预览本身就是这次编译的留痕。
+    const hasSettled =
+      settled.length > 0 || (Array.isArray(parsed.loops) ? parsed.loops.length : 0) > 0 || (Array.isArray(parsed.closedLoops) ? parsed.closedLoops.length : 0) > 0
+    if (!hasSettled && gated.length > 0) return lastPreview
+    const candidate = buildCandidateNote({ ...parsed, claims: settled })
     return this.deliverNote({
       ...candidate,
       kind: 'absorb',
@@ -483,7 +510,8 @@ export class Engine {
   }
 
   /**
-   * 回合结束后的一次对话编译（SPEC §3.1 对话侧）：读自己的上下文，静默落账并记一条 absorb note。
+   * 回合结束后的一次对话编译（SPEC §3.1 对话侧）：读自己的上下文，有把握的静默落账并记一条 absorb note；
+   * 模型自标 conf:"low" 的结论走低置信闸门，投收件箱给用户过目。
    * 硬约束：没有可引用的原话不跑；失败静默（候选是增量，不打扰）。
    */
   scheduleConversationPass(turn) {

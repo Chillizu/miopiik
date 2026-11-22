@@ -22,7 +22,7 @@ export const LOOP_TYPES = Object.freeze([
 const CONVERSATION_SYSTEM = `You are Ink, the middle layer of MiOpIIk. You are given your own continuous context: the recent dialogue between Mind (the conversational agent) and the user, pushed into it as it happens. You never talk to the user. Your job is to distill what this stretch of conversation actually produced, so it can be recorded in the ledger without interrupting the conversation.
 
 Output STRICT JSON only, no prose, no markdown fences:
-{"claims":[{"claim":"<=60 chars","refs":["U-n"],"conf":"low"|"mid"|"high","supersedes":"F-n or empty"}],
+{"claims":[{"claim":"<=60 chars","refs":["U-n"],"conf":"high"|"mid"|"low" (optional)","supersedes":"F-n or empty"}],
 "loops":[{"type":"unanswered-question"|"awaiting-user"|"pending-option"|"promise"|"pending-dispatch"|"forming-intent","text":"one sentence","refs":["U-n"],"closureCondition":"what would close it"}],
 "closedLoops":["L-n"],
 "question":"one question Mind can ask the user, in the language of the conversation"}
@@ -31,6 +31,7 @@ Rules:
 - Only record what the user stated or confirmed, or what Mind concluded with evidence in the conversation. Never invent facts or decisions.
 - Every claim and every loop MUST cite at least one U-n from the listed utterances. Items without a citation will be dropped.
 - A claim must be a conclusion that would change future judgment ("X is the case because Y"), not a summary of what was discussed, and not raw material.
+- A claim MAY carry "conf":"high"|"mid"|"low". conf is optional: omit it entirely unless you have a real confidence judgment, and never stamp a default conf on every claim. Mark a claim "conf":"low" only when you are genuinely unsure it holds — such a claim is put before the user for confirmation instead of being recorded silently.
 - Maximum 3 claims and 3 loops. Fewer is better. If nothing solid, return empty arrays.
 - Loops are things still hanging between the user and Mind: an unanswered question, something waiting for the user, an open option, a promise, a draft pending approval, a half-formed intent.
 - closedLoops lists ids ("L-n") of existing Active loops that appear answered or resolved in this stretch of dialogue.
@@ -69,7 +70,8 @@ export function parseConversationOutput(text, utterances = [], activeLoops = [])
     claims.push({
       claim: claim.slice(0, 120),
       refs,
-      conf: ['low', 'mid', 'high'].includes(raw?.conf) ? raw.conf : 'low',
+      // 缺省或不认识的 conf 视为未标注：只有模型明说 "low" 才触发低置信闸门（engine 侧）。
+      conf: ['low', 'mid', 'high'].includes(raw?.conf) ? raw.conf : null,
       supersedes: typeof raw?.supersedes === 'string' ? raw.supersedes.trim() : '',
     })
     if (claims.length >= 3) break
@@ -118,7 +120,7 @@ export function buildCandidateNote(parsed) {
   if (claims.length > 0) {
     parts.push('## 候选结论')
     for (const entry of claims) {
-      parts.push(`- ${entry.claim}（出处 ${entry.refs.join('、')}，置信 ${entry.conf}${entry.supersedes === '' ? '' : `，取代 ${entry.supersedes}`}）`)
+      parts.push(`- ${entry.claim}（出处 ${entry.refs.join('、')}，置信 ${entry.conf ?? 'low'}${entry.supersedes === '' ? '' : `，取代 ${entry.supersedes}`}）`)
     }
   }
   if (loops.length > 0) {
