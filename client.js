@@ -66,6 +66,8 @@ window.__ModuleLoader__.load({
       brand: 'var(--dsw-static-deepseek-500, #4176e6)',
       // 通信线用中性色：主色只留给两条脊，否则整张图都在喊。
       link: 'var(--dsw-alias-label-secondary)',
+      // DSH 自家工具行的低调灰：工具行/命令行与它对齐，主色只在脊与状态上出现。
+      tertiary: 'var(--dsw-alias-label-tertiary, #81858c)',
     }
 
     const styles = {
@@ -597,7 +599,7 @@ window.__ModuleLoader__.load({
       })()
       const chips = []
       for (const key of INK_ITEM_CHIPS) {
-        if (typeof item[key] === 'string' && item[key] !== '') chips.push(inkChip(item[key], actorColorOf(item[key]) === C.text ? C.muted : actorColorOf(item[key])))
+        if (typeof item[key] === 'string' && item[key] !== '') chips.push(inkChip(item[key], C.muted))
       }
       if (item.stale === true) chips.push(inkChip(t('ink.row.stale'), C.muted))
       if (typeof item.at === 'number' && item.at > 0) {
@@ -706,6 +708,36 @@ window.__ModuleLoader__.load({
       return nodes
     }
 
+    // 工具行的小图标：与 DSH 自家工具行同一种「低调」——灰色描边、14px、不抢眼。
+    // 每个 ink_* 一个语义形状，扫一眼就知道这条是账、是派发、是开环还是回溯。
+    const INK_ICONS = {
+      ink_status: ['M2.5 12 a4.5 4.5 0 1 1 9 0', 'M7 12 L9.6 8.4'],
+      ink_loops: ['M3 9.5 A4 4 0 1 1 6 13', 'M3 13 L3 9.5 L6.4 9.8'],
+      ink_facts: ['M3 2.5 H11 V11.5 H3 Z', 'M4.8 5.2 H9.2', 'M4.8 7.6 H8'],
+      ink_inbox: ['M2.2 7.5 H5 L5.8 9.2 H8.2 L9 7.5 H11.8', 'M2.2 7.5 L4 3 H10 L11.8 7.5 V11 H2.2 Z'],
+      ink_dispatch: ['M3 11 L10.5 3.5', 'M6.6 3.2 H10.8 V7.4'],
+      ink_commit: ['M3 7.4 L5.8 10.2 L11 3.6'],
+      ink_brief: ['M2.5 3.5 H11.5 V10.5 H2.5 Z', 'M2.5 3.5 L7 7.4 L11.5 3.5'],
+      ink_epoch: ['M4 2.2 V11.8', 'M4 3 H10.4 L8.8 5.2 L10.4 7.4 H4'],
+      ink_draft: ['M3.2 10.8 L3.9 8 L9.6 2.3 L11.7 4.4 L6 10.1 Z'],
+      ink_ask: ['M5.2 5.2 A2 2 0 1 1 8.2 6.6 C7.6 7 7.2 7.4 7.2 8.2', 'M7.2 10.4 V10.6'],
+      ink_report: ['M7 9.6 V2.8', 'M4.4 5.2 L7 2.6 L9.6 5.2', 'M3 10.2 V11.6 H11 V10.2'],
+      ink_branch: ['M4 3.2 V10.4', 'M4 5.6 C4 8 10 6.4 10 9.6', 'M10 9.2 V10.6'],
+      ink_fold: ['M2.6 4.4 H11.4', 'M3.4 4.4 V11.4 H10.6 V4.4', 'M6 6.6 H8'],
+      ink_recall: ['M7 3.4 V7 L9.4 8.6', 'M7 1.8 A5.2 5.2 0 1 1 2.6 9.2', 'M2 6.6 L2.6 9.4 L5.2 8.8'],
+    }
+
+    function inkIcon(toolName, color) {
+      const paths = INK_ICONS[toolName] ?? ['M7 2.4 L11.6 7 L7 11.6 L2.4 7 Z']
+      return h(
+        'svg',
+        { width: 14, height: 14, viewBox: '0 0 14 14', 'aria-hidden': true, style: { flex: 'none', alignSelf: 'center', color } },
+        ...paths.map((d, index) =>
+          h('path', { key: index, d, fill: 'none', stroke: 'currentColor', strokeWidth: 1.25, strokeLinecap: 'round', strokeLinejoin: 'round' }),
+        ),
+      )
+    }
+
     /** 工具行：折叠态一句人话，展开态结构化正文；配合过程组折叠，不抢对话的版面。 */
     function InkToolRow(props) {
       const toolName = typeof props?.toolName === 'string' ? props.toolName : ''
@@ -727,12 +759,17 @@ window.__ModuleLoader__.load({
         return inkClip(first?.text ?? t('ink.row.failed'), 160)
       })()
       const body = disclosure.expanded ? inkBodyNodes(toolName, read, failed ? null : value) : []
+      // 与 DSH 工具行同一档：平时是 tertiary 灰，悬停/展开才提到正文色——不喊，但认得出。
+      const [hovered, setHovered] = React.useState(false)
+      const accent = failed ? C.error : hovered || disclosure.expanded ? C.text : C.tertiary
       return h(
         'div',
         {
           'data-miopiik-tool-row': toolName,
           'data-tool': toolName,
           'data-state': failed ? 'error' : running ? 'running' : 'ok',
+          onMouseEnter: () => setHovered(true),
+          onMouseLeave: () => setHovered(false),
           style: { display: 'flex', flexDirection: 'column', minWidth: 0, padding: '1px 0' },
         },
         h(
@@ -756,16 +793,12 @@ window.__ModuleLoader__.load({
               font: 'inherit',
             },
           },
-          h(
-            'svg',
-            { width: 13, height: 13, viewBox: '0 0 13 13', 'aria-hidden': true, style: { flex: 'none', alignSelf: 'center', opacity: running ? 0.5 : 0.9 } },
-            h('path', { d: 'M6.5 1.2 L11.8 6.5 L6.5 11.8 L1.2 6.5 Z', fill: 'none', stroke: failed ? C.error : C.brand, strokeWidth: 1.3 }),
-          ),
-          h('span', { style: { flex: 'none', fontSize: 12, lineHeight: '18px', color: failed ? C.error : C.text } }, label.noun),
-          detail === '' ? null : h('span', { style: { flex: 'none', fontSize: 12, lineHeight: '18px', color: C.muted } }, '·'),
-          detail === '' ? null : h('span', { style: { minWidth: 0, fontSize: 12, lineHeight: '18px', color: failed ? C.error : C.muted, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' } }, detail),
+          inkIcon(toolName, running && !failed ? C.tertiary : accent),
+          h('span', { style: { flex: 'none', fontSize: 13, lineHeight: '18px', color: accent, opacity: running && !failed ? 0.7 : 1 } }, label.noun),
+          detail === '' ? null : h('span', { style: { flex: 'none', fontSize: 13, lineHeight: '18px', color: C.tertiary } }, '·'),
+          detail === '' ? null : h('span', { style: { minWidth: 0, fontSize: 13, lineHeight: '18px', color: failed ? C.error : C.tertiary, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' } }, detail),
         ),
-        failed && !disclosure.expanded ? h('div', { style: { fontSize: 11, lineHeight: '16px', color: C.error, paddingLeft: 19 } }, errorText) : null,
+        failed && !disclosure.expanded ? h('div', { style: { fontSize: 11.5, lineHeight: '16px', color: C.error, paddingLeft: 20 } }, errorText) : null,
         body.length === 0
           ? null
           : h(
@@ -776,9 +809,9 @@ window.__ModuleLoader__.load({
                   display: 'flex',
                   flexDirection: 'column',
                   gap: 3,
-                  margin: '2px 0 6px 19px',
+                  margin: '2px 0 6px 20px',
                   padding: '7px 10px',
-                  borderLeft: `2px solid ${failed ? C.error : C.brand}`,
+                  borderLeft: `2px solid ${failed ? C.error : C.border}`,
                   background: C.layer1,
                   borderRadius: '0 6px 6px 0',
                 },
@@ -843,12 +876,12 @@ window.__ModuleLoader__.load({
             width: 5,
             height: 5,
             borderRadius: 3,
-            background: failed ? C.error : pending ? C.muted : C.brand,
-            opacity: 0.75,
+            background: failed ? C.error : pending ? C.muted : C.tertiary,
+            opacity: 0.7,
           },
         }),
-        h('span', { style: { flex: 'none', fontSize: 11.5, lineHeight: '17px', color: failed ? C.error : C.text } }, label),
-        detail === '' ? null : h('span', { style: { minWidth: 0, fontSize: 11, lineHeight: '17px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' } }, `· ${detail}`),
+        h('span', { style: { flex: 'none', fontSize: 12, lineHeight: '17px', color: failed ? C.error : C.tertiary } }, label),
+        detail === '' ? null : h('span', { style: { minWidth: 0, fontSize: 12, lineHeight: '17px', color: C.tertiary, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' } }, `· ${detail}`),
       )
     }
 
@@ -924,6 +957,13 @@ window.__ModuleLoader__.load({
       // 画布宽度跟着可用列宽走：泳道摊开而不是挤在中间一条窄带里。
       const [avail, setAvail] = React.useState(0)
       const canvasRef = React.useRef(null)
+      const graphScrollRef = React.useRef(null)
+      // 进鱼骨先看头：画布内容比视口高得多，若沿用上次的滚动位置会落在空白段，
+      // 看起来像「图没了」。挂载时归零，数据变化时只把越界的滚动夹回来。
+      React.useEffect(() => {
+        const el = graphScrollRef.current
+        if (el !== null) el.scrollTop = 0
+      }, [])
       React.useEffect(() => {
         const el = canvasRef.current
         if (el === null || typeof ResizeObserver !== 'function') return undefined
@@ -960,8 +1000,8 @@ window.__ModuleLoader__.load({
 
       // 画布内只留泳道标题（y=18）；图例与轮次窗口搬到画布外的工具条里。
       // 首行事件从 padTop 起，任何标题字形不压事件节点的点击与悬停。
-      const padTop = 44
-      const rowGap = 34
+      const padTop = 40
+      const rowGap = 26
       const leftX = 96
       const laneBase = leftX + 150
       // 泳道宽随列宽伸缩（150–270）：宽屏把两条道摊开，窄屏保持可读。
@@ -983,7 +1023,7 @@ window.__ModuleLoader__.load({
         rowOf.set(item.kind === 'turn' ? `turn:${item.turn.turn}` : item.kind === 'mind' ? `mind:${item.index}` : `event:${item.event.id}`, index)
       })
       const yOf = (index) => padTop + index * rowGap
-      const H = Math.max(padTop + timeline.length * rowGap + 30, 200)
+      const H = Math.max(padTop + timeline.length * rowGap + 24, 200)
       const laneIndex = new Map(branches.map((branch, index) => [branch.id, index]))
       const laneX = (index) => laneBase + index * laneW + laneW / 2
       const eventRow = (id) => rowOf.get(`event:${id}`)
@@ -1052,9 +1092,9 @@ window.__ModuleLoader__.load({
           h('rect', {
             key: `laneband-${branch.id}`,
             x: x - laneW / 2 + 10,
-            y: Math.max(top - 34, 4),
+            y: Math.max(top - 30, 4),
             width: laneW - 20,
-            height: Math.min(H - 8, bottom + 16) - Math.max(top - 34, 4),
+            height: Math.min(H - 8, bottom + 14) - Math.max(top - 30, 4),
             rx: 10,
             fill: isHot ? C.brand : C.base,
             fillOpacity: isHot ? 0.08 : 0.75,
@@ -1109,7 +1149,7 @@ window.__ModuleLoader__.load({
       for (const [index, item] of timeline.entries()) {
         const y = yOf(index)
         if (item.kind === 'turn') {
-          marks.push(h('circle', { key: `t-${item.turn.turn}`, cx: leftX, cy: y, r: 5, fill: C.brand }))
+          marks.push(h('circle', { key: `t-${item.turn.turn}`, cx: leftX, cy: y, r: 4.5, fill: C.brand }))
           marks.push(h('text', { key: `tt-${item.turn.turn}`, x: leftX - 12, y: y + 4, fontSize: 11, fill: C.brand, textAnchor: 'end', fontWeight: 500 }, `第${item.turn.turn}轮`))
           const readable = (item.turn.label ?? '').startsWith('Ciallo') ? '' : (item.turn.label ?? '').slice(0, 18)
           if (readable !== '') marks.push(h('text', { key: `tl-${item.turn.turn}`, x: leftX + 12, y: y + 4, fontSize: 11, fill: C.muted }, readable))
@@ -1121,7 +1161,7 @@ window.__ModuleLoader__.load({
           marks.push(
             h('path', {
               key: `m-${item.index}`,
-              d: `M ${mindLaneX},${y - 8} L ${mindLaneX + 8},${y} L ${mindLaneX},${y + 8} L ${mindLaneX - 8},${y} Z`,
+              d: `M ${mindLaneX},${y - 7} L ${mindLaneX + 7},${y} L ${mindLaneX},${y + 7} L ${mindLaneX - 7},${y} Z`,
               fill: C.base,
               stroke: C.brand,
               strokeWidth: 1.8,
@@ -1144,7 +1184,7 @@ window.__ModuleLoader__.load({
         // Ink/Mind 侧事件 = 圆；执行层（Operator）= 方。形状=层，颜色=状态。
         if (event.kind === 'job') {
           const color = stateColor(event.state)
-          const size = isHot ? 14 : 12
+          const size = isHot ? 13 : 11
           marks.push(
             h('rect', {
               key: `e-${event.id}`,
@@ -1172,7 +1212,7 @@ window.__ModuleLoader__.load({
               key: `e-${event.id}`,
               cx: x,
               cy: y,
-              r: isHot ? 7 : 6,
+              r: isHot ? 6.5 : 5.5,
               fill: C.base,
               stroke: color,
               strokeWidth: 1.8,
@@ -1293,6 +1333,7 @@ window.__ModuleLoader__.load({
           h(
             'div',
             {
+              ref: graphScrollRef,
               style: {
                 flex: '1 1 auto',
                 minHeight: 0,
@@ -1583,6 +1624,21 @@ window.__ModuleLoader__.load({
         })
         observer.observe(el)
         return () => observer.disconnect()
+      }, [])
+      // 会话壳的滚动容器在切页签时会沿用对话的阅读位置（视图区被顶起几十像素，
+      // 鱼骨的头部统计行正好被页签栏切掉）。进入本页时把它归零，让视图从顶上开始。
+      React.useEffect(() => {
+        const el = shellRef.current
+        if (el === null || typeof window === 'undefined') return
+        let node = el.parentElement
+        while (node !== null && node !== document.body) {
+          const style = window.getComputedStyle(node)
+          if ((style.overflowY === 'auto' || style.overflowY === 'scroll') && node.scrollHeight > node.clientHeight) {
+            node.scrollTop = 0
+            break
+          }
+          node = node.parentElement
+        }
       }, [])
       // 这个布局下会话区在 1280 视口只有约 950px，阈值要按实际可用宽度定。
       const wide = width >= 900

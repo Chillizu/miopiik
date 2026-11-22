@@ -1269,3 +1269,39 @@ test('对话手笔文案键在 zh/en 两本字典里都齐', () => {
     assert.ok(enBlock.includes(`'${key}':`), `en 缺 ${key}`)
   }
 })
+
+test('工具行配色与 DSH 自家工具行同档：tertiary 灰、悬停提亮、语义图标各不相同', async () => {
+  const ctx = await fixture()
+  try {
+    const load = loadViews({ snapshot: ctx.engine.backstageSnapshot() })
+    const renderRow = (toolName, args, value) =>
+      renderSlot(load, 'tool.call.toolview', toolName, toolProps({ toolName, args, value }))
+    const tertiary = 'var(--dsw-alias-label-tertiary, #81858c)'
+    const status = renderRow('ink_status', {}, { loops: { active: 1 }, facts: { active: 2 }, inbox: { pending: 0 }, notes: 1, observations: 2, turn: 1, day: 1, epoch: 0 })
+    const branch = renderRow('ink_branch', { action: 'merge', id: 'B-2', claim: '并回' }, { branch: { id: 'B-2', status: 'merged' } })
+    // 标题走 tertiary 灰（与 DSH 工具行同一个 token），不是正文色也不是品牌蓝。
+    const titleOf = (nodes) => nodes.find((n) => n.type === 'span' && String(n.children?.[0] ?? '').startsWith('ink.noun.'))
+    assert.equal(String(titleOf(status).props.style.color), tertiary)
+    // 展开/悬停才提到正文色。
+    const rowRoot = status.find((n) => n.props?.['data-miopiik-tool-row'] !== undefined)
+    rowRoot.props.onMouseEnter()
+    const hovered = load.stub.render(slotByKey(load.slots, 'tool.call.toolview', 'ink_status').render(
+      toolProps({ toolName: 'ink_status', value: { loops: { active: 1 }, facts: { active: 2 }, inbox: { pending: 0 }, notes: 1, observations: 2, turn: 1, day: 1, epoch: 0 } }),
+    ))
+    assert.equal(String(hovered.find((n) => n.type === 'span' && String(n.children?.[0] ?? '').startsWith('ink.noun.')).props.style.color), 'var(--dsw-alias-label-primary)')
+    // 语义图标：每条工具行一个内联 SVG，描边走 currentColor（跟着灰走），形状按工具不同。
+    const svgOf = (nodes) => nodes.find((n) => n.type === 'svg' && n.props?.viewBox === '0 0 14 14')
+    const statusSvg = svgOf(status)
+    const branchSvg = svgOf(branch)
+    assert.ok(statusSvg !== undefined && branchSvg !== undefined, '每个工具行都有图标')
+    assert.equal(statusSvg.props.style.color, tertiary)
+    assert.equal(statusSvg.children[0].props.stroke, 'currentColor')
+    assert.notEqual(
+      statusSvg.children.map((p) => p.props.d).join('|'),
+      branchSvg.children.map((p) => p.props.d).join('|'),
+      '不同工具图标不同形',
+    )
+  } finally {
+    await ctx.cleanup()
+  }
+})
