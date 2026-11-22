@@ -49,6 +49,14 @@
 | §6 产品面 | `client.js` 会话视图与右栏面板；`index.js` projection + `host/commands.js` 干预命令 | `[OK]` 数据与干预实测 |
 | §9 术语表 | `client.js` 文案 | `[OK]` |
 | §10 验收 1–8 | 见 SPEC §11.3 | `[PARTIAL]` 5 项已实测，跨天 3 项由单测覆盖 |
+| §13.1 对话编译静默吸收（修订 §3.1 出口） | `host/converse.js`（`compileConversation`）+ `engine.applyConversationCompile`（`kind: absorb`、`suggestedClose`） | `[OK]` turn/end 静默落账，单测覆盖 |
+| §13.2 装配式 L3 | `engine.assembleL3`（text/sections 同源）；`host/prompt.js` `miopiik:l3` 注入 | `[OK]` 同文单测 |
+| §13.3 全量流水 | `host/audit.js`（`collectAuditRows` / `auditPage`）+ `host/commands.js` `/miopiik audit` | `[OK]` 单页上限 200，单测覆盖 |
+| §13.4 鱼骨 `graph.links` / `turnsTotal` / `turnsTruncated` | `engine` 快照 `graph` 载荷 | `[OK]` |
+| §13.5 双协议零依赖 Config | `host/config-defaults.js`（`Config` / `VOLATILE_KEYS` / `readConfig`）+ `client.js` 4 控件 | `[OK]` 热生效单测覆盖 |
+| §13.6 章程九条 | `host/prompt.js` `CHARTER`（`miopiik:charter`） | `[OK]` |
+| §13.7 插件页单页形态 | `client.js` `plugins.bundle.config`（一句话介绍 + 4 真控件，`configForms.get('miopiik-dsh')`） | `[OK]` |
+| §13.8 已知限制 | `suggestedClose` 不落日志（内存态）；非 Lead 会话任务板静默跳过 | `[PARTIAL]` 待裁决，见 docs/ALIGNMENT-AUDIT.md §16 |
 
 ## 数据文件
 

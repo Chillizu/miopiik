@@ -108,7 +108,7 @@ Ink 有自己持续存在的上下文，不每轮从磁盘重算——「常驻�
 - **详细 note 进 detail 层，brief 层只留决定 + claim + 指针。**
 - 关于 Operator 的 note 必须从**产物**生成，不能从 Operator 自述生成（自述会污染账本）。
 - **两级翻译**：第一级知识翻译（去术语、留证据）由 Ink 做；第二级处境翻译（放进当前语境、语气、时机）只能由 Mind 做——它需要知道用户在想什么。
-- **对话编译**：回合结束后 Ink 读自己的上下文（近段对话 + 活跃开环 + 活跃事实），产出候选结论与候选开环，出口是收件箱的一条预览（「这段里像是有 N 条结论、M 条悬着的话」）。**没有出处（U-n）不产**；已有待读候选不叠投；解析失败静默跳过，不编造。开关 `conversationCompile`（默认开），模型沿用 `inkModel`（空=继承会话）。
+- **对话编译**：回合结束后 Ink 读自己的上下文（近段对话 + 活跃开环 + 活跃事实），产出 `claims / loops / closedLoops` 候选（各上限 3；开环只用 §4.3 六型；closedLoops 只认活跃开环 id；conf 可选，缺省视为未标注）。**没有出处（U-n）不产**；解析不出来或没有东西可产时返回 null，不投降级预览。**出口分两路（2026-11-21 修订：原为收件箱预览）**：模型自标 `conf:"low"` 的结论不静默落账，逐条投收件箱过目（低置信闸门）；未标注与 mid/high 照旧**静默吸收**——落事实卡（`source: ink`、相近去重、可 `supersedes` 失效旧卡），只记一条 `kind: absorb` 的 note，不占收件箱待读位；疑似已解的开环只挂 `suggestedClose` 提示，闭合权仍在 Mind。开关 `conversationCompile`（默认开，热生效），模型沿用 `inkModel`（空=继承会话）。细节与佐证见 §13.1。
 
 ### 3.2 自答 / 上报
 
@@ -517,3 +517,89 @@ L3 之外，Mind 还能从 L3 末尾看到一行鱼骨：「B-1 定位验证：�
 - **开关**：正文内嵌不是配置项，是注册/注销——设置页一开关，关掉时 `dispose` 掉 `assistant-step` 的接管，原生渲染立刻回来。
 - **入口**：`ink_view` 工具（show / list / clear）。**卡片长在对话正文里**：注册一个 `target: 'chat'` 的 Conversation Definition，认 `ink_view` 的 `tool/call` 事件，在 **Turn 层**（`groupTree: 'turn'`）产出一个节点，由 `conversation.chat.node` 槽位渲染——卡片站在调用处，不进可折叠的「过程」组；同时进 MiOpIIk 页的「视图」页签；快照只带最近 3 条。
 - **不做的**：不做自由 HTML；不做第二套设计系统；不做模型生成组件代码；不接管 `tool.call.toolview`（那个席位在过程组里，卡会跟着折叠）。
+
+---
+
+## 13. 11-06 后落地机制补记（2026-11-21）
+
+> 本节补记 2026-11-06（第三轮对齐）之后落地的机制，收敛 [docs/ALIGNMENT-AUDIT.md](docs/ALIGNMENT-AUDIT.md) §16.2 点名的「SPEC 失同步」。术语与实现逐字一致（`auditPage` / `assembleL3` / `VOLATILE_KEYS` / `suggestedClose` 等），每条附盘上佐证（文件:行 或 测试名）；第四轮逐字核对的取证与裁决记录见该文档 §16，本节只收录已落地部分，未收口的缺口如实归入 §13.8「已知限制」。`host/engine.js` 与 `host/converse.js` 当晚仍在收口未提交改动（低置信闸门），这两处引标识符不引行号；其余文件的行号以 2026-11-21 盘上状态为准。
+
+### 13.1 对话编译与静默吸收（修订 §3.1 出口）
+
+- **触发**：`turn/end` 后 Ink 先把该轮用户原话与 Mind 最终回复 append 进自己的上下文，随即跑一次对话编译（`engine.finishTurn` → `scheduleConversationPass`，`host/engine.js`）；同一时刻只跑一遍（busy 位），失败静默——候选是增量，不打扰回合。
+- **开关**：`conversationCompile`（默认开），经 `readConfig` 解包 volatile 引用，设置页改完免重启（`scheduleConversationPass` 首行检查）。
+- **产出形状**：`{ claims, loops, closedLoops, question }`，claims 与 loops 各上限 3（`CONVERSATION_SYSTEM`）。开环只用六型 `LOOP_TYPES`，与 §4.3 一一对应（unanswered-question / awaiting-user / pending-option / promise / pending-dispatch / forming-intent）。**没有出处（U-n）不产**：解析时逐条丢弃无引用候选（`parseConversationOutput`）；closedLoops 只认活跃开环 id；解析失败重试一次（要求纯 JSON），再失败返回 null——不投降级预览。conf 可选：缺省或不认识的值视为未标注，只有模型明说 `"low"` 才触发低置信闸门。模型沿用 `inkModel`，空=继承会话（`host/compile.js:81-93`）；60 秒超时、低推理档。
+- **出口分两路**（`engine.applyConversationCompile`）：
+  - **静默吸收**（未标注与 mid/high 的 claims，及全部 loops / closedLoops）：结论落事实卡——`source: ink`、`scope: session`，带 `supersedes F-n` 时旧卡先失效，与既有结论相似度 ≥0.6 去重；开环落账同去重；疑似已解的只挂 `loop.suggestedClose = true`，**闭合权仍在 Mind**。记一条 `kind: absorb`、`why: compile:conversation` 的 note（claim 是「这段里像是有 N 条结论、M 条悬着的话」，候选清单进 detail），不占收件箱待读位；本批无可静默结算时不补空 absorb。
+  - **低置信闸门**（模型自标 `conf:"low"` 的 claims，2026-11-21 落地）：不静默落账，逐条投收件箱——`kind: 'preview'`、`why: 'compile:low-confidence'`、「后台整理出一条没把握的结论：…」→「要不要立为已定结论？」——拿不准的结论经用户过目再立。直接回应 ALIGNMENT-AUDIT §16.2 #2 对「静默写事实」的预警。
+- **L3 提示**：挂了 `suggestedClose` 的开环在 L3 行尾带「（Ink 提示：看似已解）」（`assembleL3` 的「悬着的事」段），见 §13.2。
+- 佐证：`test/converse.test.js` 9 项（出处过滤 / 未知类型丢弃 / 空产出 null / closedLoops 按活跃清单过滤 / conf 缺省视为未标注等）；`test/engine.test.js`——「对话编译静默落账：applyConversationCompile 直接写事实与开环、标记疑似已解、记 absorb 笔记且不占收件箱」「低置信闸门：conf=low 的结论不落事实卡，逐条投收件箱、留痕可查，read 可消化」「低置信闸门只作用于 claims：同批 loops 照旧登记、closedLoops 照旧标疑似已解，absorb 留痕有把握的部分」「回归钉住：未标注 conf 的对话结论照旧静默落账，低置信闸门不误伤」「混合批次：低置信投收件箱、未标注的照旧落账，absorb 只结算有把握的部分」。
+
+### 13.2 装配式 L3（`assembleL3`）
+
+- L3 由 `engine.assembleL3()` 一次装配：`text`（注入原文）与 `sections`（分节现值）**出自同一次装配**，快照的 `l3` 块与 `prompt.js` 注入的 `miopiik:l3` 因此永远同文——防漂移靠结构，不靠约定（`assembleL3` 注释、快照 `l3` 块；注入走 `engine.l3Text()` 即 `assembleL3().text`，`host/prompt.js:39`）。
+- 注入形态是 `systemPrompt.context`（装配时求值、空则空串），不是会进聊天记录的 user 消息（`host/prompt.js:7-8/30-44`，`miopiik:l3` order 810）；`text` 行数上限 20（`MAX_L3_LINES`）。
+- `sections` 形状（供客户端「所见」页渲染现值）：`facts`（id/claim/conf/source/scope）、`loops`（id/text/type/closureCondition/suggestedClose）、`inbox`（id/tier/claim/question）。
+- 佐证：`test/engine.test.js`「l3：sections 与 text 同一次装配，快照与注入 Mind 的原文同文」「l3：事实超过 8 条走计数行，计数 === sections 全长」。
+
+### 13.3 全量流水（audit 取数通道）
+
+> 与 `snapshot.audit` 的尾部采样（notes 最近 40 条）不同：这里直接读会话目录的 JSONL 原始日志（append-only，回放即真相），把每一条可重建操作的记录映射成统一行形状，按 `(at, seq)` 新者在前排序，从最新可以**无缺口翻到最早**（`host/audit.js:1-9` 顶部注释；`engine.auditPage` 的注释同一口径）。纯函数模块：不碰 Engine 状态、不写文件；每次现读磁盘、不做缓存——错缓存比慢更糟（`host/audit.js:311-315`）。
+
+- **行形状**：`{ id, at, day, kind, actor, claim, refs, branch?, detail? }`（`host/audit.js:62`）。id 是账本对象的 id，同一对象多条操作行靠 kind/at 区分；actor 只写记录里真正可判定的字段，判不出的用引擎默认，不凭空造（`host/audit.js:63-64`）。
+- **kind 覆盖**：note 子类（absorb/answer/hold/preview…）直接作 kind；`loop.add/touch/status/close/drop`；`fact.add/revise/invalidate`；`inbox.deliver/read/star/unstar/defer/supersede`；`job.dispatch/update`；`draft.add/settle`；`branch.fork/summary/context/attach-job/merge/abandon`；`briefing`（及 `briefing.overnight/auto-materials/closing-signal/hard-break`）；`fold.propose/apply/reject/apply-late`；观测只收 `epoch` 与 `fold.compaction`，对话原文归主界面不重复进流水（`host/audit.js:81-308/92-97`）。
+- **参与日志**：`AUDIT_LOGS` 十本——notes / loops / facts / inbox / briefings / jobs / drafts / branches / folds / observations（`host/audit.js:16`）；工作区共享事实的操作行也收，detail 标 `scope: workspace`（`host/audit.js:333-347`）。
+- **分页**：`auditPage(rows, input)`（`host/audit.js:370`）。day 模式只出该天行：当天翻不完给同日游标 `{ day, before, beforeSeq }`，翻完给「下一个有数据的日子」；游标模式 `nextCursor = { before, beforeSeq, day }`，`(at, seq)` 字典序排除同毫秒并列时的漏行/重行——无缺口从最新翻到最早（`host/audit.js:363-369`）。
+- **命令通道**：`/miopiik audit [page] day=… limit=… kind=… branch=…`（游标键 before/beforeSeq；用法示例 `audit day=20778 limit=50`，`host/commands.js:26`）。结果 JSON `{ rows, nextCursor }` 装进 command result text 带回浏览器；`recordInput: false`，每次 execute 落 `command/run` + `command/done` 两条 log-only 事件——返回文本留痕是代价，limit 由 `AUDIT_PAGE_MAX = 200` 封顶、默认 50（`host/commands.js:12-13/77/84-87`、`host/audit.js:19-20`）。
+- 佐证：`test/audit.test.js` 10 项（统一行形状覆盖全部可重建操作 / before 游标全量无缺口走一遍 / 按天分页同日续翻 / kind 与 branch 过滤 / 磁盘文件就是真相）；`test/commands.test.js`「取数通道往返：/miopiik audit 命令注册 → execute → JSON 解析 → 游标续翻」。
+
+### 13.4 鱼骨 graph.links 与主干截断标记
+
+- 快照 `graph` 载荷新增**线间关系**：两条分支依赖同一张事实卡 = 鱼骨的肋骨之间有真实的交接。按分支 `context.facts` 交集计算——只有结构事实，不做语义推断：`links.push({ kind: 'shared-fact', factId, between: [B-i, B-j] })`。
+- 主干左脊只取最近 16 轮，同时给出 `turnsTotal`（全部轮数）与 `turnsTruncated`（是否截断）——客户端能知道「还有多少没显示」。任务节点带 `stopReason`；`counts` 汇总 activeLoops / facts / running / drafts。
+- 佐证：`test/engine.test.js`「graph：links 按分支事实交集计算，任务带 stopReason，主干有总数与截断标记」「graph：主干超过 16 轮时 turnsTotal/turnsTruncated 说真话」。
+
+### 13.5 双协议零依赖 Config 与热生效控件
+
+- `host/config-defaults.js` 是可调项的唯一出口，三件事（顶部注释 `:1-16`）：`DEFAULTS`（全部内置默认值）；`Config`（手写**零依赖** schema，同时满足两套协议）；`readConfig(config, key)`（host 侧统一读法：volatile 引用解包成当前值，「禁止启动时一次性快照」，`:60-67`）。
+  - **Cordis Standard Schema**：`~standard.validate(config)` 把 4 个 volatile 字段包成 cosmokit volatile 引用（`get()` + `Symbol.for('cosmokit.volatile.write')`）——DSH 改 cordis.patch.yml 后由 loader 原位写入引用，**插件免重启热生效**（`:19/69-78/163-165`）。
+  - **DSH Settings wire**：`uid/type/meta/dict/toJSON()` 结构与 schemastery 的 wire 格式逐位兼容，`new Schemastery(Config.toJSON())` 可无损还原（`:95-127`）。
+  - 不引入任何 npm 依赖；协议行为按 DSH 自带 cosmokit/schemastery 的实测语义手写（`:14-15`）。
+- **热生效四项 `VOLATILE_KEYS`**：`conversationCompile` / `operatorModel` / `activeLoopCap` / `operatorTimeoutMs`（`host/config-defaults.js:40-45`）。host 读点全部走 `readConfig`：活跃开环上限 `engine.loopCap()`、对话编译开关（`scheduleConversationPass` 首行）、Operator 模型与超时（`host/operator.js:48/276`）。
+- 客户端 4 个控件与 `VOLATILE_KEYS` 一一对应（checkbox/text/number/number，`client.js:1408-1416`），测试守卫不漂移。
+- 佐证：`test/settings.test.js`——「4 个 volatile 字段与 host 默认值一一对应，不漂移」「Cordis Standard Schema：validate 把 4 个字段包成 volatile 引用（含写入符号与 get）」「volatile 引用可原位写入（DSH loader 热更新路径），readConfig 动态解包」「Config 的 DSH Settings 结构：uid/type/meta/dict/toJSON()」「new Schemastery(Config.toJSON()) 可无损还原 4 个 volatile 字段」「校验失败按 standard-schema 回报 issues（Host 写入被拒而非静默）」「客户端 4 个控件与 host 的 VOLATILE_KEYS 不漂移，控件类型对应」。
+
+### 13.6 章程合并后的九条（`host/prompt.js`）
+
+Mind 的章程合并为九条（`CHARTER`，`host/prompt.js:11-20`；`systemPrompt.section` 注册名 `miopiik:charter`，order 650）。只写结构约定，不写礼貌建议——工具面本身已经限制了能力（`host/prompt.js:4`）：
+
+1. 用户只跟 Mind 说话；Ink 与 Operator 不面向用户。
+2. 工具纪律：**纯讨论零记账**（Ink 在每回合结束静默提炼落账）；L3 所见即全部，回复前不做例行巡检；动手只在拍板或纠偏——派发、对外提交、翻阅未内联详情、修正/闭合 Ink 自动记录的条目。
+3. 开环只由 Mind 闭合（`ink_loops close/drop`）；Ink 只在 L3 提示「（Ink 提示：看似已解）」。
+4. 派发前自检：一句话复述目标 + 说得出「完成是什么样子」；派发走 `ink_branch` 挂切片，Operator 不拿整个对话。
+5. 草稿态 Mind 自行决定；对外 commit 必须用户点头，只需回答「行/不行」；提交门文字只写用户要判断的那件事，不写自我描述。
+6. 自答必须带引用（事实卡/判例）；带不出引用就上报，不替用户发明结论。
+7. 展示是提议不是倾倒，只在话题间隙；后台细节不进对话，不播报批次号/测试数/提交哈希。
+8. 隔天开工先读 L3 简报与收件箱，开场最多提一件事；没有告别就断了，先承认断点。
+9. 事实卡不是记事板：只记「以后会改变判断」的结论，默认本会话生效；跨会话才用 workspace；原料与半成品丢 `ink_draft`。
+
+### 13.7 插件页单页形态（`plugins.bundle.config`）
+
+- 配置面收进官方插件管理页声明的**唯一**配置 slot `plugins.bundle.config`（key `miopiik-dsh`，`client.js:1402-1406/1884-1886`）：**上半一句话介绍**（`MIO_INTRO`，`client.js:1417-1419`），**下半 4 个真实生效控件**（`MIO_FIELDS` 即 §13.5 四项）。控件数据来自 DSH settings 服务 `configForms.get('miopiik-dsh')`，保存走 `mutate` → Host 落盘 profile patch 层 → volatile 引用原位更新，免重启生效（`client.js:1404-1405`）。
+- 无 settings 服务或命名空间不可用时**不伪造控件**，给静态提示（`client.js:1626`）；Host 拒写或只读部署下控件禁用。页面只用 DSH 设计 token，无品牌 Hero/渐变/大圆角卡片。
+- 「设置 → 内置插件」占坑配置页已撤除（ALIGNMENT-AUDIT §16.1 第一行的处置）。**本节取代 §11.2「设置页落地（只读）」行的状态**：只读列表面已不是现状，真控件经 `mutate` 可写、热生效。
+- 佐证：`test/miopiik-settings-ui.test.js`——「MiOpIIk Agent 只注册插件页一个配置面，settings.plugins.tab 占坑已撤」「插件页上半部分只有一句话介绍，不再有架构长文与组件表」「插件页下半部分是 4 个真实控件：经 configForms 读当前值，保存走 mutate」「无 settings 服务或命名空间不可用时不伪造控件」「Host 拒写或只读部署下控件禁用，不出现假开关」「插件页不使用品牌 Hero、渐变或大型圆角卡片，且只用主题 token」。
+
+### 13.8 第四轮对齐核对与已知限制
+
+第四轮逐字核对（对照最早对话全量重排）见 [docs/ALIGNMENT-AUDIT.md](docs/ALIGNMENT-AUDIT.md) §16：完全偏离项为 0（§16.1）。本节只收录其缺口清单中仍未收口的部分，**如实记为已知限制，不是已实现**：
+
+| 已知限制 | 现状与佐证 |
+|---|---|
+| `loop.suggestedClose` 不落日志 | `applyConversationCompile` 的 closedLoops 分支只改内存 loop，`loops.jsonl` 没有对应 op 记录（只有赋值、无 `appendRecord`）——重启回放后「看似已解」提示消失。闭合权本就在 Mind，不会产生错误闭合；是否补一条 op 待裁决 |
+| 非 Lead 会话任务板静默跳过 | DSH 共享任务板需要 Lead 会话（会籍）；普通会话开卡被静默跳过，Operator 可见性只有「子会话」与「流水 job 行」（ALIGNMENT-AUDIT §11 已知限制、§16.5 #4，至今未获裁决） |
+| 章程纯提示词约束余量 | 工具面硬限制已成主力，但九条里仍有无技术强制的软约束（ALIGNMENT-AUDIT §16.2 #1，回正中） |
+| Ink 静默写事实的准确性 | 最险的一段已上闸：模型自标 `conf:"low"` 的结论不静默、投收件箱过目（§13.1 低置信闸门，直接回应 §16.2 #2 的预警）。余量仍在：自标有把握的（mid/high/未标注）不经用户过目就进 L3——absorb 落账留痕、可 revise/invalidate、`source=user` 权威更高仍是主兜底，这一环继续盯 |
+| 最早愿景仍未落地 | 分支递归（分支下再开子分支）、Mind 的上下文长度自觉（ALIGNMENT-AUDIT §16.5 #1/#3，不是偏离，是没做）；跨分支可见性的 host 数据层（`graph.links`）已由 §13.4 落地，客户端呈现与验收状态按该文档约定「待验收后另记」 |
+
+补记时实测（2026-11-21）：全量 `node --test` 180 项全绿，含当晚收口的低置信闸门新测试（engine 4 项 + converse 2 项）。
