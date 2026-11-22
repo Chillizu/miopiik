@@ -109,6 +109,91 @@ window.__ModuleLoader__.load({
       }
     }
 
+    // ── 全量流水取数通道（SPEC §2.2「账本即数据」）──────────────────────
+    // 首屏是投影尾窗（零延迟、永远在场）；「更早」经 session command
+    // `/miopiik audit`（与干预按钮同一条 remote.commands.execute 通道）翻
+    // 磁盘上的原始 JSONL，游标 (before, beforeSeq) 保证从最新无缺口翻到最早。
+    // 命令不可用就如实降级：停在尾窗，不硬绕。
+
+    const AUDIT_PAGE_LIMIT = 50
+
+    /** 组一条 /miopiik audit 命令行；键与 host/commands.js 的 parseAuditCommand 一一对应。 */
+    function auditLine({ day = null, before = null, beforeSeq = null, kind = null, branch = null, limit = AUDIT_PAGE_LIMIT } = {}) {
+      const parts = ['audit']
+      if (day !== null) parts.push(`day=${day}`)
+      if (before !== null) parts.push(`before=${before}`)
+      if (beforeSeq !== null) parts.push(`beforeSeq=${beforeSeq}`)
+      parts.push(`limit=${limit}`)
+      if (kind !== null) parts.push(`kind=${kind}`)
+      if (branch !== null) parts.push(`branch=${branch}`)
+      return `/miopiik ${parts.join(' ')}`
+    }
+
+    /** nextCursor 两种形状都接：{before, beforeSeq, day}（游标续翻）或 {day}（按天跳翻）；空 = 翻完。 */
+    function cursorParams(cursor) {
+      if (cursor === null || typeof cursor !== 'object') return null
+      if (cursor.before !== undefined) return { day: null, before: cursor.before, beforeSeq: cursor.beforeSeq ?? null }
+      if (cursor.day !== undefined) return { day: cursor.day, before: null, beforeSeq: null }
+      return null
+    }
+
+    /** 命令通道取一页：成功给 {page}，失败给 {error}；失败不静默兜底，让界面如实降级。 */
+    async function fetchAuditPage(sessionId, line) {
+      const commands = clientCtx?.remote?.commands
+      if (commands === null || commands === undefined || typeof commands.execute !== 'function') {
+        return { error: t('stream.noChannel') }
+      }
+      try {
+        console.warn('[mio-dbg] before execute:', line)
+        const outcome = await commands.execute(sessionId, line, [])
+        console.warn('[mio-dbg] after execute ok=', outcome && outcome.ok)
+        if (outcome === null || outcome === undefined || outcome.ok !== true) {
+          const detail = outcome?.error
+          return { error: `${t('stream.noChannel')}${detail?.message ? `：${String(detail.message).slice(0, 80)}` : ''}` }
+        }
+        const execution = outcome.value
+        if (execution === null || execution === undefined) return { error: t('stream.noChannel') }
+        const result = execution.result
+        if (result?.kind !== 'success') return { error: String(result?.text ?? t('stream.noChannel')).slice(0, 80) }
+        const page = JSON.parse(result.text ?? 'null')
+        if (page === null || typeof page !== 'object' || !Array.isArray(page.rows)) return { error: t('stream.badPage') }
+        return { page }
+      } catch (error) {
+        return { error: String(error?.message ?? error).slice(0, 80) }
+      }
+    }
+
+    /** 翻页拼接（纯函数，游标往返的可测面）：reset 换视图，append 只往尾部加、不动已看到的行。 */
+    function mergeAuditPage(loaded, page) {
+      const cursor = page?.nextCursor === null || page?.nextCursor === undefined ? null : page.nextCursor
+      const incoming = Array.isArray(page?.rows) ? page.rows : []
+      return { rows: loaded === null ? [...incoming] : [...loaded.rows, ...incoming], cursor, exhausted: cursor === null }
+    }
+
+    /** 投影尾窗 → 展示行：混合采样（最近 note/job + 当前事实/分支状态），不是事件流；kind 带 .sample 标记。 */
+    function tailRows(audit) {
+      if (audit === undefined || audit === null) return []
+      const rows = []
+      for (const note of audit.notes ?? []) {
+        rows.push({ ...note, kind: String(note.kind ?? 'note'), rowKind: 'note', actor: 'ink', at: note.at ?? 0, refs: note.refs ?? [], branch: note.branch ?? null })
+      }
+      for (const fact of audit.factEvents ?? []) {
+        rows.push({ id: fact.id, kind: 'fact.sample', rowKind: 'fact', actor: 'ink', at: fact.at ?? 0, claim: `${fact.stale ? '（已失效）' : ''}${fact.claim}`, refs: [fact.id], branch: null })
+      }
+      for (const branch of audit.branchEvents ?? []) {
+        rows.push({ id: `ev-${branch.id}`, kind: 'branch.sample', rowKind: 'branch', actor: 'mind', at: branch.at ?? 0, claim: `${branch.id} ${branch.label} · ${branch.status}`, refs: [branch.id], branch: branch.id })
+      }
+      for (const job of audit.jobs ?? []) {
+        rows.push({ id: job.id, kind: 'job.sample', rowKind: 'job', actor: 'operator', at: job.startedAt ?? job.endedAt ?? 0, claim: `${job.id} ${job.state} — ${job.label}`, refs: [job.id], branch: job.branchId ?? null, job })
+      }
+      return rows.sort((a, b) => b.at - a.at)
+    }
+
+    /** 溯源匹配：行的账本 id 命中，或它的 refs 里提到这个 id（牵动过它的都算）。 */
+    function rowTracesTo(row, id) {
+      return row.id === id || (Array.isArray(row.refs) && row.refs.includes(id))
+    }
+
     // 与 DSH 自带的「对话 / 轨迹」标签同一套度量：13px、字重 500、激活用品牌色、下划线指示。
     function TabButton({ id, label, active }) {
       return h(
@@ -159,16 +244,13 @@ window.__ModuleLoader__.load({
     }
 
     /**
-     * 鱼骨图：主干是对话轮次（竖直），分支从某一轮分叉出去、横向走一段，
-     * 最后用一条曲线汇回主干——跟 git graph 的 fork / commit / merge 是同一套读法。
-     * 所有标签直接画在图上（分支名、任务数、汇回 note 号），不做悬浮提示。
-     */
-    /**
-     * 鱼骨主视图：按事件布局（只画分叉/任务/汇回），不按轮次铺格子。
-     * 悬停出详情气泡，点击进入右侧详情面板。
+     * 鱼骨（泳道化）：左脊是主干对话轮次（主色只给脊），右面按分支一条泳道；
+     * fork 行从脊接出、merge/abandon 行接回脊，job 方点落在自己泳道上。
+     * 跨泳道细线 = 两条分支共享同一张事实卡：悬停看事实号，点击去流水溯源。
+     * 形状语言不变：圆 = Ink/Mind 侧事件，方 = Operator 任务，颜色 = 状态。
      */
     function FishboneView(props) {
-      const { sessionId, useProjection, onOpenStream, focusBranch } = props ?? {}
+      const { sessionId, useProjection, onOpenStream, onOpenFact, onOpenJob, focusBranch } = props ?? {}
       const snapshot = typeof useProjection === 'function' ? useProjection('miopiikBackstage') : undefined
       const graph = snapshot?.graph
       const [hover, setHover] = React.useState(null)
@@ -176,201 +258,217 @@ window.__ModuleLoader__.load({
       React.useEffect(() => {
         if (typeof focusBranch === 'string' && focusBranch !== '') setSelected(focusBranch)
       }, [focusBranch])
-      // 画布宽度跟着容器走：大屏铺满，小屏不留白。
-      const wrapRef = React.useRef(null)
-      const [avail, setAvail] = React.useState(0)
-      React.useEffect(() => {
-        const el = wrapRef.current
-        if (el === null || typeof ResizeObserver !== 'function') return undefined
-        const observer = new ResizeObserver((entries) => {
-          const width = entries[0]?.contentRect?.width ?? 0
-          if (width > 0) setAvail(width)
-        })
-        observer.observe(el)
-        return () => observer.disconnect()
-      }, [])
       const branches = graph?.branches ?? []
       const events = graph?.events ?? []
 
-      if (graph === undefined || events.length === 0) {
+      if (graph === undefined || branches.length === 0) {
         return h('div', { style: { padding: 32, color: C.muted, fontSize: 13 } }, t('graph.empty'))
       }
 
-      // 双脊：左脊=对话轮次，右脊=后台事件；两者按时间合成同一批行，横线把「哪一轮发生了什么」连起来。
+      // 泳道布局：左脊（对话轮次）+ 每分支一条泳道，时间一律向下。
       const turns = graph?.turns ?? []
-      const padTop = 26
+      const windowLabel =
+        graph.turnsTruncated === true
+          ? `${t('graph.recentTurns')} ${turns.length}/${graph.turnsTotal}`
+          : `${t('graph.allTurns')} ${graph.turnsTotal}`
+      const stateColor = (state) => {
+        if (state === 'running') return C.warn
+        if (state === 'done') return C.success
+        if (state === 'failed' || state === 'stalled' || state === 'timeout') return C.error
+        return C.muted
+      }
+      const statusLabel = (branch) =>
+        branch.status === 'merged'
+          ? `${t('graph.merged')}${branch.mergedInto ? ` ${branch.mergedInto}` : ''}`
+          : branch.status === 'abandoned'
+            ? t('graph.abandoned')
+            : t('graph.open')
+
+      const padTop = 44
       const rowGap = 30
       const leftX = 96
-      // 宽屏别把两条脊拉太远：上限 780，居中。
-      const W = Math.min(780, Math.max(560, Math.round((avail || 620) - 48)))
-      const rightX = Math.max(360, W - 210)
+      const laneW = 140
+      const laneBase = leftX + 150
+      const W = Math.max(560, laneBase + branches.length * laneW + 16)
 
       const timeline = [
         ...turns.map((turn) => ({ kind: 'turn', at: turn.at ?? 0, turn })),
         ...events.map((event) => ({ kind: 'event', at: event.at ?? 0, event })),
       ].sort((a, b) => a.at - b.at)
-
       const rowOf = new Map()
       timeline.forEach((item, index) => {
         rowOf.set(item.kind === 'turn' ? `turn:${item.turn.turn}` : `event:${item.event.id}`, index)
       })
       const yOf = (index) => padTop + index * rowGap
-      const H = Math.max(padTop + timeline.length * rowGap + 24, 180)
-
-      // 分支 fork/merge 事件所在行，用于连线与气泡定位
+      const H = Math.max(padTop + timeline.length * rowGap + 30, 200)
+      const laneIndex = new Map(branches.map((branch, index) => [branch.id, index]))
+      const laneX = (index) => laneBase + index * laneW + laneW / 2
       const eventRow = (id) => rowOf.get(`event:${id}`)
+      const laneTop = (branch) => yOf(eventRow(`fork:${branch.id}`) ?? 0)
+      const laneBottom = (branch) => {
+        const mergeRow = eventRow(`merge:${branch.id}`)
+        return mergeRow === undefined ? H - 30 : yOf(mergeRow)
+      }
+      const links = (graph?.links ?? []).filter(
+        (link) => link?.kind === 'shared-fact' && Array.isArray(link.between) && link.between.every((id) => laneIndex.has(id)),
+      )
 
       const marks = []
-      // 两条脊：都用主色，粗细表达「这是主干」；其余元素一律降调。
+      // 头部一行：主干截断标记（如「最近 16/58 轮」）+ 泳道标题。
+      marks.push(h('text', { key: 'turn-window', x: 8, y: 18, fontSize: 11, fill: C.muted }, windowLabel))
+      marks.push(h('text', { key: 'lbl-l', x: leftX - 40, y: 18, fontSize: 10, fill: C.muted }, t('graph.spineTurns')))
+      marks.push(h('text', { key: 'time', x: leftX + 12, y: 18, fontSize: 10, fill: C.muted }, '时间 ↓'))
+      // 左脊：全图唯一用主色的地方。
       marks.push(h('line', { key: 'spine-l', x1: leftX, y1: padTop - 8, x2: leftX, y2: H - 22, stroke: C.brand, strokeWidth: 2.5, strokeLinecap: 'round' }))
-      marks.push(h('line', { key: 'spine-r', x1: rightX, y1: padTop - 8, x2: rightX, y2: H - 22, stroke: C.brand, strokeWidth: 2.5, strokeLinecap: 'round' }))
-      marks.push(h('text', { key: 'lbl-l', x: leftX - 40, y: padTop - 12, fontSize: 10, fill: C.muted }, '对话'))
-      marks.push(h('text', { key: 'lbl-r', x: rightX + 8, y: padTop - 12, fontSize: 10, fill: C.muted }, '后台'))
-      // 方向：时间向下。两条脊各带一个向下箭头，比文字解释直观。
-      const arrow = (x, key) =>
+      marks.push(
         h('path', {
-          key,
-          d: `M ${x - 4},${H - 26} L ${x},${H - 18} L ${x + 4},${H - 26}`,
+          key: 'arr-l',
+          d: `M ${leftX - 4},${H - 26} L ${leftX},${H - 18} L ${leftX + 4},${H - 26}`,
           fill: 'none',
           stroke: C.brand,
           strokeWidth: 2,
           strokeLinecap: 'round',
           strokeLinejoin: 'round',
-        })
-      marks.push(arrow(leftX, 'arr-l'))
-      marks.push(arrow(rightX, 'arr-r'))
-      marks.push(h('text', { key: 'time', x: (leftX + rightX) / 2, y: padTop - 12, fontSize: 10, fill: C.muted, textAnchor: 'middle' }, '时间 ↓'))
+        }),
+      )
 
-      const stateColor = (state) => {
-        if (state === 'running') return C.brand
-        if (state === 'done') return C.success
-        if (state === 'failed' || state === 'stalled' || state === 'timeout') return C.error
-        return C.muted
+      // 每分支一条泳道：标题、基线、fork 接出（实线）与 merge/abandon 接回（虚线）。
+      for (const [index, branch] of branches.entries()) {
+        const x = laneX(index)
+        const top = laneTop(branch)
+        const bottom = laneBottom(branch)
+        const isHot = selected === branch.id
+        marks.push(
+          h(
+            'text',
+            { key: `lane-${branch.id}`, x, y: 18, fontSize: 10, textAnchor: 'middle', fill: branch.status === 'open' ? C.text : C.muted },
+            `${branch.id} ${String(branch.label).slice(0, 10)}`,
+          ),
+        )
+        marks.push(h('line', { key: `lanebase-${branch.id}`, x1: x, y1: top, x2: x, y2: bottom, stroke: isHot ? C.text : C.border, strokeWidth: isHot ? 1.5 : 1, opacity: isHot ? 0.9 : 0.7 }))
+        marks.push(h('path', { key: `forkline-${branch.id}`, d: `M ${leftX},${top} C ${leftX + 60},${top} ${x - 50},${top} ${x - 6},${top}`, fill: 'none', stroke: isHot ? C.text : C.link, strokeWidth: isHot ? 1.5 : 1, opacity: isHot ? 0.9 : 0.55 }))
+        marks.push(h('path', { key: `forkarr-${branch.id}`, d: `M ${x - 7},${top - 4} L ${x},${top} L ${x - 7},${top + 4} Z`, fill: isHot ? C.text : C.link, opacity: isHot ? 0.9 : 0.6 }))
+        const mergeRow = eventRow(`merge:${branch.id}`)
+        if (mergeRow !== undefined) {
+          const my = yOf(mergeRow)
+          marks.push(h('path', { key: `backline-${branch.id}`, d: `M ${x - 6},${my} C ${x - 60},${my} ${leftX + 60},${my} ${leftX + 6},${my}`, fill: 'none', stroke: isHot ? C.text : C.link, strokeWidth: isHot ? 1.5 : 1, strokeDasharray: '4 4', opacity: isHot ? 0.9 : 0.5 }))
+          marks.push(h('path', { key: `backarr-${branch.id}`, d: `M ${leftX + 7},${my - 4} L ${leftX},${my} L ${leftX + 7},${my + 4} Z`, fill: isHot ? C.text : C.link, opacity: isHot ? 0.9 : 0.6 }))
+        }
       }
 
+      // 跨泳道共享事实：细虚线 + 小方块；悬停出事实号，点击去流水溯源。
+      for (const [linkIndex, link] of links.entries()) {
+        const [a, b] = link.between
+        const xa = laneX(laneIndex.get(a))
+        const xb = laneX(laneIndex.get(b))
+        const y = Math.max(laneTop(branches[laneIndex.get(a)]), laneTop(branches[laneIndex.get(b)])) + 9 + linkIndex * 7
+        const mid = (xa + xb) / 2
+        marks.push(h('line', { key: `linkvis-${link.factId}-${linkIndex}`, x1: xa, y1: y, x2: xb, y2: y, stroke: C.link, strokeWidth: 1, strokeDasharray: '2 3', opacity: 0.8 }))
+        marks.push(h('path', { key: `linkmark-${link.factId}-${linkIndex}`, d: `M ${mid - 3},${y - 3} L ${mid + 3},${y - 3} L ${mid + 3},${y + 3} L ${mid - 3},${y + 3} Z`, fill: C.link, opacity: 0.8 }))
+        marks.push(
+          h('line', {
+            key: `linkhit-${link.factId}-${linkIndex}`,
+            x1: xa,
+            y1: y,
+            x2: xb,
+            y2: y,
+            stroke: 'transparent',
+            strokeWidth: 10,
+            'data-miopiik-shared-fact': link.factId,
+            style: { cursor: 'pointer' },
+            onMouseEnter: () => setHover({ kind: 'link', factId: link.factId, x: mid, y }),
+            onMouseLeave: () => setHover(null),
+            onClick: () => (typeof onOpenFact === 'function' ? onOpenFact(link.factId) : undefined),
+          }),
+        )
+      }
+
+      // 时间轴行：左脊放轮次圆点，事件落在自己泳道。
       for (const [index, item] of timeline.entries()) {
         const y = yOf(index)
         if (item.kind === 'turn') {
           marks.push(h('circle', { key: `t-${item.turn.turn}`, cx: leftX, cy: y, r: 4, fill: C.brand }))
           marks.push(h('text', { key: `tt-${item.turn.turn}`, x: leftX - 12, y: y + 4, fontSize: 10, fill: C.brand, textAnchor: 'end', fontWeight: 500 }, `第${item.turn.turn}轮`))
-          const readable = (item.turn.label ?? '').startsWith('Ciallo') ? '' : (item.turn.label ?? '').slice(0, 16)
-          if (readable !== '') {
-            marks.push(h('text', { key: `tl-${item.turn.turn}`, x: leftX + 12, y: y + 4, fontSize: 11, fill: C.muted }, readable))
-          }
+          const readable = (item.turn.label ?? '').startsWith('Ciallo') ? '' : (item.turn.label ?? '').slice(0, 14)
+          if (readable !== '') marks.push(h('text', { key: `tl-${item.turn.turn}`, x: leftX + 12, y: y + 4, fontSize: 10, fill: C.muted }, readable))
           continue
         }
         const event = item.event
-        const branch = branches.find((entry) => entry.id === event.branchId)
-        if (branch === undefined) continue
-        const isHot = selected === branch.id || hover === branch.id
-        const forkRow = eventRow(`fork:${branch.id}`)
-        const mergeEventId = `merge:${branch.id}`
-        const mergeRow = eventRow(mergeEventId)
-        const mergeTurnRow = branch.mergeTurn === null ? undefined : rowOf.get(`turn:${branch.mergeTurn}`)
-        const mergeY = mergeTurnRow !== undefined ? yOf(mergeTurnRow) : mergeRow === undefined ? null : yOf(mergeRow)
-
-        // 通信线：从对话脊出发（实线），回到对话脊（虚线）。用中性色，主色只留给脊。
-        if (event.kind === 'fork' && forkRow !== undefined) {
-          // 派出：箭头落在右脊上
-          marks.push(h('path', {
-            key: `arr-out-${branch.id}`,
-            d: `M ${rightX - 10},${y - 4.5} L ${rightX - 1},${y} L ${rightX - 10},${y + 4.5} Z`,
-            fill: isHot ? C.text : C.link,
-            opacity: isHot ? 0.95 : 0.7,
-          }))
-          marks.push(h('path', {
-            key: `link-${branch.id}`,
-            d: `M ${leftX},${yOf(forkRow)} C ${leftX + 90},${yOf(forkRow)} ${rightX - 90},${y} ${rightX},${y}`,
-            fill: 'none',
-            stroke: isHot ? C.text : C.link,
-            strokeWidth: isHot ? 2 : 1,
-            opacity: isHot ? 0.95 : 0.55,
-          }))
-        }
-        if (event.kind === 'merge' || event.kind === 'abandon') {
-          // 收回：箭头落在左脊上
-          marks.push(h('path', {
-            key: `arr-in-${branch.id}`,
-            d: `M ${leftX + 10},${(mergeY ?? y) - 4.5} L ${leftX + 1},${mergeY ?? y} L ${leftX + 10},${(mergeY ?? y) + 4.5} Z`,
-            fill: isHot ? C.text : C.link,
-            opacity: isHot ? 0.95 : 0.7,
-          }))
-          marks.push(h('path', {
-            key: `back-${branch.id}`,
-            d: `M ${rightX},${y} C ${rightX - 90},${y} ${leftX + 90},${mergeY ?? y} ${leftX},${mergeY ?? y}`,
-            fill: 'none',
-            stroke: isHot ? C.text : C.link,
-            strokeWidth: isHot ? 2 : 1,
-            strokeDasharray: '4 4',
-            opacity: isHot ? 0.95 : 0.5,
-          }))
-        }
-
-        const color = event.kind === 'job' ? stateColor(event.state) : branch.status === 'abandoned' ? C.idle : C.brand
-        const hot = isHot ? 1.5 : 0
-
-        // Ink 侧事件 = 圆；执行层（Operator）= 方。形状=层，颜色=状态。
+        const lane = laneIndex.get(event.branchId)
+        if (lane === undefined) continue
+        const x = laneX(lane)
+        const branch = branches[lane]
+        const isHot = selected === branch.id
+        // Ink/Mind 侧事件 = 圆；执行层（Operator）= 方。形状=层，颜色=状态。
         if (event.kind === 'job') {
-          const size = 10 + hot * 2
-          marks.push(h('rect', {
-            key: `e-${event.id}`,
-            x: rightX - size / 2,
-            y: y - size / 2,
-            width: size,
-            height: size,
-            rx: 2,
-            fill: event.state === 'running' ? color : event.state === 'done' ? color : C.base,
-            fillOpacity: event.state === 'running' ? 1 : event.state === 'done' ? 0.35 : 1,
-            stroke: color,
-            strokeWidth: 2,
-            style: { cursor: 'pointer' },
-            onMouseEnter: () => setHover(branch.id),
-            onMouseLeave: () => setHover(null),
-            onClick: () => setSelected(selected === branch.id ? null : branch.id),
-          }))
+          const color = stateColor(event.state)
+          const size = isHot ? 13 : 11
+          marks.push(
+            h('rect', {
+              key: `e-${event.id}`,
+              x: x - size / 2,
+              y: y - size / 2,
+              width: size,
+              height: size,
+              rx: 2,
+              fill: event.state === 'running' ? color : C.base,
+              fillOpacity: event.state === 'running' ? 1 : 0.35,
+              stroke: color,
+              strokeWidth: 2,
+              'data-miopiik-job-node': event.jobId ?? '',
+              style: { cursor: 'pointer' },
+              onMouseEnter: () =>
+                setHover({ kind: 'job', branchId: branch.id, jobId: event.jobId ?? null, state: event.state ?? null, stopReason: event.stopReason ?? null, label: event.label ?? null, x, y }),
+              onMouseLeave: () => setHover(null),
+              onClick: () => setSelected(selected === branch.id ? null : branch.id),
+            }),
+          )
         } else {
-          marks.push(h('circle', {
-            key: `e-${event.id}`,
-            cx: rightX,
-            cy: y,
-            r: (event.kind === 'merge' ? 4.5 : 4) + hot,
-            fill: event.kind === 'merge' ? color : C.base,
-            stroke: color,
-            strokeWidth: 1.8,
-            style: { cursor: 'pointer' },
-            onMouseEnter: () => setHover(branch.id),
-            onMouseLeave: () => setHover(null),
-            onClick: () => setSelected(selected === branch.id ? null : branch.id),
-          }))
+          const color = event.kind === 'fork' ? C.text : event.kind === 'merge' ? C.success : C.idle
+          marks.push(
+            h('circle', {
+              key: `e-${event.id}`,
+              cx: x,
+              cy: y,
+              r: isHot ? 6 : 5,
+              fill: C.base,
+              stroke: color,
+              strokeWidth: 1.8,
+              style: { cursor: 'pointer' },
+              onMouseEnter: () => setHover({ kind: 'branch', branchId: branch.id, x, y }),
+              onMouseLeave: () => setHover(null),
+              onClick: () => setSelected(selected === branch.id ? null : branch.id),
+            }),
+          )
         }
-
-        const suffix =
-          event.kind === 'fork'
-            ? `${branch.label.slice(0, 12)}${branch.forkTurn === null ? '' : ` · 第${branch.forkTurn}轮`}`
-            : event.kind === 'merge'
-              ? `汇回${branch.mergedInto === null ? '' : ` ${branch.mergedInto}`}`
-              : event.kind === 'job'
-                ? `${event.jobId} ${event.state ?? ''}${event.label ? ` · ${String(event.label).slice(0, 10)}` : ''}`
-                : `放弃 ${branch.id}`
-        marks.push(h('text', {
-          key: `et-${event.id}`,
-          x: rightX + 12,
-          y: y + 4,
-          fontSize: 11,
-          fill: isHot ? C.text : event.kind === 'job' ? stateColor(event.state) : C.text,
-          style: { cursor: 'pointer' },
-          onMouseEnter: () => setHover(branch.id),
-          onMouseLeave: () => setHover(null),
-          onClick: () => setSelected(selected === branch.id ? null : branch.id),
-        }, suffix))
       }
 
-      const hovered = hover === null ? null : branches.find((branch) => branch.id === hover)
-      const chosen = selected === null ? null : branches.find((branch) => branch.id === selected)
-      const hoverPos = (() => {
-        if (hovered === null) return null
-        const row = eventRow(`fork:${hovered.id}`)
-        return { x: leftX + 40, y: Math.max(yOf(row ?? 0) - 14, 0) }
+      const chosen = selected === null ? null : branches.find((branch) => branch.id === selected) ?? null
+      // 悬停气泡：链接给事实号；job 给状态与 stopReason；分支给摘要与进度。
+      const bubble = (() => {
+        if (hover === null) return null
+        if (hover.kind === 'link') {
+          return { x: Math.max(hover.x - 60, 8), y: Math.max(hover.y - 40, 26), title: `${t('graph.sharedFact')} ${hover.factId}`, lines: [t('graph.sharedFactHint')] }
+        }
+        const branch = branches.find((entry) => entry.id === hover.branchId)
+        if (branch === undefined) return null
+        if (hover.kind === 'job') {
+          return {
+            x: Math.min(Math.max(hover.x - 90, 8), W - 250),
+            y: Math.max(hover.y - 44, 26),
+            title: `${hover.jobId ?? ''} ${hover.label ?? ''}`,
+            lines: [
+              `${t('graph.state')}: ${hover.state ?? ''}`,
+              hover.stopReason === null || hover.stopReason === undefined ? null : `${t('graph.stopReason')}: ${hover.stopReason}`,
+            ].filter(Boolean),
+          }
+        }
+        return {
+          x: Math.min(Math.max(hover.x - 90, 8), W - 250),
+          y: Math.max(hover.y - 40, 26),
+          title: `${branch.id} ${branch.label}`,
+          lines: [branch.summary, `${branch.jobs.length} ${t('branches.jobs')} · ${statusLabel(branch)}`].filter(Boolean),
+        }
       })()
 
       return h(
@@ -387,7 +485,6 @@ window.__ModuleLoader__.load({
           h(
             'div',
             {
-              ref: wrapRef,
               style: {
                 flex: '1 1 auto',
                 minHeight: 0,
@@ -401,14 +498,15 @@ window.__ModuleLoader__.load({
               'div',
               { style: { position: 'relative', width: '100%', maxWidth: W, margin: '0 auto' } },
               h('svg', { viewBox: `0 0 ${W} ${H}`, width: W, height: H, role: 'img', 'aria-label': t('graph.title'), style: { display: 'block' } }, ...marks),
-              hovered !== null
-                ? h(
+              bubble === null
+                ? null
+                : h(
                     'div',
                     {
                       style: {
                         position: 'absolute',
-                        left: Math.min(hoverPos.x, W - 240),
-                        top: Math.max(hoverPos.y, 0),
+                        left: Math.min(bubble.x, W - 240),
+                        top: Math.max(bubble.y, 0),
                         width: 232,
                         padding: '8px 10px',
                         border: `0.5px solid ${C.border}`,
@@ -421,21 +519,9 @@ window.__ModuleLoader__.load({
                         color: C.text,
                       },
                     },
-                    h('div', { style: { fontWeight: 600, marginBottom: 2 } }, `${hovered.id} ${hovered.label}`),
-                    hovered.summary ? h('div', { style: { color: C.muted } }, hovered.summary) : null,
-                    h(
-                      'div',
-                      { style: { color: C.muted, marginTop: 4 } },
-                      `${hovered.forkTurn === null ? '' : `第 ${hovered.forkTurn} 轮分叉 · `}${hovered.jobs.length} 个任务 · ${
-                        hovered.status === 'merged'
-                          ? `已汇回${hovered.mergedInto ? ` ${hovered.mergedInto}` : ''}`
-                          : hovered.status === 'abandoned'
-                            ? '已放弃'
-                            : '进行中'
-                      }`,
-                    ),
-                  )
-                : null,
+                    h('div', { style: { fontWeight: 600, marginBottom: 2 } }, bubble.title),
+                    ...bubble.lines.map((line, index) => h('div', { key: index, style: { color: C.muted } }, line)),
+                  ),
             ),
           ),
         ),
@@ -443,6 +529,7 @@ window.__ModuleLoader__.load({
           ? h(
               'aside',
               {
+                'data-miopiik-branch-detail': chosen.id,
                 style: {
                   flex: '0 0 340px',
                   minHeight: 0,
@@ -516,14 +603,36 @@ window.__ModuleLoader__.load({
               h('div', { style: { fontSize: 12, color: C.muted } }, t('graph.jobs')),
               ...((chosen.jobs ?? []).length === 0
                 ? [h('div', { key: 'nojob', style: { fontSize: 12, color: C.muted } }, t('graph.noJobs'))]
-                : chosen.jobs.map((job) =>
-                    h(
+                : chosen.jobs.map((job) => {
+                    // 契约目标是派发时定下的（快照只给最近 10 个 job 带契约），查不到就不写。
+                    const contract = (snapshot?.audit?.jobs ?? []).find((entry) => entry.id === job.id)?.contract ?? null
+                    return h(
                       'div',
-                      { key: job.id, style: { display: 'flex', justifyContent: 'space-between', gap: 8, fontSize: 12 } },
-                      h('span', { style: { minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' } }, `${job.id} ${job.label}`),
-                      h('span', { style: { color: C.muted, flex: 'none' } }, job.state),
-                    ),
-                  )),
+                      {
+                        key: job.id,
+                        'data-miopiik-job': job.id,
+                        onClick: () => (typeof onOpenJob === 'function' ? onOpenJob(job.id) : undefined),
+                        style: {
+                          display: 'flex',
+                          flexDirection: 'column',
+                          gap: 2,
+                          fontSize: 12,
+                          cursor: 'pointer',
+                          padding: '4px 6px',
+                          border: `1px solid ${C.border}`,
+                          borderRadius: 6,
+                        },
+                      },
+                      h(
+                        'div',
+                        { style: { display: 'flex', justifyContent: 'space-between', gap: 8 } },
+                        h('span', { style: { minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' } }, `${job.id} ${job.label}`),
+                        h('span', { style: { color: stateColor(job.state), flex: 'none' } }, job.state),
+                      ),
+                      job.stopReason ? h('div', { style: { fontSize: 11, color: C.muted } }, `${t('graph.stopReason')}: ${job.stopReason}`) : null,
+                      contract?.goal ? h('div', { style: { fontSize: 11, color: C.muted } }, `${t('graph.contract')}: ${String(contract.goal).slice(0, 60)}`) : null,
+                    )
+                  })),
               chosen.mergeClaim
                 ? h(
                     'div',
@@ -629,10 +738,15 @@ window.__ModuleLoader__.load({
       }, [])
       // 这个布局下会话区在 1280 视口只有约 950px，阈值要按实际可用宽度定。
       const wide = width >= 900
-      const [streamFilter, setStreamFilter] = React.useState(null) // {branch} | null
+      const [streamFilter, setStreamFilter] = React.useState(null) // {branch} | {id, open} | null
       const [focusBranch, setFocusBranch] = React.useState(null)
       const openStream = (branchId) => {
         setStreamFilter({ branch: branchId })
+        setTab('stream')
+      }
+      // 溯源跳转：F-x/L-n/J-n 过滤流水；I-x（open=true）直达那条投递的详情。
+      const traceId = (id, open = false) => {
+        setStreamFilter(open === true ? { id, open: true } : { id })
         setTab('stream')
       }
       const openGraph = (branchId) => {
@@ -726,7 +840,7 @@ window.__ModuleLoader__.load({
               ? h(
                   'div',
                   { style: { display: 'flex', minHeight: 0, height: '100%' } },
-                  h('div', { style: { flex: '1 1 auto', minWidth: 0, minHeight: 0 } }, h(FishboneView, { ...props, onOpenStream: openStream, focusBranch })),
+                  h('div', { style: { flex: '1 1 auto', minWidth: 0, minHeight: 0 } }, h(FishboneView, { ...props, onOpenStream: openStream, onOpenFact: (factId) => traceId(factId), onOpenJob: (jobId) => traceId(jobId), focusBranch })),
                   h(
                     'div',
                     {
@@ -742,13 +856,14 @@ window.__ModuleLoader__.load({
                     h(ListPane, { snapshot, sessionId }),
                   ),
                 )
-              : h(FishboneView, { ...props, onOpenStream: openStream, focusBranch })
+              : h(FishboneView, { ...props, onOpenStream: openStream, onOpenFact: (factId) => traceId(factId), onOpenJob: (jobId) => traceId(jobId), focusBranch })
             : tab === 'list'
               ? h(ListPane, { snapshot, sessionId })
               : tab === 'context'
-              ? h(ContextPane, { snapshot })
+              ? h(ContextPane, { snapshot, onTraceId: traceId })
               : h(StreamPane, {
                   snapshot,
+                  sessionId,
                   filter: streamFilter,
                   onClearFilter: () => setStreamFilter(null),
                   onOpenGraph: openGraph,
@@ -856,163 +971,393 @@ window.__ModuleLoader__.load({
     }
 
     /**
-     * 流水：一行一条（决定或任务），点开右侧看完整内容。
-     * 不设全局「完整模式」——详情是按需的，不是一次性倒出来。
+     * 所见：Mind 这轮真看到的 L3 原文 + 分节现值。
+     * 上层与 prompt.js 注入的 miopiik:l3 同一次装配、同一段原文（等宽、原样、可折叠）；
+     * 下层按 sections 展示当前已定结论 / 悬着的事 / 收件箱待读，
+     * 每行 id 都能点去流水溯源（F-x/L-n 按账本 id，I-x 直达详情）。
+     * 旧的装配明细（inkContext head/tail + 候选）收进默认折叠小节。
      */
-
-
-    // ── 实验性 IUI v1：受信组件树 + 局部状态（不做表达式求值，不执行模型脚本）──
-    function ContextPane({ snapshot }) {
-      const context = snapshot?.inkContext
+    function ContextPane({ snapshot, onTraceId }) {
+      const l3 = snapshot?.l3
+      const inkContext = snapshot?.inkContext
       const candidates = snapshot?.candidates ?? []
-      if (context === undefined) return h('div', { style: styles.empty }, t('ctx.offline'))
-      const head = context.head ?? ''
-      const tail = context.tail ?? []
+      const [l3Open, setL3Open] = React.useState(true)
+      const [assemblyOpen, setAssemblyOpen] = React.useState(false)
+      if (l3 === undefined || l3 === null) return h('div', { style: styles.empty }, t('ctx.offline'))
+      const facts = l3.sections?.facts ?? []
+      const loops = l3.sections?.loops ?? []
+      const inbox = l3.sections?.inbox ?? []
+      const idButton = (id, open = false) =>
+        h(
+          'button',
+          {
+            type: 'button',
+            'data-miopiik-trace': id,
+            title: t('ctx.trace'),
+            onClick: () => (typeof onTraceId === 'function' ? onTraceId(id, open) : undefined),
+            style: { flex: 'none', border: 0, background: 'transparent', color: C.brand, cursor: 'pointer', fontSize: 11, fontVariantNumeric: 'tabular-nums', padding: 0 },
+          },
+          id,
+        )
+
       return h(
         'div',
         { style: { display: 'flex', flexDirection: 'column', gap: 18, padding: '4px 2px 24px', maxWidth: 780 } },
         h(
           Section,
-          { title: `${t('ctx.head')}（${context.headChars ?? 0} 字，仅保留最近 ${context.headMax ?? 2000} 字）` },
-          head === ''
-            ? h('div', { style: styles.empty }, t('ctx.empty'))
-            : h(
-                'div',
-                {
-                  style: {
-                    fontSize: 12,
-                    lineHeight: 1.65,
-                    color: C.muted,
-                    whiteSpace: 'pre-wrap',
-                    wordBreak: 'break-word',
-                    background: C.layer1,
-                    border: `1px solid ${C.border}`,
-                    borderRadius: 8,
-                    padding: '10px 12px',
-                    maxHeight: 260,
-                    overflow: 'auto',
+          { title: t('ctx.l3') },
+          h(
+            'div',
+            { style: { display: 'flex', alignItems: 'center', gap: 10 } },
+            h(
+              'button',
+              {
+                type: 'button',
+                onClick: () => setL3Open(!l3Open),
+                style: { ...styles.action, flex: 'none' },
+              },
+              l3Open ? t('ctx.l3Collapse') : t('ctx.l3Expand'),
+            ),
+            h('span', { style: styles.meta }, l3.generatedAt ? new Date(l3.generatedAt).toLocaleString() : ''),
+          ),
+          l3Open
+            ? l3.text === ''
+              ? h('div', { style: styles.empty }, t('ctx.empty'))
+              : h(
+                  'pre',
+                  {
+                    'data-miopiik-l3-text': '1',
+                    style: {
+                      margin: 0,
+                      padding: '10px 12px',
+                      background: C.layer1,
+                      border: `1px solid ${C.border}`,
+                      borderRadius: 8,
+                      fontSize: 11.5,
+                      lineHeight: '18px',
+                      whiteSpace: 'pre-wrap',
+                      wordBreak: 'break-word',
+                      color: C.text,
+                      fontFamily: 'var(--ds-font-family-code, var(--dsw-font-mono, ui-monospace, SFMono-Regular, Menlo, monospace))',
+                      maxHeight: 420,
+                      overflow: 'auto',
+                    },
                   },
-                },
-                head,
-              ),
+                  l3.text,
+                )
+            : null,
         ),
-        h(
-          Section,
-          { title: `${t('ctx.tail')}（${context.tailCount ?? 0} 条）` },
-          tail.length === 0
-            ? h('div', { style: styles.empty }, t('ctx.empty'))
-            : h(
-                'div',
-                { style: { display: 'flex', flexDirection: 'column', gap: 6 } },
-                ...tail.map((entry, index) =>
+        facts.length > 0
+          ? h(
+              Section,
+              { title: `${t('ctx.facts')}（${facts.length}）` },
+              ...facts.map((fact) =>
+                h(
+                  'div',
+                  { key: fact.id, style: styles.row },
                   h(
                     'div',
-                    {
-                      key: `${entry.at ?? index}-${index}`,
-                      style: {
-                        display: 'flex',
-                        gap: 10,
-                        alignItems: 'baseline',
-                        padding: '7px 10px',
-                        background: C.layer1,
-                        border: `1px solid ${C.border}`,
-                        borderRadius: 6,
-                        fontSize: 12,
-                      },
-                    },
-                    h('span', { style: { fontSize: 10, color: C.muted, minWidth: 56 } }, entry.kind),
-                    h('span', { style: { flex: '1 1 auto', wordBreak: 'break-word' } }, entry.text),
-                    (entry.refs ?? []).length === 0
-                      ? null
-                      : h('span', { style: { fontSize: 10, color: C.muted } }, (entry.refs ?? []).join(',')),
+                    { style: styles.rowText },
+                    fact.claim,
+                    h(
+                      'div',
+                      { style: styles.meta },
+                      `${fact.conf} · ${fact.source} · ${fact.scope === 'workspace' ? t('facts.scopeWorkspace') : t('facts.scopeSession')}`,
+                    ),
                   ),
+                  idButton(fact.id),
                 ),
               ),
-        ),
-        h(
-          Section,
-          { title: t('ctx.candidates') },
-          candidates.length === 0
-            ? h('div', { style: styles.empty }, t('ctx.empty'))
-            : h(
-                'div',
-                { style: { display: 'flex', flexDirection: 'column', gap: 6 } },
-                ...candidates.map((entry) =>
+            )
+          : null,
+        loops.length > 0
+          ? h(
+              Section,
+              { title: `${t('ctx.loops')}（${loops.length}）` },
+              ...loops.map((loop) =>
+                h(
+                  'div',
+                  { key: loop.id, style: styles.row },
                   h(
                     'div',
-                    {
-                      key: entry.id,
-                      style: {
-                        padding: '8px 10px',
-                        background: C.layer1,
-                        border: `1px solid ${C.border}`,
-                        borderRadius: 6,
-                        fontSize: 12,
-                        display: 'flex',
-                        flexDirection: 'column',
-                        gap: 3,
-                      },
-                    },
-                    h('div', {}, entry.claim),
-                    entry.question === null
-                      ? null
-                      : h('div', { style: { fontSize: 11, color: C.muted } }, `→ ${entry.question}`),
+                    { style: styles.rowText },
+                    loop.text,
+                    h(
+                      'div',
+                      { style: styles.meta },
+                      [
+                        loop.type,
+                        loop.closureCondition === null || loop.closureCondition === undefined ? null : `${t('graph.closure')}: ${loop.closureCondition}`,
+                        loop.suggestedClose === true ? t('ctx.suggestedClose') : null,
+                      ]
+                        .filter(Boolean)
+                        .join(' · '),
+                    ),
                   ),
+                  idButton(loop.id),
                 ),
               ),
-        ),
+            )
+          : null,
+        inbox.length > 0
+          ? h(
+              Section,
+              { title: `${t('ctx.inbox')}（${inbox.length}）` },
+              ...inbox.map((item) =>
+                h(
+                  'div',
+                  { key: item.id, style: styles.row },
+                  h(
+                    'div',
+                    { style: styles.rowText },
+                    `${item.tier} ${item.claim}`,
+                    h('div', { style: styles.meta }, item.question === null || item.question === undefined ? '' : `→ ${item.question}`),
+                  ),
+                  idButton(item.id, true),
+                ),
+              ),
+            )
+          : null,
+        inkContext === undefined || inkContext === null
+          ? null
+          : h(
+              Section,
+              { title: t('ctx.assembly') },
+              h(
+                'div',
+                { style: { display: 'flex', alignItems: 'center', gap: 10 } },
+                h(
+                  'button',
+                  { type: 'button', onClick: () => setAssemblyOpen(!assemblyOpen), style: { ...styles.action, flex: 'none' } },
+                  assemblyOpen ? t('ctx.assemblyCollapse') : t('ctx.assemblyExpand'),
+                ),
+                h('span', { style: styles.meta }, t('ctx.assemblyHint')),
+              ),
+              assemblyOpen
+                ? h(
+                    'div',
+                    { style: { display: 'flex', flexDirection: 'column', gap: 18 } },
+                    h(
+                      Section,
+                      { title: `${t('ctx.head')}（${inkContext.headChars ?? 0} 字，仅保留最近 ${inkContext.headMax ?? 2000} 字）` },
+                      inkContext.head === '' || inkContext.head === undefined
+                        ? h('div', { style: styles.empty }, t('ctx.empty'))
+                        : h(
+                            'div',
+                            {
+                              style: {
+                                fontSize: 12,
+                                lineHeight: 1.65,
+                                color: C.muted,
+                                whiteSpace: 'pre-wrap',
+                                wordBreak: 'break-word',
+                                background: C.layer1,
+                                border: `1px solid ${C.border}`,
+                                borderRadius: 8,
+                                padding: '10px 12px',
+                                maxHeight: 260,
+                                overflow: 'auto',
+                              },
+                            },
+                            inkContext.head,
+                          ),
+                    ),
+                    h(
+                      Section,
+                      { title: `${t('ctx.tail')}（${inkContext.tailCount ?? (inkContext.tail ?? []).length} 条）` },
+                      (inkContext.tail ?? []).length === 0
+                        ? h('div', { style: styles.empty }, t('ctx.empty'))
+                        : h(
+                            'div',
+                            { style: { display: 'flex', flexDirection: 'column', gap: 6 } },
+                            ...(inkContext.tail ?? []).map((entry, index) =>
+                              h(
+                                'div',
+                                {
+                                  key: `${entry.at ?? index}-${index}`,
+                                  style: {
+                                    display: 'flex',
+                                    gap: 10,
+                                    alignItems: 'baseline',
+                                    padding: '7px 10px',
+                                    background: C.layer1,
+                                    border: `1px solid ${C.border}`,
+                                    borderRadius: 6,
+                                    fontSize: 12,
+                                  },
+                                },
+                                h('span', { style: { fontSize: 10, color: C.muted, minWidth: 56 } }, entry.kind),
+                                h('span', { style: { flex: '1 1 auto', wordBreak: 'break-word' } }, entry.text),
+                                (entry.refs ?? []).length === 0
+                                  ? null
+                                  : h('span', { style: { fontSize: 10, color: C.muted } }, (entry.refs ?? []).join(',')),
+                              ),
+                            ),
+                          ),
+                    ),
+                    h(
+                      Section,
+                      { title: t('ctx.candidates') },
+                      candidates.length === 0
+                        ? h('div', { style: styles.empty }, t('ctx.empty'))
+                        : h(
+                            'div',
+                            { style: { display: 'flex', flexDirection: 'column', gap: 6 } },
+                            ...candidates.map((entry) =>
+                              h(
+                                'div',
+                                {
+                                  key: entry.id,
+                                  style: {
+                                    padding: '8px 10px',
+                                    background: C.layer1,
+                                    border: `1px solid ${C.border}`,
+                                    borderRadius: 6,
+                                    fontSize: 12,
+                                    display: 'flex',
+                                    flexDirection: 'column',
+                                    gap: 3,
+                                  },
+                                },
+                                h('div', {}, entry.claim),
+                                entry.question === null
+                                  ? null
+                                  : h('div', { style: { fontSize: 11, color: C.muted } }, `→ ${entry.question}`),
+                              ),
+                            ),
+                          ),
+                    ),
+                  )
+                : null,
+            ),
       )
     }
 
-    function StreamPane({ snapshot, filter = null, onClearFilter, onOpenGraph }) {
+    /**
+     * 流水：后台做过的每一件可重建操作。
+     * 首屏 = 投影尾窗（snapshot.audit 的最近采样，零延迟）；
+     * 「更早」经 /miopiik audit 命令通道翻全史——游标 (before, beforeSeq)
+     * 保证从最新无缺口翻到最早，连点合并进在飞的那一页、只追加不刷屏；
+     * kind 过滤器按命令返回的行生成（服务端 kind=…）；溯源过滤（F-x/L-n/I-x/J-n）
+     * 是本地 id/refs 匹配；命令通道不可用时如实降级：显示到尾窗为止。
+     */
+    function StreamPane({ snapshot, sessionId, filter = null, onClearFilter, onOpenGraph }) {
       const audit = snapshot?.audit
+      const [server, setServer] = React.useState(null) // { rows, cursor, params } | null = 尾窗模式
+      const [busy, setBusy] = React.useState(false)
+      const [degraded, setDegraded] = React.useState(null)
       const [kind, setKind] = React.useState('all')
       const [query, setQuery] = React.useState('')
       const [open, setOpen] = React.useState(null)
-      if (audit === undefined) return h('div', { style: styles.empty }, t('stream.offline'))
+      const inFlight = React.useRef(false)
+      const bootRef = React.useRef(null)
+      const autoOpenRef = React.useRef(false)
 
-      const notes = (audit.notes ?? []).map((note) => ({ ...note, rowKind: note.kind === 'preview' || note.kind === 'answer' ? 'note' : note.kind }))
-      const factRows = (audit.factEvents ?? []).map((fact) => ({
-        id: fact.id,
-        rowKind: 'fact',
-        kindLabel: 'fact',
-        claim: `${fact.stale ? '（已失效）' : ''}${fact.claim}`,
-        at: fact.at,
-        branch: null,
-        fact,
-      }))
-      const branchRows = (audit.branchEvents ?? []).map((branch) => ({
-        id: `ev-${branch.id}`,
-        rowKind: 'branch',
-        kindLabel: 'branch',
-        claim: `${branch.id} ${branch.label} · ${branch.status}`,
-        at: branch.at,
-        branch: branch.id,
-      }))
-      const jobs = (audit.jobs ?? []).map((job) => ({
-        id: job.id,
-        rowKind: 'job',
-        kindLabel: 'job',
-        claim: `${job.id} ${job.state} — ${job.label}`,
-        at: job.startedAt ?? 0,
-        branch: job.branchId,
-        job,
-      }))
-      const obs = audit.observations ?? {}
-      const rows = [...notes, ...factRows, ...branchRows, ...jobs].sort((a, b) => (b.at ?? 0) - (a.at ?? 0))
+      const branchParam = typeof filter?.branch === 'string' && filter.branch !== '' ? filter.branch : null
+      const traceIdParam = typeof filter?.id === 'string' && filter.id !== '' ? filter.id : null
 
-      const counts = rows.reduce((acc, row) => {
-        acc[row.kindLabel ?? row.kind] = (acc[row.kindLabel ?? row.kind] ?? 0) + 1
-        return acc
-      }, {})
-      const kinds = ['all', ...Object.keys(counts)]
+      /**
+       * 取一页装进视图。base = null 重建（换过滤条件），base = 已装行则顺着游标续翻。
+       * 在飞期间再点会被吞进当前这一页（合并请求，不刷屏）。
+       */
+      const fetchPageInto = async (base, { kindParam = null, branch = branchParam } = {}) => {
+        if (inFlight.current === true) return { skipped: true }
+        inFlight.current = true
+        setBusy(true)
+        setDegraded(null)
+        try {
+          const cursor = base === null ? null : base.cursor
+          const line = auditLine({ ...(cursorParams(cursor) ?? {}), kind: kindParam, branch })
+          const outcome = await fetchAuditPage(sessionId, line)
+          if (outcome.error !== undefined) {
+            setDegraded(outcome.error)
+            return { error: outcome.error }
+          }
+          const merged = mergeAuditPage(base, outcome.page)
+          setServer({ rows: merged.rows, cursor: merged.cursor, params: { kind: kindParam, branch } })
+          return { merged }
+        } finally {
+          inFlight.current = false
+          setBusy(false)
+        }
+      }
+
+      /** 溯源对象可能在更早的页里：顺序翻页直到它出现（封顶 8 页，不全史倒腾）。 */
+      const loadTrace = async (id) => {
+        let base = null
+        for (let pages = 0; pages < 8; pages += 1) {
+          const step = await fetchPageInto(base, {})
+          if (step.merged === undefined) return
+          base = { rows: step.merged.rows, cursor: step.merged.cursor }
+          if (base.rows.some((row) => rowTracesTo(row, id)) || base.cursor === null) return
+        }
+      }
+
+      // 到达过滤（分支 / 溯源）时自动接上命令通道：溯源要的是真实事件行，尾窗给不了。
+      React.useEffect(() => {
+        const key = `${branchParam ?? ''}|${traceIdParam ?? ''}`
+        if (key === bootRef.current) return
+        const prev = bootRef.current
+        bootRef.current = key
+        if (branchParam !== null) {
+          void fetchPageInto(null, { kindParam: null, branch: branchParam })
+          return
+        }
+        if (traceIdParam !== null && server === null) {
+          void loadTrace(traceIdParam)
+          return
+        }
+        if (traceIdParam === null && prev !== null && prev.split('|')[0] !== '') {
+          // 分支过滤被清掉：回到尾窗首屏，已装的分支过滤行不再冒充无过滤视图。
+          setServer(null)
+          setKind('all')
+        }
+      })
+
+      const baseRows = server !== null ? server.rows : tailRows(audit)
       const needle = query.trim().toLowerCase()
-      const shown = rows
-        .filter((row) => (filter?.branch ? row.branch === filter.branch : true))
-        .filter((row) => (kind === 'all' ? true : (row.kindLabel ?? row.kind) === kind))
-        .filter((row) => (needle === '' ? true : `${row.claim} ${row.branch ?? ''} ${row.why ?? ''}`.toLowerCase().includes(needle)))
+      const visibleRows = baseRows
+        .filter((row) => (branchParam !== null ? row.branch === branchParam : true))
+        .filter((row) => (traceIdParam !== null ? rowTracesTo(row, traceIdParam) : true))
+        .filter((row) =>
+          needle === '' ? true : `${row.claim} ${row.detail ?? ''} ${row.branch ?? ''} ${row.kind}`.toLowerCase().includes(needle),
+        )
+      // 行 id 不唯一（同一对象的多条操作行共用 id），用 id|kind|at 加序号消重。
+      const keyed = []
+      const seenKeys = new Map()
+      for (const row of visibleRows) {
+        const base = `${row.id}|${row.kind}|${row.at}`
+        const nth = (seenKeys.get(base) ?? 0) + 1
+        seenKeys.set(base, nth)
+        keyed.push({ row, key: nth === 1 ? base : `${base}#${nth}` })
+      }
 
-      const chosen = open === null ? null : rows.find((row) => row.id === open) ?? null
+      // 收件箱溯源（I-x）自动展开那条投递的详情。
+      React.useEffect(() => {
+        if (traceIdParam === null || filter?.open !== true || autoOpenRef.current === true) return
+        const hit = keyed.find((entry) => entry.row.id === traceIdParam && entry.row.kind === 'inbox.deliver')
+        if (hit === undefined) return
+        autoOpenRef.current = true
+        setOpen(hit.key)
+      })
+
+      const kinds = server === null ? [] : [...new Set(server.rows.map((row) => row.kind))]
+      const chosen = open === null ? null : keyed.find((entry) => entry.key === open) ?? null
+
+      if (audit === undefined || audit === null) return h('div', { style: styles.empty }, t('stream.offline'))
+
+      const obs = audit.observations ?? {}
+      const clearChip = (chip) =>
+        h(
+          'button',
+          {
+            type: 'button',
+            title: t('stream.clearTrace'),
+            onClick: () => (typeof onClearFilter === 'function' ? onClearFilter() : undefined),
+            style: { padding: '3px 9px', border: `0.5px solid ${C.brand}`, borderRadius: 12, background: C.brand, color: '#fff', cursor: 'pointer', fontSize: 11 },
+          },
+          chip,
+        )
 
       return h(
         'div',
@@ -1023,24 +1368,18 @@ window.__ModuleLoader__.load({
           h(
             'div',
             { style: { display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' } },
-            filter?.branch
-              ? h(
-                  'button',
-                  {
-                    type: 'button',
-                    onClick: () => (typeof onClearFilter === 'function' ? onClearFilter() : undefined),
-                    style: { padding: '3px 9px', border: `0.5px solid ${C.brand}`, borderRadius: 12, background: C.brand, color: '#fff', cursor: 'pointer', fontSize: 11 },
-                  },
-                  `${filter.branch} ×`,
-                )
-              : null,
-            ...kinds.map((entry) =>
+            branchParam !== null ? clearChip(`${branchParam} ×`) : null,
+            traceIdParam !== null ? clearChip(`${traceIdParam} ×`) : null,
+            ...['all', ...kinds].map((entry) =>
               h(
                 'button',
                 {
                   key: entry,
                   type: 'button',
-                  onClick: () => setKind(entry),
+                  onClick: () => {
+                    setKind(entry)
+                    void fetchPageInto(null, { kindParam: entry === 'all' ? null : entry, branch: branchParam })
+                  },
                   'aria-pressed': kind === entry ? 'true' : 'false',
                   style: {
                     padding: '3px 9px',
@@ -1052,7 +1391,9 @@ window.__ModuleLoader__.load({
                     fontSize: 11,
                   },
                 },
-                `${entry === 'all' ? t('stream.all') : entry}${entry === 'all' ? ` ${rows.length}` : ` ${counts[entry]}`}`,
+                entry === 'all'
+                  ? `${t('stream.all')} ${server === null ? baseRows.length : server.rows.length}`
+                  : `${entry} ${server?.rows.filter((row) => row.kind === entry).length ?? 0}`,
               ),
             ),
             h('input', {
@@ -1074,18 +1415,40 @@ window.__ModuleLoader__.load({
           ),
           h(
             'div',
-            { style: { display: 'flex', gap: 18, fontSize: 11, color: C.muted } },
+            { style: { display: 'flex', gap: 18, fontSize: 11, color: C.muted, flexWrap: 'wrap', alignItems: 'center' } },
             h('span', null, `${t('stream.observed')} ${obs.user ?? 0} / ${obs.assistant ?? 0} / ${obs.tool ?? 0}`),
-            h('span', null, `${t('stream.decisions')} ${rows.length}`),
+            server === null ? h('span', null, t('stream.tailHint')) : h('span', null, `${t('stream.loaded')} ${server.rows.length}`),
+            degraded === null
+              ? null
+              : h('span', { style: { color: C.error } }, `${degraded}${server === null ? ` · ${t('stream.tailOnly')}` : ''}`),
+            server !== null && server.cursor === null
+              ? h('span', null, t('stream.exhausted'))
+              : h(
+                  'button',
+                  {
+                    type: 'button',
+                    disabled: busy,
+                    onClick: () => {
+                      if (server === null) {
+                        void fetchPageInto(null, { kindParam: null, branch: branchParam })
+                        return
+                      }
+                      void fetchPageInto({ rows: server.rows, cursor: server.cursor }, { kindParam: server.params.kind, branch: server.params.branch })
+                    },
+                    style: { ...styles.action, flex: 'none', color: busy ? C.muted : C.text },
+                  },
+                  busy ? t('stream.busy') : t('stream.earlier'),
+                ),
           ),
-          shown.length === 0
+          keyed.length === 0
             ? h('div', { style: styles.empty }, t('stream.empty'))
-            : shown.map((row) =>
+            : keyed.map(({ row, key }) =>
                 h(
                   'div',
                   {
-                    key: row.id,
-                    onClick: () => setOpen(open === row.id ? null : row.id),
+                    key,
+                    'data-miopiik-row': key,
+                    onClick: () => setOpen(open === key ? null : key),
                     style: {
                       display: 'flex',
                       gap: 10,
@@ -1095,18 +1458,32 @@ window.__ModuleLoader__.load({
                       borderRadius: 6,
                       borderBottom: `0.5px solid ${C.border}`,
                       cursor: 'pointer',
-                      background: open === row.id ? C.layer1 : 'transparent',
+                      background: open === key ? C.layer1 : 'transparent',
                     },
                   },
-                  h('span', { style: { flex: 'none', width: 62, fontSize: 11, color: C.muted, fontVariantNumeric: 'tabular-nums' } },
-                    row.at ? new Date(row.at).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' }) : ''),
-                  h('span', { style: { flex: 'none', width: 62, fontSize: 11, color: row.rowKind === 'job' ? C.warn : C.brand } }, row.kindLabel ?? row.kind),
+                  h(
+                    'span',
+                    { style: { flex: 'none', width: 62, fontSize: 11, color: C.muted, fontVariantNumeric: 'tabular-nums' } },
+                    row.at ? new Date(row.at).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' }) : '',
+                  ),
+                  h(
+                    'span',
+                    {
+                      style: {
+                        flex: 'none',
+                        width: 96,
+                        fontSize: 11,
+                        color: row.rowKind === 'job' ? C.warn : row.rowKind === 'fact' ? C.success : row.rowKind === 'branch' ? C.brand : C.muted,
+                      },
+                    },
+                    row.kind,
+                  ),
                   h('span', { style: { flex: '1 1 auto', minWidth: 0, fontSize: 12, color: C.text } }, row.claim),
                   row.branch ? h('span', { style: { flex: 'none', fontSize: 11, color: C.muted } }, row.branch) : null,
                 ),
               ),
         ),
-        chosen === null ? null : h(StreamDetail, { row: chosen, onClose: () => setOpen(null), onOpenGraph }),
+        chosen === null ? null : h(StreamDetail, { row: chosen.row, onClose: () => setOpen(null), onOpenGraph }),
       )
     }
 
@@ -1173,6 +1550,8 @@ window.__ModuleLoader__.load({
           'div',
           { style: { display: 'flex', flexDirection: 'column', gap: 3, fontSize: 11, color: C.muted } },
           (row.refs ?? []).length > 0 ? h('span', null, `refs: ${row.refs.join(' ')}`) : null,
+          row.actor ? h('span', null, `actor: ${row.actor}`) : null,
+          Number.isFinite(row.day) ? h('span', null, `day: ${row.day}`) : null,
           (row.loops ?? []).length > 0 ? h('span', null, `loops: ${row.loops.join(' ')}`) : null,
           row.conf ? h('span', null, `conf: ${row.conf}`) : null,
           row.rowKind === 'job' && row.job ? h('span', null, `state: ${row.job.state}${row.job.stopReason ? ` · ${row.job.stopReason}` : ''}`) : null,
@@ -1694,6 +2073,18 @@ window.__ModuleLoader__.load({
       'tab.list': '清单',
       'tab.stream': '流水',
       'tab.context': '所见',
+      'ctx.l3': '后台所见（L3 原文）',
+      'ctx.l3Expand': '展开原文',
+      'ctx.l3Collapse': '收起原文',
+      'ctx.facts': '已定结论（现值）',
+      'ctx.loops': '悬着的事（活跃）',
+      'ctx.inbox': '收件箱待读',
+      'ctx.trace': '去流水溯源',
+      'ctx.suggestedClose': 'Ink 提示：看似已解',
+      'ctx.assembly': 'Ink 装配明细',
+      'ctx.assemblyExpand': '展开明细',
+      'ctx.assemblyCollapse': '收起明细',
+      'ctx.assemblyHint': '装配 L3 的原始材料（head/tail/候选），默认折叠。',
       'ctx.head': '折叠头部',
       'ctx.tail': '尾部',
       'ctx.candidates': '对话编译候选',
@@ -1714,11 +2105,31 @@ window.__ModuleLoader__.load({
       'graph.noJobs': '这个分支上没有任务。',
       'graph.merged': '汇回',
       'graph.openStream': '在流水中查看',
+      'graph.recentTurns': '最近轮次',
+      'graph.allTurns': '全部轮次',
+      'graph.spineTurns': '对话',
+      'graph.sharedFact': '共享事实',
+      'graph.sharedFactHint': '两条分支都依赖这张卡；点击去流水溯源。',
+      'graph.abandoned': '已放弃',
+      'graph.open': '进行中',
+      'graph.state': '状态',
+      'graph.stopReason': '停止原因',
+      'graph.contract': '契约目标',
+      'graph.closure': '闭合条件',
       'stream.empty': '后台还没有做过任何决定。',
       'stream.all': '全部',
       'stream.search': '搜结论或分支',
       'stream.observed': '观测（用户/回复/工具）',
       'stream.decisions': '决定',
+      'stream.earlier': '更早',
+      'stream.busy': '取数中…',
+      'stream.exhausted': '已翻到最早',
+      'stream.tailHint': '首屏是最近采样；点「更早」翻全史。',
+      'stream.tailOnly': '只能看到这批尾窗采样',
+      'stream.noChannel': '命令通道不可用',
+      'stream.badPage': '返回的不是分页 JSON',
+      'stream.loaded': '已装载',
+      'stream.clearTrace': '清掉过滤',
       'stream.openGraph': '回到鱼骨查看',
       'stream.contract': '派出去的契约',
       'stream.detailClaim': '结论',
@@ -1776,6 +2187,18 @@ window.__ModuleLoader__.load({
       'tab.list': 'List',
       'tab.stream': 'Stream',
       'tab.context': 'Seen',
+      'ctx.l3': 'What Mind sees (L3 verbatim)',
+      'ctx.l3Expand': 'Expand text',
+      'ctx.l3Collapse': 'Collapse text',
+      'ctx.facts': 'Settled conclusions (current)',
+      'ctx.loops': 'Open items (active)',
+      'ctx.inbox': 'Inbox to read',
+      'ctx.trace': 'Trace in stream',
+      'ctx.suggestedClose': 'Ink hint: looks resolved',
+      'ctx.assembly': 'Ink assembly detail',
+      'ctx.assemblyExpand': 'Expand',
+      'ctx.assemblyCollapse': 'Collapse',
+      'ctx.assemblyHint': 'Raw materials of the L3 assembly (head/tail/candidates); collapsed by default.',
       'ctx.head': 'Folded head',
       'ctx.tail': 'Tail',
       'ctx.candidates': 'Conversation candidates',
@@ -1814,11 +2237,31 @@ window.__ModuleLoader__.load({
       'graph.noJobs': 'No jobs on this branch.',
       'graph.merged': 'Merged',
       'graph.openStream': 'Open in stream',
+      'graph.recentTurns': 'Recent turns',
+      'graph.allTurns': 'All turns',
+      'graph.spineTurns': 'Talk',
+      'graph.sharedFact': 'Shared fact',
+      'graph.sharedFactHint': 'Both branches lean on this card; click to trace it in the stream.',
+      'graph.abandoned': 'Abandoned',
+      'graph.open': 'In flight',
+      'graph.state': 'State',
+      'graph.stopReason': 'Stop reason',
+      'graph.contract': 'Contract goal',
+      'graph.closure': 'Closure condition',
       'stream.empty': 'The backstage has not made any decision yet.',
       'stream.all': 'All',
       'stream.search': 'Search claim or branch',
       'stream.observed': 'Observed (user/reply/tool)',
       'stream.decisions': 'Decisions',
+      'stream.earlier': 'Earlier',
+      'stream.busy': 'Fetching…',
+      'stream.exhausted': 'Reached the earliest',
+      'stream.tailHint': 'First screen is a recent sample; press “Earlier” to page the full ledger.',
+      'stream.tailOnly': 'only the sampled tail window is available',
+      'stream.noChannel': 'command channel unavailable',
+      'stream.badPage': 'response is not a page JSON',
+      'stream.loaded': 'Loaded',
+      'stream.clearTrace': 'Clear filter',
       'stream.openGraph': 'Show in graph',
       'stream.contract': 'Dispatched contract',
       'stream.detailClaim': 'Conclusion',
