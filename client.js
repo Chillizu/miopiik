@@ -144,9 +144,7 @@ window.__ModuleLoader__.load({
         return { error: t('stream.noChannel') }
       }
       try {
-        console.warn('[mio-dbg] before execute:', line)
         const outcome = await commands.execute(sessionId, line, [])
-        console.warn('[mio-dbg] after execute ok=', outcome && outcome.ok)
         if (outcome === null || outcome === undefined || outcome.ok !== true) {
           const detail = outcome?.error
           return { error: `${t('stream.noChannel')}${detail?.message ? `：${String(detail.message).slice(0, 80)}` : ''}` }
