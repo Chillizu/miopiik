@@ -837,8 +837,7 @@ test('鱼骨：Mind 泳道——脊右分支左、菱形节点、悬停 label+re
     const remote = makeRemote(ctx.engine)
     const load = loadViews({ snapshot, remote })
     const nodes = load.walk()
-    // 泳道标题在场（i18n 键），基线是虚线细道。
-    assert.match(textOf(nodes), /graph\.mindLane/u)
+    // 细轨用虚线；名字交给画布外的图例（graph.legendMind），轨上不再刻字以免压住轮次原话。
     const lane = byKey(nodes, 'mindlane')
     assert.ok(lane !== undefined, 'Mind 泳道基线在场')
     assert.equal(lane.props.strokeDasharray, '2 4')
@@ -848,8 +847,8 @@ test('鱼骨：Mind 泳道——脊右分支左、菱形节点、悬停 label+re
     assert.match(String(dispatch.props.d), /^M \d+(?:\.\d+)?,-?\d+(?:\.\d+)? L .* Z$/u, '菱形是四顶点闭合 path')
     const cx = Number(/^M (\d+(?:\.\d+)?),/.exec(String(dispatch.props.d))[1])
     const fork1 = byKey(nodes, 'e-fork:B-1')
-    assert.ok(cx > 246, 'Mind 泳道在分支泳道区右侧的独立窄道')
-    assert.ok(cx > fork1.props.cx, 'Mind 泳道在分支泳道右侧（行内用户原话让出脊右位置）')
+    assert.ok(96 < cx && cx < 246, 'Mind 细轨贴着脊（x=96）右侧、不占外侧宽度')
+    assert.ok(cx < fork1.props.cx, 'Mind 细轨在分支泳道左侧（不另开一列）')
     assert.equal((String(dispatch.props.d).match(/ L /gu) || []).length, 3, '菱形四段闭合')
     assert.ok(String(dispatch.props.stroke).includes('--dsw-static-deepseek-500'), '主色描边')
     assert.equal(dispatch.props.style.cursor, 'pointer')

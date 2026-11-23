@@ -1004,15 +1004,15 @@ window.__ModuleLoader__.load({
       const leftX = 96
       const laneBase = leftX + 150
       // 泳道宽随列宽伸缩（150–270）：宽屏把两条道摊开，窄屏保持可读。
-      const MIND_COL = 56
       const laneW =
         avail > 0 && branches.length > 0
-          ? Math.max(140, Math.min(270, (avail - laneBase - MIND_COL - 24) / branches.length))
+          ? Math.max(140, Math.min(270, (avail - laneBase - 24) / branches.length))
           : 150
-      // Mind 泳道在最右侧的独立窄道：聚簇后一行 = 一轮，脊右侧要留给该轮的用户原话，
-      // 菱形不再夹在脊与分支之间抢位置（形状语言不变：菱形仍是 Mind 动作）。
-      const mindLaneX = laneBase + branches.length * laneW + MIND_COL / 2
-      const W = Math.max(560, laneBase + branches.length * laneW + MIND_COL + 16)
+      // Mind 泳道贴着脊的一条细轨（不在外侧另开一列）：Mind 是背后记录与分配的那层，
+      // 不该为它加宽画布——窄窗口一宽就被压缩/裁切。菱形挂在这条轨上，该轮原话排在它右侧。
+      const mindLaneX = leftX + 14
+      const turnTextX = leftX + 34
+      const W = Math.max(560, laneBase + branches.length * laneW + 16)
 
       const timeline = [
         ...turns.map((turn) => ({ kind: 'turn', at: turn.at ?? 0, turn })),
@@ -1121,8 +1121,7 @@ window.__ModuleLoader__.load({
 
       // Mind 泳道：脊与分支泳道之间的常驻窄道（虚线基线 + 标题），菱形节点按时间落点。
       // 基线用细虚线只是「这里有条道」，不暗示跨度；节点才是动作本身。
-      marks.push(h('line', { key: 'mindlane', x1: mindLaneX, y1: padTop - 8, x2: mindLaneX, y2: H - 22, stroke: C.border, strokeWidth: 1, strokeDasharray: '2 4', opacity: 0.5 }))
-      marks.push(h('text', { key: 'lbl-mind', x: mindLaneX, y: 18, fontSize: 10, textAnchor: 'middle', fill: C.muted }, t('graph.mindLane')))
+      marks.push(h('line', { key: 'mindlane', x1: mindLaneX, y1: padTop - 8, x2: mindLaneX, y2: H - 22, stroke: C.border, strokeWidth: 1, strokeDasharray: '2 4', opacity: 0.35 }))
 
       // 每分支一条泳道：底纹、标题、基线、fork 接出（实线）与 merge/abandon 接回（虚线）。
       // 底纹让空白读成「道」而不是「没画完」；选中态给主色淡染，和其余泳道分开。
@@ -1195,7 +1194,7 @@ window.__ModuleLoader__.load({
           marks.push(h('circle', { key: `t-${item.turn.turn}`, cx: leftX, cy: y, r: 4.5, fill: C.brand }))
           marks.push(h('text', { key: `tt-${item.turn.turn}`, x: leftX - 12, y: y + 4, fontSize: 11, fill: C.brand, textAnchor: 'end', fontWeight: 500 }, `第${item.turn.turn}轮`))
           const readable = (item.turn.label ?? '').startsWith('Ciallo') ? '' : (item.turn.label ?? '').slice(0, 18)
-          if (readable !== '') marks.push(h('text', { key: `tl-${item.turn.turn}`, x: leftX + 12, y: y + 4, fontSize: 11, fill: C.muted }, readable))
+          if (readable !== '') marks.push(h('text', { key: `tl-${item.turn.turn}`, x: turnTextX, y: y + 4, fontSize: 11, fill: C.muted }, readable))
           continue
         }
         if (item.kind === 'mind') {
