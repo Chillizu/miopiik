@@ -1001,37 +1001,80 @@ window.__ModuleLoader__.load({
       // 画布内只留泳道标题（y=18）；图例与轮次窗口搬到画布外的工具条里。
       // 首行事件从 padTop 起，任何标题字形不压事件节点的点击与悬停。
       const padTop = 40
-      const rowGap = 26
       const leftX = 96
       const laneBase = leftX + 150
       // 泳道宽随列宽伸缩（150–270）：宽屏把两条道摊开，窄屏保持可读。
+      const MIND_COL = 56
       const laneW =
         avail > 0 && branches.length > 0
-          ? Math.max(150, Math.min(270, (avail - laneBase - 24) / branches.length))
+          ? Math.max(140, Math.min(270, (avail - laneBase - MIND_COL - 24) / branches.length))
           : 150
-      // Mind 泳道在脊右侧、分支泳道左侧：脊（leftX）与泳道区（laneBase）的正中。
-      const mindLaneX = leftX + (laneBase - leftX) / 2
-      const W = Math.max(560, laneBase + branches.length * laneW + 16)
+      // Mind 泳道在最右侧的独立窄道：聚簇后一行 = 一轮，脊右侧要留给该轮的用户原话，
+      // 菱形不再夹在脊与分支之间抢位置（形状语言不变：菱形仍是 Mind 动作）。
+      const mindLaneX = laneBase + branches.length * laneW + MIND_COL / 2
+      const W = Math.max(560, laneBase + branches.length * laneW + MIND_COL + 16)
 
       const timeline = [
         ...turns.map((turn) => ({ kind: 'turn', at: turn.at ?? 0, turn })),
         ...events.map((event) => ({ kind: 'event', at: event.at ?? 0, event })),
         ...mindEvents.map((event, index) => ({ kind: 'mind', at: event.at ?? 0, event, index })),
       ].sort((a, b) => a.at - b.at)
-      const rowOf = new Map()
-      timeline.forEach((item, index) => {
-        rowOf.set(item.kind === 'turn' ? `turn:${item.turn.turn}` : item.kind === 'mind' ? `mind:${item.index}` : `event:${item.event.id}`, index)
-      })
-      const yOf = (index) => padTop + index * rowGap
-      const H = Math.max(padTop + timeline.length * rowGap + 24, 200)
+      // ── 行 = 一轮（SPEC §13.13 聚簇）──────────────────────────────────
+      // 以前一条账目占一整行：一轮里 Mind 的十几个动作 + 分支/任务事件把画布拉到两三千像素，
+      // 一屏只读得到四五轮。现在一行 = 一轮：该轮发生的动作都落在这一行里，
+      // 不同泳道并排（各占自己的 x），同一泳道内按发生顺序上下微偏移 12px，
+      // 行高按该行最深堆叠长——时间顺序不变，只是把「同一轮的碎动作」收进同一行。
+      const rowGap = 26
+      const laneKeyOf = (item) =>
+        item.kind === 'turn' ? 'spine' : item.kind === 'mind' ? 'mind' : `ev:${item.event.branchId ?? item.event.id}`
+      const turnAnchors = turns.slice().sort((a, b) => (a.at ?? 0) - (b.at ?? 0))
+      const rowKeyOf = (item) => {
+        if (item.kind === 'turn') return `turn:${item.turn.turn}`
+        let anchor = null
+        for (const turn of turnAnchors) {
+          if ((turn.at ?? 0) <= item.at) anchor = turn
+          else break
+        }
+        return anchor === null ? 'pre' : `turn:${anchor.turn}`
+      }
+      const grouped = new Map()
+      for (const turn of turnAnchors) grouped.set(`turn:${turn.turn}`, { key: `turn:${turn.turn}`, items: [] })
+      for (const item of timeline) {
+        const key = rowKeyOf(item)
+        if (!grouped.has(key)) grouped.set(key, { key, items: [] })
+        grouped.get(key).items.push(item)
+      }
+      let cursorY = padTop
+      for (const row of grouped.values()) {
+        if (row.items.length === 0) continue
+        row.items.sort((a, b) => a.at - b.at)
+        const stack = new Map()
+        let deepest = 1
+        for (const item of row.items) {
+          const key = laneKeyOf(item)
+          const nth = stack.get(key) ?? 0
+          stack.set(key, nth + 1)
+          item.dy = nth * 12
+          if (nth + 1 > deepest) deepest = nth + 1
+        }
+        row.height = Math.max(rowGap, rowGap + (deepest - 1) * 12)
+        row.y = cursorY
+        for (const item of row.items) item.y = row.y + 13 + item.dy
+        cursorY += row.height
+      }
+      const H = Math.max(cursorY + 24, 200)
+      const posOf = new Map()
+      for (const item of timeline) {
+        posOf.set(
+          item.kind === 'turn' ? `turn:${item.turn.turn}` : item.kind === 'mind' ? `mind:${item.index}` : `event:${item.event.id}`,
+          item.y,
+        )
+      }
       const laneIndex = new Map(branches.map((branch, index) => [branch.id, index]))
       const laneX = (index) => laneBase + index * laneW + laneW / 2
-      const eventRow = (id) => rowOf.get(`event:${id}`)
-      const laneTop = (branch) => yOf(eventRow(`fork:${branch.id}`) ?? 0)
-      const laneBottom = (branch) => {
-        const mergeRow = eventRow(`merge:${branch.id}`)
-        return mergeRow === undefined ? H - 30 : yOf(mergeRow)
-      }
+      const eventY = (id) => posOf.get(`event:${id}`)
+      const laneTop = (branch) => eventY(`fork:${branch.id}`) ?? padTop
+      const laneBottom = (branch) => eventY(`merge:${branch.id}`) ?? H - 24
       const links = (graph?.links ?? []).filter(
         (link) => link?.kind === 'shared-fact' && Array.isArray(link.between) && link.between.every((id) => laneIndex.has(id)),
       )
@@ -1039,7 +1082,7 @@ window.__ModuleLoader__.load({
       const marks = []
       // 画布内头部：脊/时间/Mind 道/泳道标题（轮次窗口与图例在画布外，见 legendBar）。
       marks.push(h('text', { key: 'lbl-l', x: leftX - 40, y: 18, fontSize: 11, fill: C.muted }, t('graph.spineTurns')))
-      marks.push(h('text', { key: 'time', x: leftX + 12, y: 18, fontSize: 11, fill: C.muted }, '时间 ↓'))
+      marks.push(h('text', { key: 'time', x: leftX + 12, y: 18, fontSize: 11, fill: C.muted }, t('graph.axisDown')))
       // 空态：两线之间没有任何往来（links 为空、也没有汇回/放弃事件）时，
       // 泳道区给一行淡字，有内容就不显示——如实说空，不硬凑。
       if (links.length === 0 && !events.some((event) => event.kind === 'merge' || event.kind === 'abandon')) {
@@ -1110,9 +1153,8 @@ window.__ModuleLoader__.load({
         marks.push(h('line', { key: `lanebase-${branch.id}`, x1: x, y1: top, x2: x, y2: bottom, stroke: isHot ? C.text : C.border, strokeWidth: isHot ? 1.5 : 1, opacity: isHot ? 0.9 : 0.7 }))
         marks.push(h('path', { key: `forkline-${branch.id}`, d: `M ${leftX},${top} C ${leftX + 60},${top} ${x - 50},${top} ${x - 6},${top}`, fill: 'none', stroke: isHot ? C.text : C.link, strokeWidth: isHot ? 1.5 : 1, opacity: isHot ? 1 : 0.85 }))
         marks.push(h('path', { key: `forkarr-${branch.id}`, d: `M ${x - 7},${top - 4} L ${x},${top} L ${x - 7},${top + 4} Z`, fill: isHot ? C.text : C.link, opacity: isHot ? 1 : 0.9 }))
-        const mergeRow = eventRow(`merge:${branch.id}`)
-        if (mergeRow !== undefined) {
-          const my = yOf(mergeRow)
+        const my = eventY(`merge:${branch.id}`)
+        if (my !== undefined) {
           marks.push(h('path', { key: `backline-${branch.id}`, d: `M ${x - 6},${my} C ${x - 60},${my} ${leftX + 60},${my} ${leftX + 6},${my}`, fill: 'none', stroke: isHot ? C.text : C.link, strokeWidth: isHot ? 1.5 : 1, strokeDasharray: '4 4', opacity: isHot ? 1 : 0.8 }))
           marks.push(h('path', { key: `backarr-${branch.id}`, d: `M ${leftX + 7},${my - 4} L ${leftX},${my} L ${leftX + 7},${my + 4} Z`, fill: isHot ? C.text : C.link, opacity: isHot ? 1 : 0.9 }))
         }
@@ -1146,8 +1188,9 @@ window.__ModuleLoader__.load({
       }
 
       // 时间轴行：左脊放轮次圆点，事件落在自己泳道，Mind 手笔落在 Mind 泳道。
-      for (const [index, item] of timeline.entries()) {
-        const y = yOf(index)
+      // 聚簇后一条时间轴项不再等于一行：y 由它所在行与同泳道堆叠位次决定。
+      for (const item of timeline) {
+        const y = item.y
         if (item.kind === 'turn') {
           marks.push(h('circle', { key: `t-${item.turn.turn}`, cx: leftX, cy: y, r: 4.5, fill: C.brand }))
           marks.push(h('text', { key: `tt-${item.turn.turn}`, x: leftX - 12, y: y + 4, fontSize: 11, fill: C.brand, textAnchor: 'end', fontWeight: 500 }, `第${item.turn.turn}轮`))
@@ -3111,6 +3154,7 @@ window.__ModuleLoader__.load({
       'graph.mindLane': 'Mind 手笔',
       'graph.mindHint': 'Mind 在主对话里的手笔；点击去流水溯源。',
       'graph.noLinks': '两线之间暂无往来',
+      'graph.axisDown': '轮次 ↓（行内按发生顺序）',
       'stream.empty': '后台还没有做过任何决定。',
       'stream.all': '全部',
       'stream.search': '搜结论或分支',
@@ -3437,6 +3481,7 @@ window.__ModuleLoader__.load({
       'graph.mindLane': 'Mind',
       'graph.mindHint': "Mind's own action in this conversation; click to trace it in the stream.",
       'graph.noLinks': 'No exchanges between lanes yet.',
+      'graph.axisDown': 'turns ↓ (stacked in order)',
       'stream.empty': 'The backstage has not made any decision yet.',
       'stream.all': 'All',
       'stream.search': 'Search claim or branch',

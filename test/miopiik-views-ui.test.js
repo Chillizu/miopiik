@@ -848,8 +848,8 @@ test('鱼骨：Mind 泳道——脊右分支左、菱形节点、悬停 label+re
     assert.match(String(dispatch.props.d), /^M \d+(?:\.\d+)?,-?\d+(?:\.\d+)? L .* Z$/u, '菱形是四顶点闭合 path')
     const cx = Number(/^M (\d+(?:\.\d+)?),/.exec(String(dispatch.props.d))[1])
     const fork1 = byKey(nodes, 'e-fork:B-1')
-    assert.ok(96 < cx && cx < 246, 'Mind 泳道在脊（x=96）右侧、分支泳道基线（x=246）左侧')
-    assert.ok(cx < fork1.props.cx, 'Mind 泳道在分支泳道左侧')
+    assert.ok(cx > 246, 'Mind 泳道在分支泳道区右侧的独立窄道')
+    assert.ok(cx > fork1.props.cx, 'Mind 泳道在分支泳道右侧（行内用户原话让出脊右位置）')
     assert.equal((String(dispatch.props.d).match(/ L /gu) || []).length, 3, '菱形四段闭合')
     assert.ok(String(dispatch.props.stroke).includes('--dsw-static-deepseek-500'), '主色描边')
     assert.equal(dispatch.props.style.cursor, 'pointer')
@@ -1301,6 +1301,65 @@ test('工具行配色与 DSH 自家工具行同档：tertiary 灰、悬停提亮
       branchSvg.children.map((p) => p.props.d).join('|'),
       '不同工具图标不同形',
     )
+  } finally {
+    await ctx.cleanup()
+  }
+})
+
+test('鱼骨：聚簇布局——一行 = 一轮，同轮动作收进同一行，画布显著变短', async () => {
+  const ctx = await fixture()
+  try {
+    await seedLedger(ctx)
+    const snapshot = ctx.engine.backstageSnapshot()
+    const graph = snapshot.graph
+    const load = loadViews({ snapshot })
+    const nodes = load.walk()
+    const svg = nodes.find((node) => node.props?.['data-miopiik-graph'] === '1')
+    assert.ok(svg !== undefined, '图表 SVG 在场')
+    const [, , , H] = String(svg.props.viewBox).split(' ').map(Number)
+    const items = (graph.turns?.length ?? 0) + (graph.events?.length ?? 0) + (graph.mindEvents?.length ?? 0)
+    assert.ok(items >= 10, '夹具要足够多条目')
+    // 聚簇前每条占一行；现在一行 = 一轮，高度必须明显小于「一条一行」。
+    assert.ok(H < items * 26, `画布高 ${H} 应小于「一条一行」的 ${items * 26}`)
+    // 轮次圆点与菱形：同一轮的 Mind 动作落在该轮行内（不超过该轮堆叠深度）。
+    const turns = [...(graph.turns ?? [])].sort((a, b) => a.at - b.at)
+    const dots = new Map()
+    for (const node of nodes) {
+      const key = String(node.props?.key ?? '')
+      if (key.startsWith('t-') && node.type === 'circle' && node.props?.fill?.includes('--dsw-static-deepseek-500')) {
+        dots.set(Number(key.slice(2)), node.props.cy)
+      }
+    }
+    const assignTurn = (at) => {
+      let anchor = null
+      for (const turn of turns) {
+        if ((turn.at ?? 0) <= at) anchor = turn
+        else break
+      }
+      return anchor
+    }
+    const mindByTurn = new Map()
+    for (const event of graph.mindEvents ?? []) {
+      const turn = assignTurn(event.at ?? 0)
+      if (turn === null) continue
+      const list = mindByTurn.get(turn.turn) ?? []
+      list.push(event)
+      mindByTurn.set(turn.turn, list)
+    }
+    let checked = 0
+    for (const [turn, events] of mindByTurn) {
+      const dotY = dots.get(turn)
+      if (dotY === undefined) continue
+      for (const event of events) {
+        const diamond = nodes.find((node) => node.props?.['data-miopiik-mind-node'] === `${event.kind}:${event.id}`)
+        assert.ok(diamond !== undefined, `菱形缺失：${event.kind}:${event.id}`)
+        const my = Number(/ L \d+(?:\.\d+)?,(-?\d+(?:\.\d+)?)/.exec(String(diamond.props.d))[1])
+        assert.ok(my >= dotY - 1, `第${turn}轮的动作不应跑到上一行（y=${my}, 轮点=${dotY}）`)
+        assert.ok(my <= dotY + 12 * Math.max(0, events.length - 1) + 1, `第${turn}轮的动作应留在本行（y=${my}）`)
+        checked += 1
+      }
+    }
+    assert.ok(checked >= 4, '至少检查几条 Mind 动作')
   } finally {
     await ctx.cleanup()
   }
