@@ -8,7 +8,7 @@
 
 `miopiik-dsh` 是 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness)（DSH）的 host 侧插件。它把 DSH Web 会话组织为三层结构：前台对话主干（`Mind`）、中间层账本与编译器（`Ink`）、后台执行层（`Operator`）。插件提供系统章程、受限工具面、append-only JSONL 账本、后台派发与界面 projection。
 
-**当前发布：** 0.1.2（stable）。请从 GitHub Release tarball、本地 `npm pack` 或本地 checkout 路径安装；本包未发布到 npm registry。
+**当前正式版** · 0.1.2。可通过 GitHub Release tarball 或 DSH「发现」中的 MiOpIIk 索引[安装](#安装升级卸载回滚)。
 
 ## 它是什么
 
@@ -33,7 +33,7 @@ MiOpIIk 将对话、记账与执行拆为三层，并把面向用户的发言权
 | | MiOpIIk Agent（`miopiik-dsh`） | MiOpIIk IUI（`miopiik-iui`） |
 |---|---|---|
 | 定位 | host 侧 agent：Mind / Ink / Operator | 纯表现层 |
-| 当前版本 | 0.1.2（stable） | 0.1.0-rc.5（prerelease） |
+| 当前版本 | 0.1.2（stable） | 0.2.0（正式版） |
 | 仓库 | https://github.com/Chillizu/miopiik | https://github.com/Chillizu/miopiik-iui |
 | 依赖另一个插件 | 否 | 否 |
 | 可单独安装 | 是 | 是 |
@@ -233,16 +233,19 @@ Ink 将结果编译为收件箱预览；Mind 用 `ink_inbox {"action": "open", "
 
 ## 安装、升级、卸载、回滚
 
-**本包未发布到 npm registry。** 不带路径或 tarball 的 `dsh plugin add miopiik-dsh` 无法解析包名。请从 GitHub Release tarball、本地 `npm pack` 产物或本地 checkout 路径安装。
-
 ### 从 GitHub Release 安装（推荐）
 
-1. 从
-   https://github.com/Chillizu/miopiik/releases/tag/miopiik-agent-v0.1.2
-   下载 `miopiik-dsh-0.1.2.tgz` 与 `SHA256SUMS.txt`。
+1. 下载 `miopiik-dsh-0.1.2.tgz` 与 `SHA256SUMS.txt`。[GitHub Release](https://github.com/Chillizu/miopiik/releases/tag/miopiik-agent-v0.1.2)
 2. 在下载目录执行 `sha256sum -c SHA256SUMS.txt` 校验。
 3. 执行 `dsh plugin --profile <profile> add ./miopiik-dsh-0.1.2.tgz` 安装到目标 profile。
 4. 重启提供该 profile 的 DSH 进程以加载 host 插件。
+
+### 从 DSH「发现」页安装
+
+1. 在 DSH Web 打开「插件 → 实验性插件」，启用「自定义插件索引」。
+2. 打开「发现 → 添加索引源」，粘贴 [MiOpIIk 索引地址](https://raw.githubusercontent.com/Chillizu/miopiik-iui/main/dsh-index.json)。
+3. 选择 **MiOpIIk Agent** `0.1.2`。确认界面会显示 GitHub 来源和固定发布提交 [`a504446`](https://github.com/Chillizu/miopiik/commit/a5044465151617b3465a8b412504856b8dcc2307)。
+4. 确认安装，然后重启目标 profile 的 DSH 进程。
 
 ### 从本地 checkout 安装
 
@@ -251,6 +254,7 @@ Ink 将结果编译为收件箱预览；Mind 用 `ink_inbox {"action": "open", "
 ```sh
 git clone https://github.com/Chillizu/miopiik.git
 cd miopiik
+git checkout miopiik-agent-v0.1.2
 npm pack
 dsh plugin --profile <profile> add ./miopiik-dsh-0.1.2.tgz
 ```
@@ -394,7 +398,6 @@ CI：`.github/workflows/ci.yml` 在 push 与 pull request 上执行上述命令�
 
 ## 局限
 
-- **未发布到 npm registry。** 仅通过 GitHub Release tarball、本地 `npm pack` 或本地 checkout 分发。
 - **仅支持 DSH Web。** 针对 `web` profile、DSH `0.2.1-rc.5` 与 Node `>= 23.6` 构建与验证；其他宿主或 DSH 版本未经验证。
 - **非官方插件。** 独立于 DeepSeek Harness 上游维护，宿主内部服务变更可能影响兼容性。
 - **额外模型调用与后台子会话开销。** 开启 `conversationCompile` 时，符合条件的回合会增加一次 LLM 编译调用；每次 `ink_dispatch` 会启动一个后台子 agent。仓库不含负载与成本基准测试。
@@ -407,7 +410,7 @@ CI：`.github/workflows/ci.yml` 在 push 与 pull request 上执行上述命令�
 
 本仓库延续自原 MiOpIIk monorepo（https://github.com/Chillizu/miopiik）。Agent 包从 monorepo 的 `miopiik-dsh/` 子目录上移至仓库根目录，完整保留 git 历史、tag 与 Release。
 
-纯表现层插件已拆分为独立仓库 https://github.com/Chillizu/miopiik-iui（当前版本 `0.1.0-rc.4`，prerelease）。已退役的 Extra 展示层设计史保存在 IUI 仓库中。工作区会话账本无需迁移。详细映射见 [docs/MIGRATION.md](docs/MIGRATION.md)。
+纯表现层插件已拆分为独立仓库 https://github.com/Chillizu/miopiik-iui（[0.2.0 正式版](https://github.com/Chillizu/miopiik-iui/releases/tag/v0.2.0)）。已退役的 Extra 展示层设计史保存在 IUI 仓库中。工作区会话账本无需迁移。详细映射见 [docs/MIGRATION.md](docs/MIGRATION.md)。
 
 ## 贡献
 

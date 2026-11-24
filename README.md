@@ -8,7 +8,7 @@
 
 `miopiik-dsh` is a host-side plugin for [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) (DSH). It structures a DSH Web conversation around three layers: one foreground role (`Mind`), one middle ledger (`Ink`), and one background execution layer (`Operator`). It adds a prompt charter, a scoped tool surface, append-only JSONL ledgers, background dispatch, and session projections.
 
-**Current release:** 0.1.2 (stable). Install from the GitHub Release tarball, a local `npm pack`, or a checkout path; the package is not published to the npm registry.
+**Current release** · 0.1.2 (stable). See [installation](#install-upgrade-uninstall-rollback) for the GitHub Release tarball and the MiOpIIk index in DSH Discover.
 
 ## What MiOpIIk is
 
@@ -33,7 +33,7 @@ The two plugins are independent packages. Each can be installed alone; neither r
 | | MiOpIIk Agent (`miopiik-dsh`) | MiOpIIk IUI (`miopiik-iui`) |
 |---|---|---|
 | Role | Host-side agent: Mind / Ink / Operator | Pure presentation layer |
-| Current version | 0.1.2 (stable) | 0.1.0-rc.5 (prerelease) |
+| Current version | 0.1.2 (stable) | 0.2.0 (stable) |
 | Repository | https://github.com/Chillizu/miopiik | https://github.com/Chillizu/miopiik-iui |
 | Depends on the other plugin | No | No |
 | Can be installed alone | Yes | Yes |
@@ -233,15 +233,19 @@ See [docs/SUPPORT-MATRIX.md](docs/SUPPORT-MATRIX.md) for the full compatibility 
 
 ## Install, upgrade, uninstall, rollback
 
-**This package is not published to the npm registry.** `dsh plugin add miopiik-dsh` with a bare package name cannot resolve it. Pass a GitHub Release tarball, a local `npm pack` tarball, or a local checkout path.
-
 ### From a GitHub Release (recommended)
 
-1. Download `miopiik-dsh-0.1.2.tgz` and `SHA256SUMS.txt` from
-   https://github.com/Chillizu/miopiik/releases/tag/miopiik-agent-v0.1.2
+1. Download `miopiik-dsh-0.1.2.tgz` and `SHA256SUMS.txt`. [GitHub Release](https://github.com/Chillizu/miopiik/releases/tag/miopiik-agent-v0.1.2)
 2. Verify the checksum: `sha256sum -c SHA256SUMS.txt`.
 3. Install into the target profile: `dsh plugin --profile <profile> add ./miopiik-dsh-0.1.2.tgz`.
 4. Restart the DSH process serving that profile so the host plugin loads.
+
+### From DSH Discover
+
+1. In DSH Web, open **Plugins → Experimental plugins** and enable **Custom plugin indexes**.
+2. Under **Discover → Add index source**, paste the [MiOpIIk index URL](https://raw.githubusercontent.com/Chillizu/miopiik-iui/main/dsh-index.json).
+3. Select **MiOpIIk Agent** version `0.1.2`. The confirmation shows GitHub and the pinned release commit [`a504446`](https://github.com/Chillizu/miopiik/commit/a5044465151617b3465a8b412504856b8dcc2307).
+4. Confirm installation and restart the DSH process for the target profile.
 
 ### From a local checkout
 
@@ -250,6 +254,7 @@ The repository root is the package root (`package.json` and `index.js` are at th
 ```sh
 git clone https://github.com/Chillizu/miopiik.git
 cd miopiik
+git checkout miopiik-agent-v0.1.2
 npm pack
 dsh plugin --profile <profile> add ./miopiik-dsh-0.1.2.tgz
 ```
@@ -393,7 +398,6 @@ Session ledgers stay in place without migration. Legacy widget snapshots in `wid
 
 ## Limitations
 
-- **No npm registry publication.** Install from the GitHub Release tarball, a local `npm pack`, or a local checkout.
 - **DSH Web only.** Tested against the `web` profile on DSH `0.2.1-rc.5` and Node `>= 23.6`. Other profiles and DSH versions are unverified.
 - **Unofficial plugin.** Maintained independently of the DeepSeek Harness upstream project and subject to host service changes.
 - **Extra model calls and background agents.** Enabling `conversationCompile` adds an LLM call after qualifying turns, and each `ink_dispatch` starts a background subagent. No load or cost benchmarks are bundled.
@@ -406,7 +410,7 @@ Session ledgers stay in place without migration. Legacy widget snapshots in `wid
 
 This repository continues the original MiOpIIk monorepo at https://github.com/Chillizu/miopiik. The Agent package moved from `miopiik-dsh/` to the repository root while preserving the git history, tags, and releases.
 
-The presentation plugin was extracted to https://github.com/Chillizu/miopiik-iui (currently `0.1.0-rc.4` prerelease). The retired Extra display layer's history is archived in the IUI repository. Workspace session ledgers require no migration. See [docs/MIGRATION.md](docs/MIGRATION.md) for the full layout mapping.
+The presentation plugin was extracted to https://github.com/Chillizu/miopiik-iui ([0.2.0 stable](https://github.com/Chillizu/miopiik-iui/releases/tag/v0.2.0)). The retired Extra display layer's history is archived in the IUI repository. Workspace session ledgers require no migration. See [docs/MIGRATION.md](docs/MIGRATION.md) for the full layout mapping.
 
 ## Contributing
 
