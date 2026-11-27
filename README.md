@@ -334,11 +334,11 @@ Configure the plugin under `config` in the profile's `cordis.patch.yml`. Omitted
 | `inkModel` | `null` | Model used for Ink compilation (`null` follows the session default; otherwise an object with `provider` and `model`) |
 | `conversationCompile` | `true` | Let Ink read its own context and produce candidates after a turn (`false` records observations only) |
 
-`Plugins -> Installed -> MiOpIIk` shows the plugin overview. **Settings -> Built-in plugins -> MiOpIIk Agent** displays the built-in defaults above and a copyable YAML snippet; it is read-only and reflects defaults, while effective runtime values come from the active profile.
+Open **Plugins → Installed → MiOpIIk** to edit `conversationCompile`, `operatorModel`, `activeLoopCap`, and `operatorTimeoutMs`. DSH saves these values to the active profile and applies them immediately.
 
 ## Security and permissions
 
-- **Single write root.** The plugin writes only under `<workspace>/.dsh/miopiik` (or the workspace-relative `stateRoot`). It does not modify the DSH installation or profile directories.
+- **Single write root.** The Agent writes session data under `<workspace>/.dsh/miopiik` (or the workspace-relative `stateRoot`). DSH saves any settings you change from the plugin page to the active profile.
 - **Plain-text JSONL ledgers.** Ledgers are unencrypted and unredacted. User prompts and assistant replies are written to `observations.jsonl` on disk; avoid pasting secrets into the session.
 - **No credential collection or telemetry.** The plugin reads no environment secrets, writes no credential files, and makes no direct network requests. LLM calls use the host's configured `ctx.llm` and `ctx.subagents` services.
 - **Per-agent tool isolation.** `index.js` denies the twelve Mind tools to Operator child agents and denies `ink_ask` and `ink_report` to Mind. Operator child agents receive only the contract and branch slice.

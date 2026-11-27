@@ -334,11 +334,11 @@ dsh plugin --profile <profile> remove miopiik-dsh
 | `inkModel` | `null` | Ink 编译所用模型（`null` 跟随会话默认；否则为含 `provider` 与 `model` 的对象） |
 | `conversationCompile` | `true` | 回合结束后由 Ink 读取中间层上下文并生成候选（`false` 仅记录观测） |
 
-`插件 -> 已安装 -> MiOpIIk` 展示插件概览；**设置 → 内置插件 → MiOpIIk Agent** 只读列出上述内置默认值与可复制的 YAML 示例，实际运行值由当前 profile 及上层 patch 解析决定。
+在「插件 → 已安装 → MiOpIIk」可修改 `conversationCompile`、`operatorModel`、`activeLoopCap` 和 `operatorTimeoutMs`。DSH 将修改保存到当前 profile 并即时应用。
 
 ## 安全与权限
 
-- **单一写入目录。** 插件仅写入工作区下的账本根目录（默认 `<workspace>/.dsh/miopiik`，或相对工作区的 `stateRoot`），不写入 DSH 安装目录或 profile 目录。
+- **单一写入目录。** Agent 将会话数据写入工作区内的账本目录，默认为 `<workspace>/.dsh/miopiik`，也可用 `stateRoot` 指定相对路径。你在插件页修改的设置由 DSH 保存到当前 profile。
 - **纯文本 JSONL 账本。** 账本不加密、不自动脱敏，对话输入与回复会写入 `observations.jsonl`；请勿在会话中粘贴敏感凭据。
 - **无凭据采集与遥测。** 插件不读取环境变量中的密钥，不导出 DSH 凭据文件，也不发起外部网络请求；模型调用统一经由宿主的 `ctx.llm` 与 `ctx.subagents` 服务。
 - **按角色隔离工具面。** `index.js` 对 Operator 子 agent 禁用 12 个 Mind 工具且不注入聊天历史，对 Mind 禁用 `ink_ask` 与 `ink_report`。
