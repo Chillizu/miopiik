@@ -33,7 +33,7 @@ MiOpIIk 将对话、记账与执行拆为三层，并把面向用户的发言权
 | | MiOpIIk Agent（`miopiik-dsh`） | MiOpIIk IUI（`miopiik-iui`） |
 |---|---|---|
 | 定位 | host 侧 agent：Mind / Ink / Operator | 纯表现层 |
-| 当前版本 | 0.1.2（stable） | 0.2.0（正式版） |
+| 当前版本 | 0.1.2（stable） | [最新正式版](https://github.com/Chillizu/miopiik-iui/releases/latest) |
 | 仓库 | https://github.com/Chillizu/miopiik | https://github.com/Chillizu/miopiik-iui |
 | 依赖另一个插件 | 否 | 否 |
 | 可单独安装 | 是 | 是 |

@@ -33,7 +33,7 @@ The two plugins are independent packages. Each can be installed alone; neither r
 | | MiOpIIk Agent (`miopiik-dsh`) | MiOpIIk IUI (`miopiik-iui`) |
 |---|---|---|
 | Role | Host-side agent: Mind / Ink / Operator | Pure presentation layer |
-| Current version | 0.1.2 (stable) | 0.2.0 (stable) |
+| Current version | 0.1.2 (stable) | [Latest stable release](https://github.com/Chillizu/miopiik-iui/releases/latest) |
 | Repository | https://github.com/Chillizu/miopiik | https://github.com/Chillizu/miopiik-iui |
 | Depends on the other plugin | No | No |
 | Can be installed alone | Yes | Yes |
