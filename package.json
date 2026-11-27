@@ -1,6 +1,6 @@
 {
   "name": "miopiik-dsh",
-  "version": "0.1.2",
+  "version": "0.2.0",
   "type": "module",
   "description": "MiOpIIk Agent for DeepSeek Harness — Mind / Ink / Operator: conversation and background action as two timelines over one log.",
   "license": "MIT",

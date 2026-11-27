@@ -2,13 +2,13 @@
 
 <img src="icon.svg" width="96" alt="MiOpIIk icon">
 
-**Version 0.1.2** (stable) | English | [简体中文](README.zh-CN.md)
+**Version 0.2.0** (stable) | English | [简体中文](README.zh-CN.md)
 
 `MiOpIIk` = `Mi`(nd) + `Op`(erator) + `IIk`(ink).
 
 `miopiik-dsh` is a host-side plugin for [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) (DSH). It structures a DSH Web conversation around three layers: one foreground role (`Mind`), one middle ledger (`Ink`), and one background execution layer (`Operator`). It adds a prompt charter, a scoped tool surface, append-only JSONL ledgers, background dispatch, and session projections.
 
-**Current release** · 0.1.2 (stable). See [installation](#install-upgrade-uninstall-rollback) for the GitHub Release tarball and the MiOpIIk index in DSH Discover.
+**0.2.0** rebuilds the Fishbone, Seen, and Stream views so you can trace branches, inspect the context sent to Mind, and browse the session ledger. Install from [npm](https://www.npmjs.com/package/miopiik-dsh/v/0.2.0), [GitHub Releases](https://github.com/Chillizu/miopiik/releases/tag/miopiik-agent-v0.2.0), or [DSH Discover](#from-dsh-discover).
 
 ## What MiOpIIk is
 
@@ -33,7 +33,7 @@ The two plugins are independent packages. Each can be installed alone; neither r
 | | MiOpIIk Agent (`miopiik-dsh`) | MiOpIIk IUI (`miopiik-iui`) |
 |---|---|---|
 | Role | Host-side agent: Mind / Ink / Operator | Pure presentation layer |
-| Current version | 0.1.2 (stable) | [Latest stable release](https://github.com/Chillizu/miopiik-iui/releases/latest) |
+| Current version | 0.2.0 (stable) | [Latest stable release](https://github.com/Chillizu/miopiik-iui/releases/latest) |
 | Repository | https://github.com/Chillizu/miopiik | https://github.com/Chillizu/miopiik-iui |
 | Depends on the other plugin | No | No |
 | Can be installed alone | Yes | Yes |
@@ -133,8 +133,8 @@ Tool boundaries are enforced in `index.js`: Operator child agents are denied the
 - **Background dispatch and watchdogs.** `ink_dispatch` checks six contract fields: `goal`, `deliverables`, `acceptance`, `acceptanceSample`, `boundary`, and `budget`. Missing fields cause dispatch to reject and return the missing list. Exploratory dispatches (`draft: true`) require only `goal` and write their output to drafts. During execution, watchdogs monitor for stalls (`operatorStallMs` without new observations) and timeouts (`operatorTimeoutMs`) and deliver a T0 blocking preview when triggered.
 - **Two-phase folding.** Folding is triggered by topic/session events. First, Ink proposes a shadow fold containing an archive and loop-settlement suggestions without modifying the active context. Second, Mind reviews the proposal against active open loops. Once approved, the fold is scheduled for the next turn boundary via the host compaction service; if compaction is unavailable, the fold is recorded in `folds.jsonl` and the active context remains unchanged.
 - **Cross-day briefing.** At the end of a day, Mind writes a five-part briefing (`progress`, `loops`, `running`, `drafts`, `next`) using materials gathered by `ink_brief materials`. On the next day, L3 surfaces the latest briefing and any detected overnight hard break.
-- **Backstage views.** The "MiOpIIk" conversation view displays the fishbone graph, branch stream, open loops, fact cards, running jobs, drafts, and daily briefing, plus a "Seen" tab with Ink's folded head, live tail, and compiled candidates. The right sidebar "Ink" panel shows loop counts, inbox previews, and recent decisions.
-- **Plugin and settings pages.** `Plugins -> Installed -> MiOpIIk` presents an overview of the architecture, roles, version, and ledger path. **Settings -> Built-in plugins -> MiOpIIk Agent** lists the built-in defaults from `host/config-defaults.js` and a copyable `cordis.patch.yml` snippet. Both views are read-only; runtime values come from the active profile configuration.
+- **Backstage views.** The "MiOpIIk" conversation page has three views. Fishbone groups work by conversation turn and shows where branches split and merge. Seen displays the exact L3 context sent to Mind and links to its sources. Stream shows the session ledger in chronological order. The right sidebar "Ink" panel shows loop counts, inbox previews, and recent decisions.
+- **Plugin and settings pages.** **Plugins → Installed → MiOpIIk** shows the architecture and ledger location and lets you edit Host settings through DSH.
 - **Append-only ledger and replay.** Session state is persisted in workspace JSONL ledgers and replayed when DSH restarts.
 - **Historical compatibility.** Existing session ledgers remain in place without migration. Legacy `widgets.jsonl` snapshots remain readable and can be replayed read-only by `miopiik-iui`.
 
@@ -233,18 +233,26 @@ See [docs/SUPPORT-MATRIX.md](docs/SUPPORT-MATRIX.md) for the full compatibility 
 
 ## Install, upgrade, uninstall, rollback
 
-### From a GitHub Release (recommended)
+### From npm (recommended)
 
-1. Download `miopiik-dsh-0.1.2.tgz` and `SHA256SUMS.txt`. [GitHub Release](https://github.com/Chillizu/miopiik/releases/tag/miopiik-agent-v0.1.2)
+```sh
+dsh plugin --profile <profile> add miopiik-dsh@0.2.0
+```
+
+Restart the DSH process serving that profile to load the plugin.
+
+### From a GitHub Release
+
+1. Download `miopiik-dsh-0.2.0.tgz` and `SHA256SUMS.txt`. [GitHub Release](https://github.com/Chillizu/miopiik/releases/tag/miopiik-agent-v0.2.0)
 2. Verify the checksum: `sha256sum -c SHA256SUMS.txt`.
-3. Install into the target profile: `dsh plugin --profile <profile> add ./miopiik-dsh-0.1.2.tgz`.
+3. Install into the target profile: `dsh plugin --profile <profile> add ./miopiik-dsh-0.2.0.tgz`.
 4. Restart the DSH process serving that profile so the host plugin loads.
 
 ### From DSH Discover
 
 1. In DSH Web, open **Plugins → Experimental plugins** and enable **Custom plugin indexes**.
 2. Under **Discover → Add index source**, paste the [MiOpIIk index URL](https://raw.githubusercontent.com/Chillizu/miopiik-iui/main/dsh-index.json).
-3. Select **MiOpIIk Agent** version `0.1.2`. The confirmation shows GitHub and the pinned release commit [`a504446`](https://github.com/Chillizu/miopiik/commit/a5044465151617b3465a8b412504856b8dcc2307).
+3. Select **MiOpIIk Agent** version `0.2.0` from npm.
 4. Confirm installation and restart the DSH process for the target profile.
 
 ### From a local checkout
@@ -254,9 +262,9 @@ The repository root is the package root (`package.json` and `index.js` are at th
 ```sh
 git clone https://github.com/Chillizu/miopiik.git
 cd miopiik
-git checkout miopiik-agent-v0.1.2
+git checkout miopiik-agent-v0.2.0
 npm pack
-dsh plugin --profile <profile> add ./miopiik-dsh-0.1.2.tgz
+dsh plugin --profile <profile> add ./miopiik-dsh-0.2.0.tgz
 ```
 
 `npm pack` produces a local tarball only.
@@ -277,14 +285,13 @@ node tools/install-plugin.mjs --profile web --execute --allow-running-profile
 
 ### Upgrade
 
-1. `dsh plugin --profile <profile> remove miopiik-dsh`
-2. `dsh plugin --profile <profile> add ./miopiik-dsh-<new-version>.tgz`
-3. Restart the DSH process for that profile.
+1. Run `dsh plugin --profile <profile> add miopiik-dsh@<new-version>` or pass the new tarball path.
+2. Restart the DSH process for that profile.
 
 ### Rollback
 
 1. `dsh plugin --profile <profile> remove miopiik-dsh`
-2. `dsh plugin --profile <profile> add ./miopiik-dsh-0.1.2.tgz`
+2. Download the tarball from [0.1.2](https://github.com/Chillizu/miopiik/releases/tag/miopiik-agent-v0.1.2) and run `dsh plugin --profile <profile> add ./miopiik-dsh-0.1.2.tgz`.
 3. Restart the DSH process for that profile.
 
 Session ledgers live under the workspace `.dsh/miopiik/` directory and remain intact across uninstall, upgrade, and rollback.

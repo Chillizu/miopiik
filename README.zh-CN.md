@@ -2,13 +2,13 @@
 
 <img src="icon.svg" width="96" alt="MiOpIIk icon">
 
-**Version 0.1.2**（stable） | [English](README.md) | 简体中文
+**0.2.0 正式版** | [English](README.md) | 简体中文
 
 `MiOpIIk` = `Mi`(nd) + `Op`(erator) + `IIk`(ink)。
 
 `miopiik-dsh` 是 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness)（DSH）的 host 侧插件。它把 DSH Web 会话组织为三层结构：前台对话主干（`Mind`）、中间层账本与编译器（`Ink`）、后台执行层（`Operator`）。插件提供系统章程、受限工具面、append-only JSONL 账本、后台派发与界面 projection。
 
-**当前正式版** · 0.1.2。可通过 GitHub Release tarball 或 DSH「发现」中的 MiOpIIk 索引[安装](#安装升级卸载回滚)。
+**0.2.0** 重做了鱼骨、所见和流水三个视图，用于查看分支走向、核对 Mind 实际收到的上下文，以及回查会话账本。可通过 [npm](https://www.npmjs.com/package/miopiik-dsh/v/0.2.0)、[GitHub Releases](https://github.com/Chillizu/miopiik/releases/tag/miopiik-agent-v0.2.0) 或 [DSH「发现」](#从-dsh发现页安装)安装。
 
 ## 它是什么
 
@@ -33,7 +33,7 @@ MiOpIIk 将对话、记账与执行拆为三层，并把面向用户的发言权
 | | MiOpIIk Agent（`miopiik-dsh`） | MiOpIIk IUI（`miopiik-iui`） |
 |---|---|---|
 | 定位 | host 侧 agent：Mind / Ink / Operator | 纯表现层 |
-| 当前版本 | 0.1.2（stable） | [最新正式版](https://github.com/Chillizu/miopiik-iui/releases/latest) |
+| 当前版本 | 0.2.0（正式版） | [最新正式版](https://github.com/Chillizu/miopiik-iui/releases/latest) |
 | 仓库 | https://github.com/Chillizu/miopiik | https://github.com/Chillizu/miopiik-iui |
 | 依赖另一个插件 | 否 | 否 |
 | 可单独安装 | 是 | 是 |
@@ -133,8 +133,8 @@ MiOpIIk 将对话、记账与执行拆为三层，并把面向用户的发言权
 - **后台派发与守夜。** `ink_dispatch` 校验六项契约要素：目标、交付物、验收标准、验收样例、边界、预算；缺失任一要素即拒绝派发并列出缺项。`draft: true` 的探索派发仅需一句话目标，产出留在草稿区。任务运行期间，卡住守夜（`operatorStallMs` 内无新观测）与超时守夜（超过 `operatorTimeoutMs`）会各自投递 T0 阻塞预览，由 Mind 与用户决定后续处理。
 - **两阶段折叠。** 折叠由事件触发。第一阶段由 Ink 生成影子折叠（含归档摘要与开环结算建议），不改写当前上下文；第二阶段由仍持有旧上下文的 Mind 按「折叠后所有活跃开环仍能续接」的标准验收。批准后，若宿主提供 compaction 服务则在下一回合边界执行替换；若无该服务则仅在 `folds.jsonl` 记账，保持原上下文不变。
 - **跨天简报。** 每日收工时，Mind 基于 `ink_brief materials` 汇总的素材撰写五段式简报（推进、开环、在跑、草稿、下步打算）。次日开工时，L3 上下文加载最新简报及检测到的隔夜硬断点。
-- **可视后台面板。** 会话功能页「MiOpIIk」包含鱼骨图、分支流水，以及活跃开环、事实卡、在跑任务、草稿与当日交接简报清单；「所见」页签展示 Ink 的折叠头部、活跃尾部与最新编译候选。右侧栏「Ink」面板展示开环计数、收件箱预览与近期决定。
-- **插件页与设置页分离。** `插件 -> 已安装 -> MiOpIIk` 展示三层架构、职责、版本与账本路径说明。**设置 → 内置插件 → MiOpIIk Agent** 只读展示 Host 参数的内置默认值与可复制的 YAML 示例，实际运行值由当前 profile 配置决定。
+- **可视后台面板。** 会话功能页「MiOpIIk」分为三个视图。鱼骨按对话轮次聚合，展示分支的开出与合回。所见展示 Mind 收到的 L3 原文，同时提供溯源入口。流水按时间浏览会话账本。右侧栏「Ink」面板展示开环计数、收件箱预览与近期决定。
+- **插件设置。** 「插件 → 已安装 → MiOpIIk」展示架构与账本路径，并可通过 DSH 修改 Host 设置。
 - **append-only 账本与回放。** 会话状态持久化在工作区 JSONL 账本中，重启 DSH 后自动回放恢复。
 - **历史兼容。** 已有会话账本不迁移、不删除。历史 `widgets.jsonl` 快照保持可读，可由独立的 IUI 插件只读回放；当前 Agent 不再写入新的 widget 条目。
 
@@ -233,18 +233,26 @@ Ink 将结果编译为收件箱预览；Mind 用 `ink_inbox {"action": "open", "
 
 ## 安装、升级、卸载、回滚
 
-### 从 GitHub Release 安装（推荐）
+### 从 npm 安装（推荐）
 
-1. 下载 `miopiik-dsh-0.1.2.tgz` 与 `SHA256SUMS.txt`。[GitHub Release](https://github.com/Chillizu/miopiik/releases/tag/miopiik-agent-v0.1.2)
+```sh
+dsh plugin --profile <profile> add miopiik-dsh@0.2.0
+```
+
+安装后重启提供该 profile 的 DSH 进程。
+
+### 从 GitHub Release 安装
+
+1. 下载 `miopiik-dsh-0.2.0.tgz` 与 `SHA256SUMS.txt`。[GitHub Release](https://github.com/Chillizu/miopiik/releases/tag/miopiik-agent-v0.2.0)
 2. 在下载目录执行 `sha256sum -c SHA256SUMS.txt` 校验。
-3. 执行 `dsh plugin --profile <profile> add ./miopiik-dsh-0.1.2.tgz` 安装到目标 profile。
+3. 执行 `dsh plugin --profile <profile> add ./miopiik-dsh-0.2.0.tgz` 安装到目标 profile。
 4. 重启提供该 profile 的 DSH 进程以加载 host 插件。
 
 ### 从 DSH「发现」页安装
 
 1. 在 DSH Web 打开「插件 → 实验性插件」，启用「自定义插件索引」。
 2. 打开「发现 → 添加索引源」，粘贴 [MiOpIIk 索引地址](https://raw.githubusercontent.com/Chillizu/miopiik-iui/main/dsh-index.json)。
-3. 选择 **MiOpIIk Agent** `0.1.2`。确认界面会显示 GitHub 来源和固定发布提交 [`a504446`](https://github.com/Chillizu/miopiik/commit/a5044465151617b3465a8b412504856b8dcc2307)。
+3. 选择 npm 来源的 **MiOpIIk Agent** `0.2.0`。
 4. 确认安装，然后重启目标 profile 的 DSH 进程。
 
 ### 从本地 checkout 安装
@@ -254,9 +262,9 @@ Ink 将结果编译为收件箱预览；Mind 用 `ink_inbox {"action": "open", "
 ```sh
 git clone https://github.com/Chillizu/miopiik.git
 cd miopiik
-git checkout miopiik-agent-v0.1.2
+git checkout miopiik-agent-v0.2.0
 npm pack
-dsh plugin --profile <profile> add ./miopiik-dsh-0.1.2.tgz
+dsh plugin --profile <profile> add ./miopiik-dsh-0.2.0.tgz
 ```
 
 `npm pack` 仅在本地生成 tarball。
@@ -277,14 +285,13 @@ node tools/install-plugin.mjs --profile web --execute --allow-running-profile
 
 ### 升级
 
-1. `dsh plugin --profile <profile> remove miopiik-dsh`
-2. `dsh plugin --profile <profile> add ./miopiik-dsh-<新版本>.tgz`
-3. 重启该 profile 的 DSH 进程。
+1. 执行 `dsh plugin --profile <profile> add miopiik-dsh@<新版本>`，也可以传入新版 tarball 的路径。
+2. 重启该 profile 的 DSH 进程。
 
 ### 回滚
 
 1. `dsh plugin --profile <profile> remove miopiik-dsh`
-2. `dsh plugin --profile <profile> add ./miopiik-dsh-0.1.2.tgz`
+2. 从 [0.1.2 的发布页](https://github.com/Chillizu/miopiik/releases/tag/miopiik-agent-v0.1.2)下载 tarball，执行 `dsh plugin --profile <profile> add ./miopiik-dsh-0.1.2.tgz`。
 3. 重启该 profile 的 DSH 进程。
 
 会话账本存放在工作区 `.dsh/miopiik/` 下，卸载、升级或回滚均不会修改账本文件。

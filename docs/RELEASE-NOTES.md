@@ -2,6 +2,14 @@
 
 本仓库发布单包 `miopiik-dsh`（DSH Web 的 host 侧插件，含 Mind / Ink / Operator 三层）。界面渲染由独立的 `miopiik-iui` 包提供；本包不依赖 `miopiik-iui`，也不内置 IUI 渲染器。
 
+## miopiik-dsh 0.2.0
+
+- 鱼骨按对话轮次聚合，呈现 Mind 事件、分支走向和合流。
+- 所见展示实际送给 Mind 的 L3 原文，并支持顺着条目查看来源。
+- 流水可分页浏览会话账本，三视图标出可追溯的 Mind 操作。
+- 对话编译将低置信结论候选转入收件箱待确认，Host 参数可在 DSH 插件页编辑。
+- 首次发布到 [npm](https://www.npmjs.com/package/miopiik-dsh/v/0.2.0)，并提供 [GitHub 校验包](https://github.com/Chillizu/miopiik/releases/tag/miopiik-agent-v0.2.0)。
+
 ## miopiik-dsh 0.1.2 — stable
 
 **状态**：stable（可独立打包与安装），兼容性不变（DSH 0.2.1-rc.5、Node >= 23.6、仅 DSH Web）。
