@@ -410,7 +410,7 @@ CI：`.github/workflows/ci.yml` 在 push 与 pull request 上执行上述命令�
 
 本仓库延续自原 MiOpIIk monorepo（https://github.com/Chillizu/miopiik）。Agent 包从 monorepo 的 `miopiik-dsh/` 子目录上移至仓库根目录，完整保留 git 历史、tag 与 Release。
 
-纯表现层插件已拆分为独立仓库 https://github.com/Chillizu/miopiik-iui（[0.2.0 正式版](https://github.com/Chillizu/miopiik-iui/releases/tag/v0.2.0)）。已退役的 Extra 展示层设计史保存在 IUI 仓库中。工作区会话账本无需迁移。详细映射见 [docs/MIGRATION.md](docs/MIGRATION.md)。
+纯表现层插件已拆分为独立仓库 https://github.com/Chillizu/miopiik-iui（[最新正式版](https://github.com/Chillizu/miopiik-iui/releases/latest)）。已退役的 Extra 展示层设计史保存在 IUI 仓库中。工作区会话账本无需迁移。详细映射见 [docs/MIGRATION.md](docs/MIGRATION.md)。
 
 ## 贡献
 

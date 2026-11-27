@@ -410,7 +410,7 @@ Session ledgers stay in place without migration. Legacy widget snapshots in `wid
 
 This repository continues the original MiOpIIk monorepo at https://github.com/Chillizu/miopiik. The Agent package moved from `miopiik-dsh/` to the repository root while preserving the git history, tags, and releases.
 
-The presentation plugin was extracted to https://github.com/Chillizu/miopiik-iui ([0.2.0 stable](https://github.com/Chillizu/miopiik-iui/releases/tag/v0.2.0)). The retired Extra display layer's history is archived in the IUI repository. Workspace session ledgers require no migration. See [docs/MIGRATION.md](docs/MIGRATION.md) for the full layout mapping.
+The presentation plugin was extracted to https://github.com/Chillizu/miopiik-iui ([latest stable release](https://github.com/Chillizu/miopiik-iui/releases/latest)). The retired Extra display layer's history is archived in the IUI repository. Workspace session ledgers require no migration. See [docs/MIGRATION.md](docs/MIGRATION.md) for the full layout mapping.
 
 ## Contributing
 
